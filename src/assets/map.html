@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Google Maps</title>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body,
+      #map {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <script>
+      let map;
+      let markers = [];
+      let userMarker = null;
+
+      function initMap() {
+        map = new google.maps.Map(document.getElementById("map"), {
+          center: { lat: 20.0, lng: 78.0 }, // Default center (e.g., central India)
+          zoom: 5,
+        });
+
+        // Listen for messages from React Native
+        window.ReactNativeWebView.onMessage = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.type === "updateLocation") {
+            updateUserLocation(data.latitude, data.longitude);
+          } else if (data.type === "updateVendors") {
+            updateVendors(data.vendors);
+          } else if (data.type === "centerMap") {
+            centerMap(data.latitude, data.longitude, data.zoom);
+          } else if (data.type === "getDirections") {
+            getDirections(
+              data.originLat,
+              data.originLng,
+              data.destLat,
+              data.destLng,
+              data.mode
+            );
+          }
+        };
+
+        // Tell React Native that the map is ready
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({ type: "mapReady" })
+        );
+      }
+
+      function updateUserLocation(lat, lng) {
+        const latLng = { lat: parseFloat(lat), lng: parseFloat(lng) };
+        if (userMarker) {
+          userMarker.setPosition(latLng);
+        } else {
+          userMarker = new google.maps.Marker({
+            position: latLng,
+            map: map,
+            icon: {
+              path: google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: "#4285F4", // Blue for user
+              fillOpacity: 1,
+              strokeWeight: 0,
+            },
+            zIndex: google.maps.Marker.MAX_ZINDEX + 1, // Always on top
+          });
+        }
+        map.setCenter(latLng);
+        map.setZoom(14); // Zoom in on user
+      }
+
+      function updateVendors(vendors) {
+        // Clear old vendor markers
+        for (let i = 0; i < markers.length; i++) {
+          markers[i].setMap(null);
+        }
+        markers = [];
+
+        // Add new vendor markers
+        vendors.forEach((vendor) => {
+          if (
+            vendor.address &&
+            vendor.address.latitude &&
+            vendor.address.longitude
+          ) {
+            const latLng = {
+              lat: parseFloat(vendor.address.latitude),
+              lng: parseFloat(vendor.address.longitude),
+            };
+            const marker = new google.maps.Marker({
+              position: latLng,
+              map: map,
+              title: vendor.shopName,
+              label: {
+                text: vendor.distance
+                  ? `${vendor.shopName} (${vendor.distance} km)`
+                  : vendor.shopName,
+                fontWeight: "bold",
+                color: "#000",
+              },
+              icon: {
+                url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png", // Red pin for vendors
+              },
+            });
+
+            const infoWindow = new google.maps.InfoWindow({
+              content: `<h3>${vendor.shopName}</h3>
+                        <p>${vendor.name}</p>
+                        ${
+                          vendor.distance !== undefined
+                            ? `<p>Distance: ${vendor.distance} km</p>`
+                            : ""
+                        }
+                        <button onclick="window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'directionsRequest',
+                            destLat: ${vendor.address.latitude},
+                            destLng: ${vendor.address.longitude},
+                            label: '${vendor.shopName}'
+                        }))">Get Directions</button>`,
+            });
+
+            marker.addListener("click", () => {
+              infoWindow.open(map, marker);
+            });
+            markers.push(marker);
+          }
+        });
+      }
+
+      function centerMap(lat, lng, zoom) {
+        map.setCenter({ lat: parseFloat(lat), lng: parseFloat(lng) });
+        if (zoom) map.setZoom(zoom);
+      }
+
+      let directionsService;
+      let directionsRenderer;
+
+      function getDirections(
+        originLat,
+        originLng,
+        destLat,
+        destLng,
+        mode = "DRIVING"
+      ) {
+        if (!directionsService)
+          directionsService = new google.maps.DirectionsService();
+        if (!directionsRenderer) {
+          directionsRenderer = new google.maps.DirectionsRenderer();
+          directionsRenderer.setMap(map);
+        } else {
+          directionsRenderer.setDirections({ routes: [] }); // Clear previous directions
+        }
+
+        directionsService.route(
+          {
+            origin: { lat: parseFloat(originLat), lng: parseFloat(originLng) },
+            destination: { lat: parseFloat(destLat), lng: parseFloat(destLng) },
+            travelMode:
+              google.maps.TravelMode[mode.toUpperCase()] ||
+              google.maps.TravelMode.DRIVING,
+          },
+          (response, status) => {
+            if (status === "OK") {
+              directionsRenderer.setDirections(response);
+            } else {
+              window.ReactNativeWebView.postMessage(
+                JSON.stringify({
+                  type: "directionsError",
+                  message: `Directions request failed due to ${status}`,
+                })
+              );
+            }
+          }
+        );
+      }
+    </script>
+    <script
+      async
+      defer
+      src="https://maps.googleapis.com/maps/api/js?key=YOUR_Maps_JAVASCRIPT_API_KEY&callback=initMap"
+    ></script>
+  </body>
+</html>

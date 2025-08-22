@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "BLuxury",
+    "slug": "BLuxury",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A3D2B"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "config": {
+        "googleMapsApiKey": "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Your location is needed to show nearby vendors.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Your location is needed to show nearby vendors, even when the app is in the background.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.ram1234567890.BLuxury"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
+        "backgroundColor": "#0A3D2B"
+      },
+      "edgeToEdgeEnabled": true,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c"
+        }
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "FOREGROUND_SERVICE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "package": "com.ram1234567890.BLuxury"
+    },
+    "web": {
+      "favicon": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      "expo-location"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "afacfce8-3d2f-43da-a474-82a8e24597e7"
+      }
+    }
+  }
+}
