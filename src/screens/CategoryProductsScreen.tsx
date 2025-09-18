@@ -4,68 +4,69 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  Dimensions,
   SafeAreaView,
   TouchableOpacity,
   Platform,
+  Image,
+  useWindowDimensions,
+  ActivityIndicator,
 } from "react-native";
-import { useRoute, useNavigation } from "@react-navigation/native";
-import { useSelector } from "react-redux";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import { useSelector, useDispatch } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
+import NewProductCard from "../components/NewPeoductCard";
 import { RootState } from "../app/store";
-import NewProductCard from "../components/NewProductCard";
-import { Vendor } from "../features/vendor/vendorAuthSlice";
+import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
+import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
 
-const { width } = Dimensions.get("window");
+// Haversine Distance Calculation Function (Unchanged)
+const haversineDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c;
+  return distance;
+};
 
 const Colors = {
   starbucksGreen: "#0A3D2B",
   textDarkBrown: "#4A2C2A",
-  luxuryTextPrimary: "#E0E0E0",
-  luxuryBackground: "#0a0a09ff",
-  greenDark: "#0A3D2B",
   textDark: "#4A2C2A",
   textLight: "#FFFFFF",
-  backgroundWhite: "#0A3D2B",
+  backgroundWhite: "#F8F5F0",
+  borderGray: "#DDDDDD",
 };
 
-// --- Type Definitions (Copy from your main app/store file) ---
-interface Product {
-  _id: string;
-  name: string;
-  price: number;
-  discountedPrice?: number;
-  stock: number;
-  isAvailable: boolean;
-  images?: string[];
-  companyName?: string;
-  brand?: string;
-  location?: string;
-  rating?: number;
-  numReviews?: number;
-  vendorId?: string;
-  vendor?: {
-    _id: string;
-  };
-  bulkPrice?: number;
-  bulkMinimumUnits?: number;
-  largeQuantityPrice?: number;
-  largeQuantityMinimumUnits?: number;
-  description?: string;
-}
+// Type Definitions
+type CategoryProductsRouteParams = {
+  categoryName: string;
+};
 
-interface CartReduxItem {
-  productId: Product;
-  quantity: number;
-  price: number;
-  _id: string;
-}
+type CategoryProductsScreenRouteProp = RouteProp<
+  { CategoryProducts: CategoryProductsRouteParams },
+  "CategoryProducts"
+>;
 
-// --- Floating Cart Bar Component ---
+// Helper function to format category names to show only the sub-subcategory
+const getCategoryName = (fullCategoryName) => {
+  const parts = fullCategoryName.split("_");
+  if (parts.length > 1) {
+    return parts[parts.length - 1];
+  }
+  return fullCategoryName;
+};
+
+// Floating Cart Bar Component (Unchanged)
 const FloatingCartBar = ({ cartItems }) => {
   const navigation = useNavigation();
-
   const DELIVERY_CHARGE = 75;
   const FREE_DELIVERY_THRESHOLD = 250;
   const PLATFORM_FEE_RATE = 0.03;
@@ -93,7 +94,6 @@ const FloatingCartBar = ({ cartItems }) => {
     if (cartItems.length === 0) return "";
     const firstItem = cartItems[0];
     const productName = firstItem.productId?.name || "Item";
-
     if (cartItems.length > 1) {
       const uniqueProducts = new Set(
         cartItems.map((item) => item.productId?._id)
@@ -111,14 +111,12 @@ const FloatingCartBar = ({ cartItems }) => {
       const effectivePrice = getEffectivePrice(product, item.quantity);
       return sum + effectivePrice * item.quantity;
     }, 0);
-
     const deliveryCharge =
       discountedSubtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_CHARGE;
     const platformFee = discountedSubtotal * PLATFORM_FEE_RATE;
     const gstAmount = (discountedSubtotal + platformFee) * GST_RATE;
     const finalTotal =
       discountedSubtotal + deliveryCharge + platformFee + gstAmount;
-
     return {
       finalTotal,
       itemCount: cartItems.reduce((sum, item) => sum + item.quantity, 0),
@@ -148,59 +146,202 @@ const FloatingCartBar = ({ cartItems }) => {
   );
 };
 
-// Helper function to handle category name formatting
-const getCategoryName = (fullCategoryName: string): string => {
-  const parts = fullCategoryName.split("_");
-
-  if (fullCategoryName.toLowerCase().includes("hotels")) {
-    if (parts.length >= 2) {
-      return `${parts[parts.length - 2]} ${parts[parts.length - 1]}`;
-    }
-  }
-
-  return parts[parts.length - 1];
-};
-
+// --- CategoryProductsScreen Component ---
 const CategoryProductsScreen = () => {
-  const route = useRoute();
   const navigation = useNavigation();
-  const { categoryName } = route.params as { categoryName: string };
+  const dispatch = useDispatch();
+  const route = useRoute<CategoryProductsScreenRouteProp>();
+  const { categoryName } = route.params;
 
-  const { allProducts } = useSelector(
+  // Use state for the selected category and price sort option
+  const [selectedCategory, setSelectedCategory] = useState(categoryName);
+  const [sortOrder, setSortOrder] = useState("asc"); // 'asc' for low to high, 'desc' for high to low
+
+  // --- Read location and its loading state from Redux ---
+  const { location: userLocation, loading: isLocationLoading } = useSelector(
+    (state) => state.location
+  );
+  const { allProducts, loading: productsLoading } = useSelector(
     (state: RootState) => state.vendorProducts
   );
-  const { allVendors } = useSelector((state: RootState) => state.vendorAuth);
+  const { allVendors, loading: vendorsLoading } = useSelector(
+    (state: RootState) => state.vendorAuth
+  );
   const cartItems = useSelector((state: RootState) => state.cart.items);
 
-  const vendorMap = React.useMemo(() => {
-    const map: { [key: string]: Vendor } = {};
-    allVendors?.forEach((vendor) => (map[vendor._id] = vendor));
+  // --- Fetch data only if not already present, no need to fetch location here ---
+  useEffect(() => {
+    if (!allVendors || allVendors.length === 0) {
+      dispatch(fetchAllVendors());
+    }
+    if (!allProducts || allProducts.length === 0) {
+      dispatch(fetchAllVendorProducts());
+    }
+  }, [dispatch, allVendors, allProducts]);
+
+  const { width } = useWindowDimensions();
+  const numColumns = useMemo(() => {
+    const minCardWidth = 175;
+    const containerWidth = width * 0.75;
+    return Math.floor(containerWidth / minCardWidth);
+  }, [width]);
+
+  // Create a map of vendors for quick lookup
+  const vendorMap = useMemo(() => {
+    const map = {};
+    if (allVendors) {
+      allVendors.forEach((vendor) => {
+        map[vendor._id] = vendor;
+      });
+    }
     return map;
   }, [allVendors]);
 
-  // Filter products based on the selected category
-  const filteredProducts = allProducts.filter(
-    (product) => product.category === categoryName
+  // Filter vendors based on delivery range and approval status
+  const inRangeVendors = useMemo(() => {
+    if (!allVendors || !userLocation) {
+      return [];
+    }
+    return allVendors.filter((vendor) => {
+      if (
+        !vendor.address ||
+        !vendor.address.latitude ||
+        !vendor.address.longitude ||
+        !vendor.deliveryRange ||
+        !vendor.isOnline ||
+        !vendor.isApproved
+      ) {
+        return false;
+      }
+      const distance = haversineDistance(
+        userLocation.latitude,
+        userLocation.longitude,
+        vendor.address.latitude,
+        vendor.address.longitude
+      );
+      return distance <= vendor.deliveryRange;
+    });
+  }, [allVendors, userLocation]);
+
+  // Filter products to only include those from in-range vendors
+  const inRangeProducts = useMemo(() => {
+    if (!allProducts || !inRangeVendors) return [];
+    const inRangeVendorIds = new Set(
+      inRangeVendors.map((vendor) => vendor._id)
+    );
+    return allProducts.filter((product) =>
+      inRangeVendorIds.has(product.vendorId)
+    );
+  }, [allProducts, inRangeVendors]);
+
+  // Create a list of all unique categories with an associated image, but only from in-range products
+  const uniqueCategories = useMemo(() => {
+    const categoriesMap = new Map();
+    inRangeProducts.forEach((product) => {
+      if (product.category && !categoriesMap.has(product.category)) {
+        const firstImageProduct = inRangeProducts.find(
+          (p) =>
+            p.category === product.category && p.images && p.images.length > 0
+        );
+        const imageUrl = firstImageProduct?.images?.[0];
+        categoriesMap.set(product.category, {
+          name: product.category,
+          imageUrl,
+        });
+      }
+    });
+    return Array.from(categoriesMap.values());
+  }, [inRangeProducts]);
+
+  // Filter and sort products based on the currently selected category and sort order
+  const filteredProducts = useMemo(() => {
+    if (!selectedCategory) {
+      return [];
+    }
+    const products = inRangeProducts.filter(
+      (product) => product.category === selectedCategory
+    );
+
+    // Sort the products based on the 'sortOrder' state
+    return products.sort((a, b) => {
+      const priceA = a.discountedPrice || a.price || 0;
+      const priceB = b.discountedPrice || b.price || 0;
+
+      if (sortOrder === "asc") {
+        return priceA - priceB;
+      } else {
+        return priceB - priceA;
+      }
+    });
+  }, [inRangeProducts, selectedCategory, sortOrder]);
+
+  const renderLeftPanelItem = ({ item }) => (
+    <TouchableOpacity
+      style={[
+        styles.leftPanelItem,
+        selectedCategory === item.name && styles.selectedLeftPanelItem,
+      ]}
+      onPress={() => setSelectedCategory(item.name)}
+    >
+      <Image
+        source={{ uri: item.imageUrl || "https://via.placeholder.com/150" }}
+        style={styles.leftPanelImage}
+      />
+      <Text
+        style={[
+          styles.leftPanelText,
+          selectedCategory === item.name && styles.selectedLeftPanelText,
+        ]}
+      >
+        {getCategoryName(item.name)}
+      </Text>
+    </TouchableOpacity>
   );
 
-  const renderProductCard = ({ item }: { item: any }) => {
+  const renderProductCard = ({ item }) => {
     const vendorId = item.vendorId || item.vendor?._id || "";
     const vendorData = vendorMap[vendorId];
     const isVendorOffline = vendorData ? !vendorData.isOnline : true;
 
     return (
-      <NewProductCard
-        key={item._id}
-        product={item}
-        vendorShopName={vendorData?.shopName || "Unknown Shop"}
-        isVendorOffline={isVendorOffline}
-        isVendorOutOfRange={false}
-        cardStyle={styles.productCard}
-      />
+      <View style={styles.productCardContainer}>
+        <NewProductCard
+          key={item._id}
+          product={item}
+          vendorShopName={vendorData?.shopName || "Unknown Shop"}
+          isVendorOffline={isVendorOffline}
+          isVendorOutOfRange={false}
+          cardStyle={{ width: "100%" }}
+        />
+      </View>
     );
   };
 
-  const displayName = getCategoryName(categoryName);
+  // Re-generate the key when sortOrder changes to force FlatList re-render
+  const flatListKey = `category-product-list-key-${numColumns}-${selectedCategory}-${sortOrder}`;
+
+  const isLoading = productsLoading || vendorsLoading || isLocationLoading;
+
+  if (isLoading) {
+    return (
+      <View style={mergedStyles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.starbucksGreen} />
+        <Text style={mergedStyles.loadingText}>
+          {isLocationLoading ? "Finding your location..." : "Loading data..."}
+        </Text>
+      </View>
+    );
+  }
+
+  if (inRangeVendors.length === 0) {
+    return (
+      <View style={mergedStyles.messageContainer}>
+        <Text style={mergedStyles.noResultsText}>
+          No shops are currently delivering to your location. 😔
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={mergedStyles.mainContainer}>
@@ -213,23 +354,103 @@ const CategoryProductsScreen = () => {
               color={Colors.starbucksGreen}
             />
           </TouchableOpacity>
-          <Text style={mergedStyles.title}>{displayName}</Text>
+          <Text style={mergedStyles.title}>
+            {getCategoryName(selectedCategory)}
+          </Text>
           <View style={{ width: 24 }} />
         </View>
-        <View style={mergedStyles.container}>
-          {filteredProducts.length > 0 ? (
-            <FlatList
-              data={filteredProducts}
-              renderItem={renderProductCard}
-              keyExtractor={(item) => item._id}
-              numColumns={1}
-              contentContainerStyle={mergedStyles.listContainer}
-            />
-          ) : (
-            <Text style={mergedStyles.noResultsText}>
-              No products found in this category.
-            </Text>
-          )}
+
+        <View style={styles.contentWrapper}>
+          {/* Left Panel - Fixed */}
+          <View style={styles.leftPanel}>
+            {uniqueCategories.length > 0 ? (
+              <FlatList
+                data={uniqueCategories}
+                renderItem={renderLeftPanelItem}
+                keyExtractor={(item) => item.name}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.leftListContainer}
+              />
+            ) : (
+              <Text style={styles.leftPanelNoResultsText}>
+                No categories found.
+              </Text>
+            )}
+          </View>
+
+          {/* Right Panel - Scrollable */}
+          <View style={styles.rightPanel}>
+            {/* Price Filter Options */}
+            <View style={styles.filterContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.filterButton,
+                  sortOrder === "asc" && styles.activeFilterButton,
+                ]}
+                onPress={() => setSortOrder("asc")}
+              >
+                <Ionicons
+                  name="arrow-up"
+                  size={14}
+                  color={
+                    sortOrder === "asc"
+                      ? Colors.textLight
+                      : Colors.textDarkBrown
+                  }
+                />
+                <Text
+                  style={[
+                    styles.filterText,
+                    sortOrder === "asc" && styles.activeFilterText,
+                  ]}
+                >
+                  Low to High
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.filterButton,
+                  sortOrder === "desc" && styles.activeFilterButton,
+                ]}
+                onPress={() => setSortOrder("desc")}
+              >
+                <Ionicons
+                  name="arrow-down"
+                  size={14}
+                  color={
+                    sortOrder === "desc"
+                      ? Colors.textLight
+                      : Colors.textDarkBrown
+                  }
+                />
+                <Text
+                  style={[
+                    styles.filterText,
+                    sortOrder === "desc" && styles.activeFilterText,
+                  ]}
+                >
+                  High to Low
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Product List */}
+            {filteredProducts.length > 0 ? (
+              <FlatList
+                key={flatListKey}
+                data={filteredProducts}
+                renderItem={renderProductCard}
+                keyExtractor={(item) => item._id}
+                numColumns={numColumns}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.productListContainer}
+              />
+            ) : (
+              <Text style={mergedStyles.noResultsText}>
+                No products found for this category.
+              </Text>
+            )}
+          </View>
         </View>
       </SafeAreaView>
 
@@ -239,9 +460,108 @@ const CategoryProductsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  productCard: {
-    width: "100%",
-    marginVertical: 10,
+  contentWrapper: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: Colors.backgroundWhite,
+  },
+  leftPanel: {
+    width: "25%",
+    backgroundColor: "#fff",
+    borderRightWidth: 1,
+    borderRightColor: Colors.borderGray,
+  },
+  rightPanel: {
+    flex: 1,
+    backgroundColor: Colors.backgroundWhite,
+  },
+  leftListContainer: {
+    paddingVertical: 20,
+    paddingBottom: 100,
+  },
+  leftPanelItem: {
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderGray,
+  },
+  selectedLeftPanelItem: {
+    backgroundColor: Colors.backgroundWhite,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.starbucksGreen,
+  },
+  leftPanelImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    resizeMode: "contain",
+  },
+  leftPanelText: {
+    fontSize: 11,
+    fontWeight: "bold",
+    textAlign: "center",
+    marginTop: 5,
+    color: Colors.textDarkBrown,
+  },
+  selectedLeftPanelText: {
+    color: Colors.starbucksGreen,
+  },
+  leftPanelNoResultsText: {
+    textAlign: "center",
+    marginTop: 20,
+    fontSize: 14,
+    color: Colors.textDark,
+    paddingHorizontal: 5,
+  },
+  // Responsive and smaller filter container
+  filterContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    paddingVertical: 8, // Reduced padding
+    paddingHorizontal: 10,
+    backgroundColor: Colors.backgroundWhite,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderGray,
+  },
+  // Responsive and smaller filter button
+  filterButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    paddingVertical: 6, // Reduced padding
+    paddingHorizontal: 8,
+    borderRadius: 15, // Reduced border radius for smaller look
+    marginHorizontal: 5,
+    borderWidth: 1,
+    borderColor: Colors.borderGray,
+  },
+  activeFilterButton: {
+    backgroundColor: Colors.starbucksGreen,
+    borderColor: Colors.starbucksGreen,
+  },
+  filterText: {
+    marginLeft: 3, // Reduced margin
+    fontSize: 10, // Reduced font size
+    fontWeight: "600",
+    color: Colors.textDarkBrown,
+    textAlign: "center",
+  },
+  activeFilterText: {
+    color: Colors.textLight,
+  },
+  productListContainer: {
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    paddingBottom: 100,
+  },
+  productCardContainer: {
+    flex: 1,
+    marginHorizontal: 5,
+    marginBottom: 10,
   },
 });
 
@@ -253,39 +573,30 @@ const mergedStyles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    backgroundColor: "#F8F5F0",
-  },
-  container: {
-    flex: 1,
-    paddingTop: 10,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     padding: 15,
+    backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#ccc",
-    backgroundColor: "#fff",
   },
   title: {
-    paddingTop: 20,
-    fontSize: 24,
+    paddingTop: 10,
+    fontSize: 20,
     fontWeight: "bold",
-    color: Colors.greenDark,
+    color: Colors.starbucksGreen,
     textAlign: "center",
-  },
-  listContainer: {
-    paddingHorizontal: 15,
-    paddingBottom: 100, // Add padding to make space for the floating cart bar
   },
   noResultsText: {
     textAlign: "center",
     marginTop: 50,
     fontSize: 16,
-    color: Colors.textDark,
+    color: Colors.textDarkBrown,
+    width: "100%",
   },
-  // Floating Cart Bar Styles
   floatingCartBar: {
     position: "absolute",
     bottom: Platform.OS === "ios" ? 20 : 10,
@@ -325,7 +636,7 @@ const mergedStyles = StyleSheet.create({
     lineHeight: 20,
   },
   floatingCartButton: {
-    backgroundColor: "#F8F5F0",
+    backgroundColor: Colors.backgroundWhite,
     borderRadius: 20,
     paddingVertical: 8,
     paddingHorizontal: 10,
@@ -343,6 +654,22 @@ const mergedStyles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: Colors.textDarkBrown,
+  },
+  messageContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
   },
 });
 

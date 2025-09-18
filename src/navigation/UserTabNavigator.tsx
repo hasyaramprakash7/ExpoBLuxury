@@ -21,11 +21,10 @@ import { useNavigation, CommonActions } from "@react-navigation/native";
 import HomeScreen from "../screens/HomeScreen";
 import OrderScreen from "../screens/OrderScreen";
 import PayScreen from "../userScreens/UserOrderScreen";
-import GiftScreen from "../screens/Cart";
+import GiftScreen from "../screens/MyCategoriesScreen";
 import SearchScreen from "../screens/ProductSearchScreen";
 
 // Import your new logo image
-// Make sure this path is correct for your project structure
 const BLuxuryLogo = require("../../assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png");
 
 // --- Redux Imports (for FloatingCartBar logic) ---
@@ -314,11 +313,13 @@ const UserTabNavigator = () => {
             if (route.name === "Home") {
               iconName = focused ? "home" : "home-outline";
             } else if (route.name === "Gift") {
-              iconName = focused ? "gift" : "gift-outline";
+              // CHANGE: Updated icon for the Categories screen
+              iconName = focused ? "grid" : "grid-outline";
             } else if (route.name === "Order") {
               // The icon for "Order" is rendered directly within CustomOrderTabBarButton
               return null; // Return null so the default icon isn't rendered
             } else if (route.name === "Pay") {
+              // CHANGE: Renamed from Pay to Order
               iconName = focused ? "card" : "card-outline";
             } else if (route.name === "Search") {
               iconName = focused ? "search" : "search-outline";
@@ -372,7 +373,7 @@ const UserTabNavigator = () => {
         <Tab.Screen
           name="Gift"
           component={GiftScreen}
-          options={{ title: "Cart" }}
+          options={{ title: "Categories" }}
         />
         <Tab.Screen
           name="Order"
@@ -451,36 +452,36 @@ const tabStyles = StyleSheet.create({
   // The original delivery badge styles are commented out.
   // Uncomment them if you want to use the badge.
   // deliveryBadge: {
-  //   marginBottom: 1,
-  //   zIndex: 4,
+  //  marginBottom: 1,
+  //  zIndex: 4,
   // },
   // deliveryBadgeInner: {
-  //   backgroundColor: Colors.glassWhite,
-  //   paddingHorizontal: 10,
-  //   paddingVertical: 5,
-  //   borderRadius: 20,
-  //   flexDirection: "row",
-  //   alignItems: "center",
-  //   shadowColor: Colors.shadowDark,
-  //   shadowOffset: { width: 0, height: 4 },
-  //   shadowOpacity: 0.15,
-  //   shadowRadius: 8,
-  //   elevation: 8,
-  //   borderWidth: 1,
-  //   borderColor: "rgba(255, 255, 255, 0.3)",
+  //  backgroundColor: Colors.glassWhite,
+  //  paddingHorizontal: 10,
+  //  paddingVertical: 5,
+  //  borderRadius: 20,
+  //  flexDirection: "row",
+  //  alignItems: "center",
+  //  shadowColor: Colors.shadowDark,
+  //  shadowOffset: { width: 0, height: 4 },
+  //  shadowOpacity: 0.15,
+  //  shadowRadius: 8,
+  //  elevation: 8,
+  //  borderWidth: 1,
+  //  borderColor: "rgba(255, 255, 255, 0.3)",
   // },
   // deliveryDot: {
-  //   width: 8,
-  //   height: 8,
-  //   borderRadius: 4,
-  //   backgroundColor: Colors.starbucksAccent,
-  //   marginRight: 8,
+  //  width: 8,
+  //  height: 8,
+  //  borderRadius: 4,
+  //  backgroundColor: Colors.starbucksAccent,
+  //  marginRight: 8,
   // },
   // deliveryText: {
-  //   color: Colors.starbucksGreen,
-  //   fontSize: 12,
-  //   fontWeight: "700",
-  //   letterSpacing: 0.5,
+  //  color: Colors.starbucksGreen,
+  //  fontSize: 12,
+  //  fontWeight: "700",
+  //  letterSpacing: 0.5,
   // },
 
   // Updated custom button styles for the new logo

@@ -10,10 +10,13 @@ import {
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import Toast from "react-native-toast-message";
 
+// Replace lucide-react-native imports with react-native-vector-icons equivalent
+// (assuming you're already using them based on the prompt's comment)
 import { addOrUpdateItem } from "../features/cart/cartSlice";
 
 export type RootStackParamList = {
@@ -41,12 +44,14 @@ interface Product {
   bulkMinimumUnits?: number;
   largeQuantityPrice?: number;
   largeQuantityMinimumUnits?: number;
+  category?: string;
 }
 
 interface NewProductCardProps {
   product: Product;
   isVendorOffline?: boolean;
   isVendorOutOfRange?: boolean;
+  vendorDistance?: number; // <-- Added new prop for vendor distance
 }
 
 type ProductCardNavigationProp = StackNavigationProp<
@@ -76,6 +81,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   product,
   isVendorOffline = false,
   isVendorOutOfRange = false,
+  vendorDistance, // <-- Destructure the new prop
 }) => {
   const dispatch = useDispatch();
   const navigation = useNavigation<ProductCardNavigationProp>();
@@ -125,7 +131,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       product.largeQuantityPrice && product.largeQuantityMinimumUnits
     );
 
-    // Default tier
     const defaultMax = Math.min(bulkMin - 1, largeQtyMin - 1);
     const defaultLabel = `1 - ${
       defaultMax === Infinity ? "max" : defaultMax
@@ -139,7 +144,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       });
     }
 
-    // Bulk tier
     if (hasBulkTier) {
       const bulkMax = largeQtyMin - 1;
       const bulkLabel = `${product.bulkMinimumUnits} - ${
@@ -153,7 +157,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       });
     }
 
-    // Large quantity tier
     if (hasLargeQtyTier) {
       tiers.push({
         minQty: product.largeQuantityMinimumUnits,
@@ -409,18 +412,24 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
           style={styles.productLink}
           disabled={isDisabled}
         >
-          <View>
+          <View >
             <Text style={styles.productName}>{truncatedProductName}</Text>
-            {product.companyName && (
+            {!!product.companyName && (
               <Text style={styles.metaText}>{product.companyName}</Text>
             )}
-            {product.brand && (
+            {!!product.brand && (
               <Text style={styles.metaText}>Brand: {product.brand}</Text>
             )}
-            {product.location && (
+            {!!product.location && (
               <Text style={styles.metaText}>📍 {product.location}</Text>
             )}
-            {product.rating && (
+            {/* Added a condition to display vendor distance */}
+            {typeof vendorDistance === "number" && (
+              <Text style={styles.distanceText}>
+                {vendorDistance.toFixed(2)} km away
+              </Text>
+            )}
+            {!!product.rating && (
               <View style={styles.ratingContainer}>
                 <Ionicons name="star" size={10} color={Colors.yellowStar} />
                 <Text style={styles.metaText}>
@@ -507,7 +516,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
           ) : showQuantityInput &&
             (currentNumericalQuantity > 0 || quantity === "") ? (
             <View style={styles.quantityControlsContainer}>
-              {(cartItem?.quantity || 0) > 0 && (
+              {!!(cartItem?.quantity || 0) && (
                 <View style={styles.addedToCartMessage}>
                   <Ionicons
                     name="checkmark-circle"
@@ -530,7 +539,11 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
                       styles.quantityButtonDisabled,
                   ]}
                 >
-                  <Ionicons name="remove" size={10} color={Colors.textLight} />
+                  <FontAwesome
+                    name="minus"
+                    size={10}
+                    color={Colors.textLight}
+                  />
                 </TouchableOpacity>
                 <TextInput
                   keyboardType="numeric"
@@ -553,7 +566,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
                       styles.quantityButtonDisabled,
                   ]}
                 >
-                  <Ionicons name="add" size={10} color={Colors.textLight} />
+                  <FontAwesome name="plus" size={10} color={Colors.textLight} />
                 </TouchableOpacity>
               </View>
               {((currentNumericalQuantity > 0 &&
@@ -648,16 +661,18 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
             </View>
           )}
 
-          {amountSaved > 0 ? (
+          {!!amountSaved && (
             <View style={styles.saveBadge}>
               <Text style={styles.saveBadgeText}>Save ₹{amountSaved}</Text>
             </View>
-          ) : product.discountedPrice &&
-            product.discountedPrice < product.price ? (
-            <View style={styles.saveBadge}>
-              <Text style={styles.saveBadgeText}>Discounted!</Text>
-            </View>
-          ) : null}
+          )}
+          {product.discountedPrice &&
+            product.discountedPrice < product.price &&
+            !amountSaved && (
+              <View style={styles.saveBadge}>
+                <Text style={styles.saveBadgeText}>Discounted!</Text>
+              </View>
+            )}
 
           <View style={styles.priceDisplay}>
             <Text style={styles.priceDisplayText}>
@@ -679,9 +694,9 @@ const styles = StyleSheet.create({
     marginVertical: 4,
     flexGrow: 1,
     flexShrink: 1,
-    minWidth: 320,
+    minWidth: 260,
     maxWidth: "100%",
-    height: 180,
+    height: 200,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
@@ -1002,6 +1017,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "bold",
     textAlign: "center",
+  },
+  distanceText: {
+    // <-- New style for the distance
+    fontSize: 10,
+    color: Colors.grayText,
+    marginTop: 2,
+    flexShrink: 1,
   },
 });
 

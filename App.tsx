@@ -26,6 +26,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Font from "expo-font";
 import * as SplashScreenExpo from "expo-splash-screen";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import axios from "axios";
 
 // --- Redux Imports ---
 import { store, RootState, AppDispatch } from "./src/app/store";
@@ -65,7 +66,10 @@ import ShopListings from "./src/screens/ShopListings";
 import ShopDetails from "./src/screens/ShopDetails";
 import CategoryProductsScreen from "./src/screens/CategoryProductsScreen";
 import ShopProductsScreen from "./src/screens/ShopProductsScreen";
-import BrandProductsScreen from "./src/screens/BrandProductsScreen"; // <-- NEW IMPORT
+import BrandProductsScreen from "./src/screens/BrandProductsScreen";
+import HomeScreen from "./src/screens/HomeScreen";
+import ProductSearchScreen from "./src/screens/ProductSearchScreen";
+import MyCategoriesScreen from "./src/screens/MyCategoriesScreen";
 
 // --- Keep the splash screen visible while we fetch resources ---
 SplashScreenExpo.preventAutoHideAsync();
@@ -112,7 +116,6 @@ export type RootStackParamList = {
   VendorDashboard: undefined;
   VendorProductCRUD: undefined;
   VendorOrderList: undefined;
-  // This route is for a specific assignment, requiring an orderId
   ActiveDeliveryBoys: { orderId: string };
   UserTabs: NavigatorScreenParams<BottomTabParamList>;
   Profile: undefined;
@@ -123,17 +126,15 @@ export type RootStackParamList = {
   DeliveryBoyLogin: undefined;
   DeliveryBoySignup: undefined;
   DeliveryBoyDashboard: undefined;
-  // FIX: This screen expects an 'id' parameter.
   DeliveryBoyOrders: { id: string };
   DeliveryBoyPickups: { id: string };
   DeliveryBoyHistory: { id: string };
-  // This screen expects orderData and vendorData, which are objects
   VendorGenerateInvoice: { orderData: Order; vendorData: Vendor };
   ShopListings: undefined;
   ShopDetails: { vendorId: string; vendorName: string };
   CategoryProducts: { categoryName: string };
   ShopProducts: { vendorId: string; vendorName: string };
-  BrandProducts: { brandName: string }; // <-- NEW TYPE DEFINITION
+  BrandProducts: { brandName: string };
 };
 
 export type BottomTabParamList = {
@@ -158,14 +159,14 @@ const Colors = {
   success: "#38A169",
   warning: "#DD6B20",
   error: "#E53E3E",
-  luxuryBackground: "#0A0A0A", // Main background color (black)
-  luxuryCard: "#1C1C1C", // Background for cards, toasts, etc.
-  luxuryTextPrimary: "#E0E0E0", // Primary text color (white)
-  luxuryTextSecondary: "#B0B0B0", // Secondary text color (light gray)
-  luxuryAccent: "#FFD700", // Accent color (gold)
-  luxuryError: "#FF6347", // Error color (coral)
-  luxurySuccess: "#34C759", // Success color (green)
-  royalGreen: "#00A651", // Added for the 'Order' button color
+  luxuryBackground: "#0A0A0A",
+  luxuryCard: "#1C1C1C",
+  luxuryTextPrimary: "#E0E0E0",
+  luxuryTextSecondary: "#B0B0B0",
+  luxuryAccent: "#FFD700",
+  luxuryError: "#FF6347",
+  luxurySuccess: "#34C759",
+  royalGreen: "#00A651",
 };
 
 // --- Toast Configuration ---
@@ -329,9 +330,11 @@ const AppNavigator = () => {
   const { user, loading: userLoading } = useSelector(
     (state: RootState) => state.auth
   );
-  const { token: vendorAuthToken, loading: vendorLoading } = useSelector(
-    (state: RootState) => state.vendorAuth
-  );
+  const {
+    token: vendorAuthToken,
+    loading: vendorLoading,
+    error: vendorError,
+  } = useSelector((state: RootState) => state.vendorAuth);
   const { deliveryBoy, isLoading: deliveryBoyLoading } = useSelector(
     (state: RootState) => state.deliveryBoyAuth
   );
@@ -407,17 +410,12 @@ const AppNavigator = () => {
     return <LoadingScreen />;
   }
 
-  // Determine the correct navigation stack to render based on authentication state
   let StackNavigator;
+  let initialAuthRoute = "Login";
 
   if (vendorAuthToken) {
-    // Vendor Flow
     StackNavigator = (
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false, // All headers are now hidden
-        }}
-      >
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen
           name="VendorDashboard"
           component={VendorDashboardScreen}
@@ -435,13 +433,8 @@ const AppNavigator = () => {
       </Stack.Navigator>
     );
   } else if (!!deliveryBoy?._id) {
-    // Delivery Boy Flow
     StackNavigator = (
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false, // All headers are now hidden
-        }}
-      >
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen
           name="DeliveryBoyDashboard"
           component={DeliveryBoyDashboardScreen}
@@ -453,13 +446,8 @@ const AppNavigator = () => {
       </Stack.Navigator>
     );
   } else if (user?.token) {
-    // User Flow
     StackNavigator = (
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false, // All headers are now hidden
-        }}
-      >
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="UserTabs" component={UserTabNavigator} />
         <Stack.Screen name="Profile" component={UserProfileScreen} />
         <Stack.Screen name="OrderScreen" component={OrderScreen} />
@@ -472,17 +460,26 @@ const AppNavigator = () => {
           name="CategoryProducts"
           component={CategoryProductsScreen}
         />
+        <Stack.Screen name="Search" component={ProductSearchScreen} />
+        <Stack.Screen
+          name="MyCategoriesScreen"
+          component={MyCategoriesScreen}
+        />
+        <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="ShopProducts" component={ShopProductsScreen} />
         <Stack.Screen name="BrandProducts" component={BrandProductsScreen} />
       </Stack.Navigator>
     );
   } else {
-    // Authentication Flow
+    // --- FIX: Conditionally set the initial route based on the last action's error ---
+    if (vendorError) {
+      initialAuthRoute = "VendorLogin";
+    }
+
     StackNavigator = (
       <Stack.Navigator
-        screenOptions={{
-          headerShown: false, // All headers are now hidden
-        }}
+        screenOptions={{ headerShown: false }}
+        initialRouteName={initialAuthRoute}
       >
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Signup" component={SignupScreen} />

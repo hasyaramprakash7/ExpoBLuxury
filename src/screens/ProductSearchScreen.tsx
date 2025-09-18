@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,41 +7,34 @@ import {
   ActivityIndicator,
   Dimensions,
   ScrollView,
+  TouchableOpacity,
+  Image,
+  Alert,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import Toast from "react-native-toast-message";
+import * as Location from "expo-location";
+import { useNavigation } from "@react-navigation/native";
 
-// --- Redux Slices (adjust paths if different in your project) ---
+// --- Redux Slices & Types ---
+import { AppDispatch, RootState } from "../app/store";
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
-import { fetchUserOrders } from "../features/orders/orderSlice";
-
-// --- Type Definitions ---
-import { AppDispatch, RootState } from "../app/store";
-// Import Product interface from NewProductCard for type consistency
 import { Product } from "../components/NewProductCard";
 
-// Define Vendor interface if not already in a shared types file
-// NOTE: Ensure this matches your vendorAuthSlice's Vendor interface
 interface Vendor {
   _id: string;
   shopName: string;
   isOnline: boolean;
-  // Add other vendor properties as needed, e.g., address for range calculation
   address?: {
     latitude?: number;
     longitude?: number;
-    pincode?: string;
-    state?: string;
-    district?: string;
-    country?: string;
   };
   deliveryRange?: number;
+  shopImage: string;
 }
 
-// --- Your Advanced NewProductCard Component ---
-// IMPORTANT: Update NewProductCard to accept a `cardStyle` prop
+// --- NewProductCard Component ---
 import NewProductCard from "../components/NewProductCard";
 
 // --- Color Palette and Constants ---
@@ -59,6 +52,36 @@ const Colors = {
   redAlert: "#DC2626",
   greenSuccess: "#10B981",
   yellowStar: "#F59E0B",
+  backgroundWhite: "#F8F5F0",
+};
+
+const { width } = Dimensions.get("window");
+
+// --- Haversine Distance Calculation Function ---
+const haversineDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c;
+  return distance;
+};
+
+// Helper function to handle category name formatting
+const getCategoryName = (fullCategoryName) => {
+  const parts = fullCategoryName.split("_");
+  if (fullCategoryName.toLowerCase().includes("hotels")) {
+    if (parts.length >= 2) {
+      return `${parts[parts.length - 2]} ${parts[parts.length - 1]}`;
+    }
+  }
+  return parts[parts.length - 1];
 };
 
 // ===================================================================================
@@ -66,9 +89,12 @@ const Colors = {
 // ===================================================================================
 const ProductSearchScreen: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
+  const navigation = useNavigation();
   const [query, setQuery] = useState("");
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [suggestedProducts, setSuggestedProducts] = useState<Product[]>([]);
+  const [userLocation, setUserLocation] = useState(null);
+  const [isLocationLoading, setIsLocationLoading] = useState(true);
+  const [locationError, setLocationError] = useState(null);
 
   const {
     allProducts,
@@ -80,234 +106,327 @@ const ProductSearchScreen: React.FC = () => {
     loading: vendorsLoading,
     error: vendorsError,
   } = useSelector((state: RootState) => state.vendorAuth);
-  const { user } = useSelector((state: RootState) => state.auth);
 
-  const { orders: userOrders, loading: ordersLoading } = useSelector(
-    (state: RootState) => state.order
-  );
+  const fetchUserLocation = useCallback(async () => {
+    setIsLocationLoading(true);
+    setLocationError(null);
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setLocationError(
+          "Permission to access location was denied. Please enable it in app settings to see nearby shops."
+        );
+        Alert.alert(
+          "Location Permission Required",
+          "This app needs access to your location to show nearby shops. Please enable location services and grant permissions."
+        );
+        setIsLocationLoading(false);
+        return;
+      }
+      let locationData = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+        timeout: 15000,
+      });
+      setUserLocation({
+        latitude: locationData.coords.latitude,
+        longitude: locationData.coords.longitude,
+      });
+    } catch (locError) {
+      console.error("Error fetching user location:", locError);
+      setLocationError(
+        "Could not get your location. Please check your device's location settings."
+      );
+    } finally {
+      setIsLocationLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchData = async () => {
-      await Promise.all([
-        dispatch(fetchAllVendorProducts()),
-        dispatch(fetchAllVendors()),
-        user?._id ? dispatch(fetchUserOrders(user._id)) : Promise.resolve(),
-      ]);
-    };
-    fetchData();
-  }, [dispatch, user?._id]);
+    dispatch(fetchAllVendorProducts());
+    dispatch(fetchAllVendors());
+    fetchUserLocation();
+  }, [dispatch, fetchUserLocation]);
 
-  // Updated vendorMap to store the full Vendor object
   const vendorMap = useMemo(() => {
-    const map: { [key: string]: Vendor } = {}; // Store the whole vendor object
+    const map: { [key: string]: Vendor } = {};
     allVendors?.forEach((vendor) => {
       map[vendor._id] = vendor;
     });
     return map;
   }, [allVendors]);
 
-  useEffect(() => {
-    if (!query.trim()) {
-      if (user?._id && userOrders?.length > 0 && allProducts?.length > 0) {
-        const orderedProductIds = new Set();
-        userOrders.forEach((order) =>
-          order.items?.forEach((item) => orderedProductIds.add(item.productId))
-        );
-
-        const suggestions = allProducts.filter((product) =>
-          orderedProductIds.has(product._id)
-        );
-
-        if (suggestions.length > 0) {
-          setSuggestedProducts(suggestions.slice(0, 8));
-        } else {
-          setSuggestedProducts(allProducts.slice(0, 8));
-        }
-      } else if (allProducts?.length > 0) {
-        setSuggestedProducts(allProducts.slice(0, 8));
-      } else {
-        setSuggestedProducts([]);
-      }
-    } else {
-      setSuggestedProducts([]);
+  const inRangeVendors = useMemo(() => {
+    if (!allVendors || !userLocation) {
+      return [];
     }
-  }, [query, user, userOrders, allProducts]);
+    const vendorsWithDistance = allVendors
+      .map((vendor) => {
+        if (
+          !vendor.address ||
+          vendor.address.latitude === undefined ||
+          vendor.address.longitude === undefined ||
+          vendor.deliveryRange === undefined ||
+          !vendor.isOnline
+        ) {
+          return null;
+        }
+        const distance = haversineDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          vendor.address.latitude,
+          vendor.address.longitude
+        );
+        if (distance <= vendor.deliveryRange) {
+          return { ...vendor, distance };
+        }
+        return null;
+      })
+      .filter(Boolean);
+    return vendorsWithDistance;
+  }, [allVendors, userLocation]);
 
+  const inRangeProducts = useMemo(() => {
+    if (
+      !allProducts ||
+      allProducts.length === 0 ||
+      !inRangeVendors ||
+      inRangeVendors.length === 0
+    ) {
+      return [];
+    }
+    const inRangeVendorIds = inRangeVendors.map((vendor) => vendor._id);
+    return allProducts.filter((product) =>
+      inRangeVendorIds.includes(product.vendorId)
+    );
+  }, [allProducts, inRangeVendors]);
+
+  const uniqueBrands = useMemo(() => {
+    if (!inRangeProducts || inRangeProducts.length === 0) {
+      return [];
+    }
+    const brandsMap = new Map();
+    inRangeProducts.forEach((product) => {
+      if (product.brandName && !brandsMap.has(product.brandName)) {
+        const firstImageProduct = inRangeProducts.find(
+          (p) =>
+            p.brandName === product.brandName && p.images && p.images.length > 0
+        );
+        const imageUrl = firstImageProduct?.images?.[0];
+        brandsMap.set(product.brandName, { name: product.brandName, imageUrl });
+      }
+    });
+    return Array.from(brandsMap.values());
+  }, [inRangeProducts]);
+
+  const uniqueCategories = useMemo(() => {
+    if (!inRangeProducts || inRangeProducts.length === 0) {
+      return [];
+    }
+    const categoriesMap = new Map();
+    inRangeProducts.forEach((product) => {
+      if (product.category && !categoriesMap.has(product.category)) {
+        const firstImageProduct = inRangeProducts.find(
+          (p) =>
+            p.category === product.category && p.images && p.images.length > 0
+        );
+        const imageUrl = firstImageProduct?.images?.[0];
+        categoriesMap.set(product.category, {
+          name: product.category,
+          imageUrl,
+        });
+      }
+    });
+    return Array.from(categoriesMap.values());
+  }, [inRangeProducts]);
+
+  const hotelsCategory = useMemo(() => {
+    return uniqueCategories.filter((cat) =>
+      cat.name.toLowerCase().includes("hotels")
+    );
+  }, [uniqueCategories]);
+
+  const otherCategories = useMemo(() => {
+    return uniqueCategories.filter(
+      (cat) => !cat.name.toLowerCase().includes("hotels")
+    );
+  }, [uniqueCategories]);
+
+  // Search logic now filters within in-range products
   useEffect(() => {
     if (!query.trim()) {
       setFilteredProducts([]);
       return;
     }
-
     const q = query.toLowerCase();
-    let shopMatchVendorId: string | undefined;
-
-    // --- NEW LOGIC: Check if query is an exact match for a shop name ---
-    const matchingVendor = Object.values(vendorMap).find(
-      (vendor) => vendor.shopName?.toLowerCase() === q
-    );
-
-    if (matchingVendor) {
-      shopMatchVendorId = matchingVendor._id;
-    }
-    // --- END NEW LOGIC ---
-
-    const results = allProducts.filter((product) => {
-      // --- NEW LOGIC: If a shop name is exactly matched, only show products from that shop ---
-      if (shopMatchVendorId) {
-        const productVendorId = product.vendorId || product.vendor?._id;
-        return productVendorId === shopMatchVendorId;
-      }
-      // --- END NEW LOGIC ---
-
-      // Otherwise, proceed with the general search logic
+    const results = inRangeProducts.filter((product) => {
       const name = product.name?.toLowerCase() || "";
       const description = product.description?.toLowerCase() || "";
-
-      let categorySearchString = "";
-      if (typeof product.category === "string") {
-        categorySearchString = product.category.toLowerCase();
-      } else if (
-        typeof product.category === "object" &&
-        product.category !== null &&
-        "mainCategory" in product.category
-      ) {
-        const main =
-          (
-            product.category as { mainCategory?: string }
-          ).mainCategory?.toLowerCase() || "";
-        const sub =
-          (
-            product.category as { subCategory?: string }
-          ).subCategory?.toLowerCase() || "";
-        categorySearchString = `${main} ${sub}`.trim();
-      }
-
-      const tags = (product.tags || [])
-        .map((tag) => tag.toLowerCase())
-        .join(" ");
-      const productVendorId = product.vendorId || product.vendor?._id || "";
       const vendorName =
-        vendorMap[productVendorId]?.shopName?.toLowerCase() || "";
-
+        vendorMap[product.vendorId]?.shopName?.toLowerCase() || "";
       return (
         name.includes(q) ||
         description.includes(q) ||
-        categorySearchString.includes(q) ||
-        tags.includes(q) ||
         vendorName.includes(q) ||
-        product.brand?.toLowerCase().includes(q) ||
-        product.companyName?.toLowerCase().includes(q)
+        product.brandName?.toLowerCase().includes(q)
       );
     });
-
     setFilteredProducts(results);
-  }, [query, allProducts, vendorMap]);
+  }, [query, inRangeProducts, vendorMap]);
 
-  const isLoading = productsLoading || vendorsLoading || ordersLoading;
+  const isLoading = productsLoading || vendorsLoading || isLocationLoading;
 
-  if (productsError || vendorsError) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorTitle}>Error Loading Data</Text>
-        <Text style={styles.errorMessage}>
-          {productsError?.message ||
-            vendorsError?.message ||
-            "An unknown error occurred."}
-        </Text>
-        <Text style={styles.errorHint}>Please try refreshing the app.</Text>
-      </View>
-    );
-  }
-
-  // Helper to render product grids (search results, suggestions, all products)
-  const renderProductGrid = (
-    products: Product[],
+  // Renders a vertical grid of items
+  const renderVerticalGrid = (
     title: string,
-    noResultsMessage: string,
-    isHorizontal: boolean = false
+    data: any[],
+    onPressItem: (item: any) => void,
+    renderItem: (item: any) => React.ReactNode,
+    noResultsMessage: string
   ) => {
-    if (products.length === 0 && !noResultsMessage) {
+    if (data.length === 0) {
       return null;
     }
-
-    const isExactShopSearch = Object.values(vendorMap).some(
-      (vendor) =>
-        vendor.shopName?.toLowerCase() === query.toLowerCase() &&
-        query.trim() !== ""
-    );
-
-    const displayTitle = isExactShopSearch
-      ? `${query.trim()} Shop Products`
-      : title;
-
     return (
       <View style={styles.sectionContainer}>
-        <Text style={styles.sectionTitle}>{displayTitle}</Text>
-        {products.length === 0 ? (
-          <Text style={styles.emptyListText}>{noResultsMessage}</Text>
-        ) : (
-          <ScrollView
-            horizontal={isHorizontal}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={[
-              styles.productsGridContainer,
-              isHorizontal && styles.horizontalProductsContainer,
-            ]}
-          >
-            {products.map((item) => {
-              const vendorId = item.vendorId || item.vendor?._id || "";
-              const vendorData = vendorMap[vendorId];
-              const isVendorOffline = vendorData ? !vendorData.isOnline : true;
-              const isVendorOutOfRange = false;
-
-              return (
-                <NewProductCard
-                  key={item._id}
-                  product={item}
-                  vendorShopName={vendorData?.shopName || "Unknown Shop"}
-                  isVendorOffline={isVendorOffline}
-                  isVendorOutOfRange={isVendorOutOfRange}
-                  cardStyle={isHorizontal ? styles.horizontalCard : {}}
-                />
-              );
-            })}
-          </ScrollView>
-        )}
+        <Text style={styles.sectionTitle}>{title}</Text>
+        <View style={styles.verticalGridContainer}>
+          {data.map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.gridItem}
+              onPress={() => onPressItem(item)}
+            >
+              {renderItem(item)}
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
     );
   };
 
-  // Helper to render skeleton loading states
-  const renderSkeletons = (count: number, isHorizontal: boolean = false) => (
-    <View style={styles.sectionContainer}>
-      <Text style={[styles.sectionTitle, styles.skeletonTitle]}></Text>
-      <ScrollView
-        horizontal={isHorizontal}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.productsGridContainer,
-          isHorizontal && styles.horizontalProductsContainer,
-        ]}
-      >
-        {[...Array(count)].map((_, i) => (
-          <View
-            key={i}
-            style={[styles.skeletonCard, isHorizontal && styles.horizontalCard]}
-          >
-            <View style={styles.skeletonImage}></View>
-            <View style={styles.skeletonTextLine}></View>
-            <View style={[styles.skeletonTextLine, { width: "60%" }]}></View>
-            <View style={styles.skeletonButton}></View>
-          </View>
-        ))}
-      </ScrollView>
-    </View>
+  // Renders the content for a grid item
+  const renderGridItemContent = (item, type) => (
+    <>
+      <Image
+        source={{ uri: item.imageUrl || "https://via.placeholder.com/150" }}
+        style={styles.gridImage}
+      />
+      <Text style={styles.gridTitle}>
+        {type === "category" ? getCategoryName(item.name) : item.name}
+      </Text>
+    </>
   );
+
+  const handleBrandPress = (brand) => {
+    navigation.navigate("BrandProducts", { brandName: brand.name });
+  };
+
+  const handleCategoryPress = (category) => {
+    navigation.navigate("CategoryProducts", { categoryName: category.name });
+  };
+
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.greenPrimary} />
+          <Text style={styles.loadingText}>
+            {isLocationLoading
+              ? "Finding your location..."
+              : "Loading products..."}
+          </Text>
+        </View>
+      );
+    }
+    if (locationError) {
+      return (
+        <View style={styles.messageContainer}>
+          <Text style={styles.messageTitle}>Location Error</Text>
+          <Text style={styles.messageText}>{locationError}</Text>
+          <Text style={styles.messageText}>
+            Please enable location services and try again.
+          </Text>
+          <TouchableOpacity
+            onPress={fetchUserLocation}
+            style={styles.retryButton}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (inRangeProducts.length === 0) {
+      return (
+        <View style={styles.messageContainer}>
+          <Text style={styles.messageTitle}>No Shops Nearby!</Text>
+          <Text style={styles.messageText}>
+            Looks like no shops are currently delivering to your location.
+          </Text>
+          <Text style={styles.messageText}>
+            Please check back later or adjust your location.
+          </Text>
+        </View>
+      );
+    }
+
+    if (query.trim()) {
+      // Show search results
+      return (
+        <View style={styles.productsGridContainer}>
+          <Text style={[styles.sectionTitle, { marginLeft: 0 }]}>
+            Search Results
+          </Text>
+          {filteredProducts.length > 0 ? (
+            <View style={styles.resultsGrid}>
+              {filteredProducts.map((product) => (
+                <NewProductCard
+                  key={product._id}
+                  product={product}
+                  vendorShopName={
+                    vendorMap[product.vendorId]?.shopName || "Unknown Shop"
+                  }
+                />
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.emptyListText}>
+              {`No products found for "${query}".`}
+            </Text>
+          )}
+        </View>
+      );
+    } else {
+      // Show categorized/branded lists when no query
+      return (
+        <>
+          {renderVerticalGrid(
+            "Hotels",
+            hotelsCategory,
+            handleCategoryPress,
+            (item) => renderGridItemContent(item, "category"),
+            "No hotels available."
+          )}
+          {renderVerticalGrid(
+            "Brands",
+            uniqueBrands,
+            handleBrandPress,
+            (item) => renderGridItemContent(item, "brand"),
+            "No brands available."
+          )}
+          {renderVerticalGrid(
+            "Grocery & Kitchen",
+            otherCategories,
+            handleCategoryPress,
+            (item) => renderGridItemContent(item, "category"),
+            "No grocery or kitchen products available."
+          )}
+        </>
+      );
+    }
+  };
 
   return (
     <View style={styles.screenContainer}>
-      {/* Search Bar */}
       <View style={styles.searchHeader}>
         <TextInput
           style={styles.searchInput}
@@ -322,74 +441,17 @@ const ProductSearchScreen: React.FC = () => {
           style={styles.searchIcon}
         />
       </View>
-
-      {/* Main content area, uses ScrollView for vertical scrolling of sections */}
-      <ScrollView style={styles.mainScrollView}>
-        {isLoading ? (
-          <>
-            {renderSkeletons(4, false)}
-            {renderSkeletons(4, true)}
-          </>
-        ) : (
-          <View style={styles.contentContainer}>
-            {query.trim() ? (
-              renderProductGrid(
-                filteredProducts,
-                "Search Results",
-                `No products found matching "${query}". Try a different search!`,
-                false // Keep search results in a vertical grid
-              )
-            ) : (
-              <>
-                {suggestedProducts.length > 0 && (
-                  <View style={styles.sectionSpacing}>
-                    {renderProductGrid(
-                      suggestedProducts,
-                      user?._id && userOrders?.length > 0
-                        ? "Products from Your Past Orders"
-                        : "Discover Products",
-                      "No recommendations at the moment.",
-                      true // Enable horizontal scrolling for suggestions
-                    )}
-                  </View>
-                )}
-                {/* The commented out All Products section is now a good candidate
-                 * for a new horizontally scrolling list. */}
-                {allProducts?.length > 0 && (
-                  <View style={styles.sectionSpacing}>
-                    {renderProductGrid(
-                      allProducts.slice(0, 10), // Limiting for a better UI experience
-                      "All Products",
-                      "No products available at the moment.",
-                      true
-                    )}
-                  </View>
-                )}
-              </>
-            )}
-          </View>
-        )}
-      </ScrollView>
-      {/* Toast message component - place this at the very root of your App.tsx */}
-      <Toast />
+      <ScrollView style={styles.mainScrollView}>{renderContent()}</ScrollView>
     </View>
   );
 };
 
 // --- STYLES ---
-const { width } = Dimensions.get("window");
-
-// Constants for consistent sizing
-const CARD_HORIZONTAL_MARGIN = 15; // Spacing between horizontal cards
-const CONTAINER_HORIZONTAL_PADDING = 15; // Padding for the container itself
-const HORIZONTAL_CARD_WIDTH = width * 1;
-
 const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
-    backgroundColor: "#F8F5F0",
-    marginBottom: 100,
-    
+    backgroundColor: Colors.backgroundWhite,
+    paddingBottom: 50,
   },
   searchHeader: {
     flexDirection: "row",
@@ -417,30 +479,34 @@ const styles = StyleSheet.create({
   mainScrollView: {
     flex: 1,
   },
-  contentContainer: {
-    paddingVertical: 15,
-    paddingBottom: 0,
-  },
   sectionContainer: {
+    marginTop: 20,
+    paddingHorizontal: 15,
     marginBottom: 20,
-  },
-  sectionSpacing: {
-    marginBottom: 20
-    
   },
   sectionTitle: {
     fontSize: 22,
     fontWeight: "bold",
     color: Colors.greenDark,
     marginBottom: 10,
-    marginLeft: 15,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 50,
+  },
+  loadingText: {
+    marginTop: 10,
+    color: Colors.grayText,
+    fontSize: 16,
   },
   errorContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
-    backgroundColor: Colors.greenLight,
+    marginTop: 50,
   },
   errorTitle: {
     fontSize: 24,
@@ -452,79 +518,75 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.grayDark,
     textAlign: "center",
-    marginBottom: 8,
-  },
-  errorHint: {
-    fontSize: 14,
-    color: Colors.grayText,
-    textAlign: "center",
   },
   emptyListText: {
     textAlign: "center",
     marginTop: 20,
-    color: "#666",
+    color: Colors.grayText,
     fontSize: 16,
     width: "100%",
   },
-  productsGridContainer: {
+  verticalGridContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-around",
-    paddingHorizontal: CONTAINER_HORIZONTAL_PADDING,
-    paddingVertical: 5,
-  },
-  horizontalProductsContainer: {
-    flexDirection: "row",
-    flexWrap: "nowrap", // Prevents wrapping to a new line
-    justifyContent: "flex-start",
-    paddingLeft: CONTAINER_HORIZONTAL_PADDING,
-    paddingRight: HORIZONTAL_CARD_WIDTH + CARD_HORIZONTAL_MARGIN,
-  },
-  horizontalCard: {
-    width: HORIZONTAL_CARD_WIDTH,
-    marginRight: CARD_HORIZONTAL_MARGIN,
-    marginVertical: 0,
-  },
-  skeletonCard: {
-    width:
-      (width - CONTAINER_HORIZONTAL_PADDING * 2 - CARD_HORIZONTAL_MARGIN * 2) /
-      2,
-    height: 180,
-    backgroundColor: "#e0e0e0",
-    borderRadius: 12,
-    marginHorizontal: 8,
-    marginVertical: 8,
-    overflow: "hidden",
-    padding: 12,
     justifyContent: "space-between",
   },
-  skeletonImage: {
+  gridItem: {
+    width: (width - 15 * 2 - 10 * 3) / 4,
+    alignItems: "center",
+    marginBottom: 15,
+  },
+  gridImage: {
     width: "100%",
-    height: 80,
-    backgroundColor: "#cccccc",
-    borderRadius: 8,
-    marginBottom: 8,
+    aspectRatio: 1,
+    borderRadius: 10,
   },
-  skeletonTextLine: {
-    width: "90%",
-    height: 12,
-    backgroundColor: "#cccccc",
-    borderRadius: 4,
-    marginBottom: 6,
+  gridTitle: {
+    fontSize: 12,
+    marginTop: 5,
+    textAlign: "center",
+    color: Colors.textDark,
   },
-  skeletonButton: {
-    width: "100%",
-    height: 38,
-    backgroundColor: "#cccccc",
-    borderRadius: 8,
+  productsGridContainer: {
+    flex: 1,
+    paddingHorizontal: 15,
   },
-  skeletonTitle: {
-    backgroundColor: "#e0e0e0",
-    width: "50%",
-    height: 24,
-    borderRadius: 4,
+  resultsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    paddingBottom:200,
+  },
+  messageContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+    marginTop: 50,
+  },
+  messageTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.textDark,
     marginBottom: 10,
-    marginLeft: 15,
+    textAlign: "center",
+  },
+  messageText: {
+    fontSize: 16,
+    color: Colors.grayText,
+    textAlign: "center",
+    marginBottom: 5,
+  },
+  retryButton: {
+    marginTop: 20,
+    backgroundColor: Colors.greenPrimary,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: Colors.textLight,
+    fontWeight: "bold",
   },
 });
 

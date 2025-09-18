@@ -8,6 +8,7 @@ import vendorProductReducer from "../features/vendor/vendorProductSlices";
 
 // Correctly import the deliveryBoyAuthReducer (assuming it's the default export from deliveryBoyOrderSlice)
 import deliveryBoyAuthReducer from '../features/deliveryBoy/deliveryBoyOrderSlice';
+import locationReducer from "../features/locationSlice"; // <-- Add this line
 
 export const store = configureStore({
   reducer: {
@@ -17,6 +18,7 @@ export const store = configureStore({
     vendorProducts: vendorProductReducer,
     cart: cartReducer,
     order: orderReducer,
+    location: locationReducer, // <-- Add this line
     // Ensure the key here matches what you use in useSelector
     deliveryBoyAuth: deliveryBoyAuthReducer, // This is correct
   },

@@ -287,7 +287,7 @@ const CartScreen: React.FC = () => {
           zipCode: addr.postcode || prev.zipCode,
           country: addr.country || "India",
         }));
-        Alert.alert("Success", "Location detected and address pre-filled!");
+        // Alert.alert("Success", "Location detected and address pre-filled!");
       } catch (error: any) {
         console.error("Geolocation or Reverse geocoding failed:", error);
         Alert.alert(
@@ -579,7 +579,7 @@ const CartScreen: React.FC = () => {
               Discover amazing products and fill it up!
             </Text>
             <TouchableOpacity
-              onPress={() => navigation.navigate("OrderScreen")}
+              onPress={() => navigation.navigate("Home")}
               style={cartStyles.shopNowButton}
             >
               <Text style={cartStyles.shopNowButtonText}>Shop Now</Text>

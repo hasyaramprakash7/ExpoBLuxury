@@ -323,6 +323,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F3F4F6",
     padding: 16,
+    marginVertical:40
   },
   centeredContainer: {
     flex: 1,
@@ -346,6 +347,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   headerTitle: {
+    paddingTop:30,
     fontSize: 24,
     fontWeight: "bold",
     color: "#1F2937",
@@ -421,6 +423,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+    
   },
   boyName: {
     fontSize: 16,

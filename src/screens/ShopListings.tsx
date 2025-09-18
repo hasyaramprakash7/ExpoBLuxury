@@ -10,6 +10,8 @@ import {
   Alert,
   SafeAreaView,
   Image,
+  TextInput,
+  RefreshControl,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
@@ -19,25 +21,27 @@ import { Vendor } from "../types";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Placeholder image for shops without a profile picture.
-// Make sure to add this image to your assets folder.
 const ShopPlaceholderImage = require("../../assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png");
 
 const { width } = Dimensions.get("window");
 
 const Colors = {
-  starbucksGreen: "#00704A",
-  backgroundWhite: "#F8F5F0",
   textDarkBrown: "#4A2C2A",
-  borderGray: "#DDDDDD",
-  textLight: "#FFFFFF",
+  grayText: "#6B7280",
+  lightGrayBackground: "#F3F4F6",
+  borderGray: "#E5E7EB",
   redAlert: "#DC2626",
-  grayText: "gray",
-  darkBlue: "#1C1C1E",
+  greenButton: "#009632",
+  textWhite: "#F8F5F0",
+  purple: "#6A2A96",
+  lightBlue: "#E0F7FA",
+  accentGreen: "#009632",
 };
 
-// Haversine Distance Calculation Function (Remains unchanged)
+// --- Haversine Distance Calculation Function ---
 const haversineDistance = (
   lat1: number,
   lon1: number,
@@ -58,150 +62,121 @@ const haversineDistance = (
   return distance;
 };
 
-// --- Shop Card Component ---
-const ShopCard: React.FC<{ vendor: Vendor; distance: number }> = ({
-  vendor,
-  distance,
-}) => {
-  const navigation = useNavigation();
-  const isOnline = vendor.isOnline;
-
-  const handleShopPress = () => {
-    if (isOnline) {
-      navigation.navigate("ShopProducts", {
-        vendorId: vendor._id,
-        vendorName: vendor.shopName,
-      });
-    } else {
-      Alert.alert("Shop is Closed", `${vendor.shopName} is currently offline.`);
-    }
-  };
-
-  const shopImageSource = vendor.shopImage
-    ? { uri: vendor.shopImage }
-    : ShopPlaceholderImage;
+// --- Shop Card Component matching the UI ---
+const ShopCard: React.FC<{
+  shop: Vendor & { distance: number; productsCount: number };
+  onPress: () => void;
+}> = ({ shop, onPress }) => {
+  const hasProducts = shop.productsCount > 0;
+  const hasPhone = shop.phoneNumber && shop.phoneNumber.length > 0;
 
   return (
     <TouchableOpacity
-      style={[shopCardStyles.card, !isOnline && shopCardStyles.cardOffline]}
-      onPress={handleShopPress}
-      disabled={!isOnline}
+      style={shopCardStyles.cardContainer}
+      onPress={onPress}
+      activeOpacity={0.8}
     >
-      <View style={shopCardStyles.contentContainer}>
-        <Text
-          style={[
-            shopCardStyles.shopName,
-            !isOnline && { color: Colors.grayText },
-          ]}
-          numberOfLines={1}
-        >
-          {vendor.shopName}
+      {/* Header Section */}
+      <View style={shopCardStyles.headerRow}>
+        <View style={shopCardStyles.headerLeft}>
+          {shop.shopImage ? (
+            <Image
+              source={{ uri: shop.shopImage }}
+              style={shopCardStyles.logo}
+            />
+          ) : (
+            <View style={[shopCardStyles.logo, shopCardStyles.placeholderLogo]}>
+              <Text style={shopCardStyles.placeholderText}>
+                {shop.shopName.charAt(0)}
+              </Text>
+            </View>
+          )}
+          <View style={shopCardStyles.headerText}>
+            <Text style={shopCardStyles.shopName}>{shop.shopName}</Text>
+            <View style={shopCardStyles.localSellerTag}>
+              <Text style={shopCardStyles.localSellerText}>Local Seller</Text>
+            </View>
+            {hasPhone && (
+              <Text style={shopCardStyles.phone}>
+                <Ionicons
+                  name="call-outline"
+                  size={12}
+                  color={Colors.grayText}
+                />{" "}
+                {shop.phoneNumber}
+              </Text>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {/* POS and Products Count Section */}
+      <View style={shopCardStyles.infoRow}>
+        <Text style={shopCardStyles.infoText}>
+          Number of POSs: <Text style={shopCardStyles.infoValue}>--</Text>
         </Text>
-        <View style={shopCardStyles.detailsContainer}>
-          <Ionicons
-            name="navigate-circle-outline"
-            size={16}
-            color={isOnline ? Colors.starbucksGreen : Colors.grayText}
-          />
-          <Text
-            style={[
-              shopCardStyles.distanceText,
-              !isOnline && { color: Colors.grayText },
-            ]}
-          >
-            {distance.toFixed(1)} km away
+      </View>
+
+      {/* Address and Distance Section */}
+      <View style={shopCardStyles.addressRow}>
+        <Ionicons name="location-outline" size={20} color={Colors.grayText} />
+        <View style={shopCardStyles.addressTextContainer}>
+          <Text style={shopCardStyles.addressText}>
+            Address: {shop.address?.formattedAddress || "---"}
           </Text>
         </View>
-        <Text
-          style={[
-            shopCardStyles.statusText,
-            { color: isOnline ? Colors.starbucksGreen : Colors.redAlert },
-          ]}
-        >
-          {isOnline ? "Open" : "Closed"}
+        <Text style={shopCardStyles.distanceText}>
+          {shop.distance ? `${shop.distance.toFixed(1)} km` : "-- km"}
         </Text>
       </View>
-      <View style={shopCardStyles.imageAndIconContainer}>
-        <Image
-          source={shopImageSource}
-          style={shopCardStyles.shopImage}
-          resizeMode="cover"
-        />
-        <Ionicons
-          name="chevron-forward-outline"
-          size={24}
-          color={isOnline ? Colors.textDarkBrown : Colors.grayText}
-          style={shopCardStyles.chevronIcon}
-        />
+
+      {/* Products and View All section */}
+      <View style={shopCardStyles.productsRow}>
+        <View style={shopCardStyles.productsInfo}>
+          <Text style={shopCardStyles.infoText}>
+            Products :{" "}
+            <Text style={shopCardStyles.infoValue}>{shop.productsCount}</Text>
+          </Text>
+          <View style={shopCardStyles.productImagesContainer}>
+            {shop.productImages.slice(0, 3).map((img, index) => (
+              <Image
+                key={index}
+                source={{ uri: img }}
+                style={shopCardStyles.productImage}
+              />
+            ))}
+          </View>
+        </View>
+        {hasProducts && (
+          // This "View All" is now just for show, the whole card is clickable
+          <Text style={shopCardStyles.viewAllText}>View All</Text>
+        )}
       </View>
+
+      {/* "Invite Seller" Button - for the second card in your image */}
+      {shop.canInvite && (
+        <TouchableOpacity style={shopCardStyles.inviteButton}>
+          <Ionicons
+            name="add-circle-outline"
+            size={20}
+            color={Colors.textWhite}
+          />
+          <Text style={shopCardStyles.inviteButtonText}>Invite Seller</Text>
+        </TouchableOpacity>
+      )}
     </TouchableOpacity>
   );
 };
 
-const shopCardStyles = StyleSheet.create({
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: Colors.textLight,
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  cardOffline: {
-    backgroundColor: Colors.borderGray,
-  },
-  contentContainer: {
-    flex: 1,
-  },
-  shopName: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: Colors.textDarkBrown,
-  },
-  detailsContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 6,
-  },
-  distanceText: {
-    fontSize: 14,
-    color: Colors.grayText,
-    marginLeft: 5,
-  },
-  statusText: {
-    marginTop: 8,
-    fontWeight: "bold",
-    fontSize: 14,
-  },
-  imageAndIconContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  shopImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 10,
-  },
-  chevronIcon: {
-    marginLeft: 10,
-  },
-});
-
 // --- Main ShopListings Component ---
 const ShopListings = () => {
   const dispatch = useDispatch();
-  const allVendors = useSelector(
-    (state: RootState) => state.vendorAuth.allVendors
-  );
-  const { loading: vendorsLoading } = useSelector(
+  const navigation = useNavigation();
+  const { allVendors, loading: vendorsLoading } = useSelector(
     (state: RootState) => state.vendorAuth
+  );
+  const { allProducts } = useSelector(
+    (state: RootState) => state.vendorProducts
   );
 
   const [userLocation, setUserLocation] = useState<{
@@ -210,45 +185,65 @@ const ShopListings = () => {
   } | null>(null);
   const [isLocationLoading, setIsLocationLoading] = useState<boolean>(true);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState<string>("");
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
   const fetchUserLocation = useCallback(async () => {
     setIsLocationLoading(true);
     setLocationError(null);
     try {
+      // First, try to load location from AsyncStorage
+      const storedLocation = await AsyncStorage.getItem("user_location");
+      if (storedLocation) {
+        setUserLocation(JSON.parse(storedLocation));
+        setIsLocationLoading(false);
+      }
+
+      // Then, request current location in the background
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         setLocationError("Permission to access location was denied.");
-        Alert.alert(
-          "Location Permission Required",
-          "This app needs access to your location to show nearby shops. Please enable it in app settings.",
-          [{ text: "OK" }]
-        );
-        setIsLocationLoading(false);
+        if (!storedLocation) {
+          setIsLocationLoading(false);
+        }
         return;
       }
-
       let locationData = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
         timeout: 10000,
-        maximumAge: 1000,
       });
 
-      setUserLocation({
+      const newLocation = {
         latitude: locationData.coords.latitude,
         longitude: locationData.coords.longitude,
-      });
+      };
+      setUserLocation(newLocation);
+      await AsyncStorage.setItem("user_location", JSON.stringify(newLocation));
     } catch (locError: any) {
       console.error("Error fetching user location:", locError);
       setLocationError("Could not get your location. Please check settings.");
-      Alert.alert(
-        "Location Error",
-        "Could not get your location. Please check app permissions.",
-        [{ text: "OK" }]
-      );
     } finally {
       setIsLocationLoading(false);
     }
   }, []);
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        dispatch(fetchAllVendors()),
+        dispatch(fetchAllVendorProducts()),
+        fetchUserLocation(),
+      ]);
+    } catch (error) {
+      Alert.alert(
+        "Refresh Failed",
+        "Could not refresh data. Please try again."
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [dispatch, fetchUserLocation]);
 
   useEffect(() => {
     dispatch(fetchAllVendors());
@@ -256,109 +251,203 @@ const ShopListings = () => {
     fetchUserLocation();
   }, [dispatch, fetchUserLocation]);
 
-  const nearbyVendors = useMemo(() => {
-    if (!allVendors || !userLocation) {
-      return [];
-    }
+  const allVendorsWithProductsAndDistance = useMemo(() => {
+    // 1. Filter vendors to only include approved ones
+    const approvedVendors = allVendors.filter((vendor) => vendor.isApproved);
 
-    const vendorsWithDistance = allVendors
-      .map((vendor) => {
-        if (
-          !vendor.address ||
-          vendor.address.latitude === undefined ||
-          vendor.address.longitude === undefined ||
-          vendor.deliveryRange === undefined
-        ) {
-          return null;
-        }
-
-        const distance = haversineDistance(
+    return approvedVendors.map((vendor) => {
+      const vendorProducts = allProducts.filter(
+        (product) => product.vendorId === vendor._id
+      );
+      const productsCount = vendorProducts.length;
+      const productImages = vendorProducts
+        .map((p) => p.images[0])
+        .filter(Boolean);
+      let distance = null;
+      if (
+        userLocation &&
+        vendor.address &&
+        vendor.address.latitude &&
+        vendor.address.longitude
+      ) {
+        distance = haversineDistance(
           userLocation.latitude,
           userLocation.longitude,
           vendor.address.latitude,
           vendor.address.longitude
         );
+      }
+      return {
+        ...vendor,
+        productsCount,
+        productImages,
+        distance,
+        canInvite: vendor.shopName === "Seva Sadan",
+      };
+    });
+  }, [allVendors, allProducts, userLocation]);
 
-        if (distance <= vendor.deliveryRange) {
-          return { ...vendor, distance };
+  const localSellers = useMemo(() => {
+    if (!userLocation) return [];
+    const filteredVendors = allVendorsWithProductsAndDistance.filter(
+      (v) =>
+        (v.type === "local" || !v.type) &&
+        v.distance !== null &&
+        v.distance <= v.deliveryRange
+    );
+
+    if (!searchText) {
+      return filteredVendors;
+    }
+    const lowercasedSearchText = searchText.toLowerCase();
+    return filteredVendors.filter(
+      (vendor) =>
+        vendor.shopName.toLowerCase().includes(lowercasedSearchText) ||
+        vendor.address.formattedAddress
+          ?.toLowerCase()
+          .includes(lowercasedSearchText) ||
+        vendor.phoneNumber?.includes(lowercasedSearchText) ||
+        vendor.brandName?.toLowerCase().includes(lowercasedSearchText)
+    );
+  }, [allVendorsWithProductsAndDistance, userLocation, searchText]);
+
+  const handleCardPress = (shop) => {
+    navigation.navigate("ShopProducts", {
+      vendorId: shop._id,
+      vendorName: shop.shopName,
+    });
+  };
+
+  const renderContent = () => {
+    if (isLocationLoading || vendorsLoading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.accentGreen} />
+          <Text style={styles.loadingText}>
+            {isLocationLoading
+              ? "Finding your location..."
+              : "Loading shops..."}
+          </Text>
+        </View>
+      );
+    }
+
+    if (locationError) {
+      return (
+        <View style={styles.messageContainer}>
+          <Text style={styles.messageTitle}>Location Error</Text>
+          <Text style={styles.messageText}>{locationError}</Text>
+          <TouchableOpacity
+            onPress={fetchUserLocation}
+            style={styles.retryButton}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={localSellers}
+        keyExtractor={(item) => item._id}
+        renderItem={({ item }) => (
+          <ShopCard
+            shop={item}
+            onPress={() => handleCardPress(item)}
+          />
+        )}
+        contentContainerStyle={styles.flatlistContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.accentGreen}
+          />
         }
-        return null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => (a.distance || 0) - (b.distance || 0));
-
-    return vendorsWithDistance;
-  }, [allVendors, userLocation]);
-
-  if (isLocationLoading || vendorsLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.starbucksGreen} />
-        <Text style={styles.loadingText}>
-          {isLocationLoading ? "Finding your location..." : "Loading shops..."}
-        </Text>
-      </View>
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No nearby local shops found.</Text>
+            {searchText && (
+              <Text style={styles.emptyText}>
+                Try adjusting your search criteria.
+              </Text>
+            )}
+          </View>
+        }
+      />
     );
-  }
-
-  if (locationError) {
-    return (
-      <View style={styles.messageContainer}>
-        <Text style={styles.messageTitle}>Location Error</Text>
-        <Text style={styles.messageText}>{locationError}</Text>
-        <TouchableOpacity
-          onPress={fetchUserLocation}
-          style={styles.retryButton}
-        >
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (nearbyVendors.length === 0) {
-    return (
-      <View style={styles.messageContainer}>
-        <Text style={styles.messageTitle}>No Shops Found</Text>
-        <Text style={styles.messageText}>
-          Looks like there are no shops currently delivering to your location.
-        </Text>
-      </View>
-    );
-  }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Nearby Shops</Text>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Ionicons name="arrow-back" size={24} color={Colors.textDarkBrown} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>
+          Local Sellers ({localSellers.length})
+        </Text>
       </View>
-      <FlatList
-        data={nearbyVendors}
-        keyExtractor={(item) => item._id}
-        renderItem={({ item }) => (
-          <ShopCard vendor={item} distance={item.distance} />
-        )}
-        contentContainerStyle={styles.flatlistContainer}
-      />
+
+      <View style={styles.searchBarContainer}>
+        <Ionicons name="search" size={20} color={Colors.grayText} />
+        <TextInput
+          style={styles.searchBarInput}
+          placeholder="Search for a seller, business, phone number, brand, product"
+          placeholderTextColor={Colors.grayText}
+          value={searchText}
+          onChangeText={setSearchText}
+        />
+      </View>
+
+      {renderContent()}
     </SafeAreaView>
   );
 };
 
+// Main component styles
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.backgroundWhite,
+    backgroundColor: "white",
   },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingTop: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderGray,
-    backgroundColor: Colors.textLight,
+    backgroundColor: "white",
+  },
+  backButton: {
+    paddingHorizontal: 10,
   },
   headerTitle: {
-    fontSize: 24,
+    flex: 1,
+    fontSize: 18,
     fontWeight: "bold",
+    color: Colors.textDarkBrown,
+    textAlign: "center",
+  },
+  searchBarContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.lightGrayBackground,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    marginHorizontal: 16,
+    marginVertical: 10,
+  },
+  searchBarInput: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 14,
+    paddingVertical: 8,
     color: Colors.textDarkBrown,
   },
   flatlistContainer: {
@@ -369,7 +458,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: Colors.backgroundWhite,
+    backgroundColor: "white",
   },
   loadingText: {
     marginTop: 10,
@@ -381,7 +470,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
-    backgroundColor: Colors.backgroundWhite,
   },
   messageTitle: {
     fontSize: 20,
@@ -399,14 +487,163 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     marginTop: 20,
-    backgroundColor: Colors.starbucksGreen,
+    backgroundColor: Colors.accentGreen,
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 8,
   },
   retryButtonText: {
-    color: Colors.textLight,
+    color: Colors.textWhite,
     fontWeight: "bold",
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 50,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: Colors.grayText,
+    textAlign: "center",
+  },
+});
+
+// ShopCard styles
+const shopCardStyles = StyleSheet.create({
+  cardContainer: {
+    backgroundColor: Colors.lightGrayBackground,
+    borderRadius: 10,
+    padding: 15,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: Colors.borderGray,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  logo: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: Colors.borderGray,
+    marginRight: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  placeholderLogo: {
+    backgroundColor: Colors.purple,
+  },
+  placeholderText: {
+    color: Colors.textWhite,
+    fontSize: 24,
+    fontWeight: "bold",
+  },
+  headerText: {
+    flex: 1,
+  },
+  shopName: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: Colors.textDarkBrown,
+  },
+  localSellerTag: {
+    backgroundColor: Colors.accentGreen,
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  localSellerText: {
+    color: Colors.textWhite,
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  phone: {
+    fontSize: 12,
+    color: Colors.grayText,
+    marginTop: 4,
+  },
+  infoRow: {
+    marginBottom: 5,
+  },
+  infoText: {
+    fontSize: 14,
+    color: Colors.grayText,
+  },
+  infoValue: {
+    fontWeight: "bold",
+    color: Colors.textDarkBrown,
+  },
+  addressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  addressTextContainer: {
+    flex: 1,
+    marginLeft: 5,
+    marginRight: 10,
+  },
+  addressText: {
+    fontSize: 14,
+    color: Colors.textDarkBrown,
+  },
+  distanceText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: Colors.textDarkBrown,
+  },
+  productsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 10,
+  },
+  productsInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  productImagesContainer: {
+    flexDirection: "row",
+    marginLeft: 10,
+  },
+  productImage: {
+    width: 30,
+    height: 30,
+    borderRadius: 5,
+    marginRight: 5,
+    borderWidth: 1,
+    borderColor: Colors.borderGray,
+  },
+  viewAllText: {
+    color: Colors.accentGreen,
+    fontWeight: "bold",
+  },
+  inviteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.purple,
+    borderRadius: 8,
+    paddingVertical: 12,
+    marginTop: 15,
+  },
+  inviteButtonText: {
+    color: Colors.textWhite,
+    fontWeight: "bold",
+    fontSize: 16,
+    marginLeft: 5,
   },
 });
 

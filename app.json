@@ -7,6 +7,7 @@
     "icon": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "scheme": "bluxury",
     "splash": {
       "image": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
       "resizeMode": "contain",

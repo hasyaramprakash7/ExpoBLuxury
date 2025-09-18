@@ -22,22 +22,19 @@ const Colors = {
 };
 
 // Constants for consistent sizing
-const CARD_HORIZONTAL_MARGIN = 15; // Spacing between horizontal cards
 const CONTAINER_HORIZONTAL_PADDING = 15; // Padding for the container itself
-const HORIZONTAL_CARD_WIDTH = width * 4; // Making cards wider
+const CARD_BOTTOM_MARGIN = 15; // NEW: Margin between vertical cards
 
 interface ProductCarouselProps {
   products: Product[];
   title: string;
   noResultsMessage: string;
-  isHorizontal?: boolean;
 }
 
 const ProductCarousel: React.FC<ProductCarouselProps> = ({
   products,
   title,
   noResultsMessage,
-  isHorizontal = true,
 }) => {
   const { allVendors } = useSelector((state: RootState) => state.vendorAuth);
   const vendorMap = React.useMemo(() => {
@@ -52,36 +49,38 @@ const ProductCarousel: React.FC<ProductCarouselProps> = ({
     return null;
   }
 
+  // Define the content to be rendered, which is a list of product cards
+  const productCards = products.map((item) => {
+    const vendorId = item.vendorId || item.vendor?._id || "";
+    const vendorData = vendorMap[vendorId];
+    const isVendorOffline = vendorData ? !vendorData.isOnline : true;
+    const isVendorOutOfRange = false;
+
+    return (
+      <NewProductCard
+        key={item._id}
+        product={item}
+        vendorShopName={vendorData?.shopName || "Unknown Shop"}
+        isVendorOffline={isVendorOffline}
+        isVendorOutOfRange={isVendorOutOfRange}
+        // Apply vertical card styling
+        cardStyle={styles.verticalCard}
+      />
+    );
+  });
+
   return (
     <View style={styles.sectionContainer}>
+      <Text style={styles.sectionTitle}>{title}</Text>
       {products.length === 0 ? (
         <Text style={styles.emptyListText}>{noResultsMessage}</Text>
       ) : (
         <ScrollView
-          horizontal={isHorizontal}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.productsGridContainer,
-            isHorizontal && styles.horizontalProductsContainer,
-          ]}
+          horizontal={false} // KEY CHANGE 1: Set horizontal to false for vertical scrolling
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.verticalProductsContainer} // KEY CHANGE 2: Use new vertical container style
         >
-          {products.map((item) => {
-            const vendorId = item.vendorId || item.vendor?._id || "";
-            const vendorData = vendorMap[vendorId];
-            const isVendorOffline = vendorData ? !vendorData.isOnline : true;
-            const isVendorOutOfRange = false; // Add your logic here if needed
-
-            return (
-              <NewProductCard
-                key={item._id}
-                product={item}
-                vendorShopName={vendorData?.shopName || "Unknown Shop"}
-                isVendorOffline={isVendorOffline}
-                isVendorOutOfRange={isVendorOutOfRange}
-                cardStyle={isHorizontal ? styles.horizontalCard : {}}
-              />
-            );
-          })}
+          {productCards}
         </ScrollView>
       )}
     </View>
@@ -90,7 +89,7 @@ const ProductCarousel: React.FC<ProductCarouselProps> = ({
 
 const styles = StyleSheet.create({
   sectionContainer: {
-    marginTop:20,
+    marginTop: 20,
     marginBottom: 110,
   },
   sectionTitle: {
@@ -107,22 +106,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     width: "100%",
   },
-  productsGridContainer: {
-    paddingLeft: CONTAINER_HORIZONTAL_PADDING,
-    paddingRight: CONTAINER_HORIZONTAL_PADDING,
-    paddingVertical: 5,
+  // NEW: Style for the vertical ScrollView content container
+  verticalProductsContainer: {
+    paddingHorizontal: CONTAINER_HORIZONTAL_PADDING,
+    paddingBottom: 20, // Add some space at the bottom of the list
   },
-  horizontalProductsContainer: {
-    flexDirection: "row",
-    flexWrap: "nowrap", // Prevents wrapping to a new line
-    justifyContent: "flex-start",
-    paddingLeft: CONTAINER_HORIZONTAL_PADDING,
-    paddingRight: HORIZONTAL_CARD_WIDTH + CARD_HORIZONTAL_MARGIN,
-  },
-  horizontalCard: {
-    width: HORIZONTAL_CARD_WIDTH,
-    marginRight: CARD_HORIZONTAL_MARGIN,
-    marginVertical: 0,
+  // NEW: Style for each individual product card in the vertical list
+  verticalCard: {
+    marginBottom: CARD_BOTTOM_MARGIN,
   },
 });
 

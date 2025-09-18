@@ -12,12 +12,14 @@ import {
   Platform,
   KeyboardAvoidingView,
   Animated,
+  Modal, // Add Modal
 } from "react-native";
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
 import { useDispatch, useSelector } from "react-redux";
 import Swiper from "react-native-swiper";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import Toast from "react-native-toast-message";
+import ImageViewer from "react-native-image-zoom-viewer"; // Add ImageViewer
 
 import { addOrUpdateItem } from "../features/cart/cartSlice";
 import { RootState } from "../app/store"; // Import RootState for type-safety
@@ -91,7 +93,7 @@ const FloatingCartBar = () => {
   // Re-define pricing constants here
   const DELIVERY_CHARGE = 75;
   const FREE_DELIVERY_THRESHOLD = 200;
-  const PLATFORM_FEE_RATE = 0.19;
+  const PLATFORM_FEE_RATE = 0.03;
   const GST_RATE = 0.05;
 
   const getEffectivePrice = useCallback((product, quantity) => {
@@ -194,6 +196,10 @@ const ProductDetailsScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const scrollY = new Animated.Value(0);
+
+  // New state for image zooming
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   const currentNumericalQuantity =
     typeof quantity === "string" ? parseInt(quantity, 10) || 0 : quantity;
@@ -498,9 +504,26 @@ const ProductDetailsScreen = () => {
     extrapolate: "clamp",
   });
 
-  const renderImageGallery = () => (
-    <View style={styles.imageContainer}>
-      {product.images && product.images.length > 0 ? (
+  const renderImageGallery = () => {
+    const imageUrls = (product.images || []).map((image) => ({ url: image }));
+
+    if (imageUrls.length === 0) {
+      return (
+        <View style={styles.imageContainer}>
+          <View style={styles.noImageContainer}>
+            <Ionicons
+              name="image-outline"
+              size={60}
+              color={Colors.textSecondary}
+            />
+            <Text style={styles.noImageTextDetail}>No Image Available</Text>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.imageContainer}>
         <Swiper
           style={styles.wrapper}
           showsButtons={false}
@@ -512,27 +535,52 @@ const ProductDetailsScreen = () => {
           paginationStyle={styles.paginationStyle}
         >
           {product.images.map((image, index) => (
-            <View style={styles.slide} key={index}>
+            <TouchableOpacity
+              key={index}
+              style={styles.slide}
+              onPress={() => {
+                setSelectedImageIndex(index);
+                setIsModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
               <Image
                 source={{ uri: image }}
                 style={styles.productImage}
                 resizeMode="cover"
               />
-            </View>
+            </TouchableOpacity>
           ))}
         </Swiper>
-      ) : (
-        <View style={styles.noImageContainer}>
-          <Ionicons
-            name="image-outline"
-            size={60}
-            color={Colors.textSecondary}
+        <Modal
+          visible={isModalVisible}
+          transparent={true}
+          onRequestClose={() => setIsModalVisible(false)}
+        >
+          <ImageViewer
+            imageUrls={imageUrls}
+            index={selectedImageIndex}
+            onCancel={() => setIsModalVisible(false)}
+            enableSwipeDown={true}
+            renderIndicator={(currentIndex, allSize) => (
+              <Text
+                style={styles.imageZoomIndicator}
+              >{`${currentIndex} / ${allSize}`}</Text>
+            )}
+            renderHeader={() => (
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setIsModalVisible(false)}
+              >
+                <Ionicons name="close-circle-sharp" size={40} color="white" />
+              </TouchableOpacity>
+            )}
+            onSwipeDown={() => setIsModalVisible(false)}
           />
-          <Text style={styles.noImageTextDetail}>No Image Available</Text>
-        </View>
-      )}
-    </View>
-  );
+        </Modal>
+      </View>
+    );
+  };
 
   const renderHeader = () => (
     <Animated.View
@@ -1209,6 +1257,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
+  },
+  // --- New Styles for Image Zoom Modal ---
+  imageZoomIndicator: {
+    color: "white",
+    fontSize: 16,
+    position: "absolute",
+    bottom: 20,
+    alignSelf: "center",
+    fontWeight: "bold",
+    textShadowColor: "rgba(0, 0, 0, 0.75)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  closeButton: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 30,
+    right: 20,
+    zIndex: 1,
   },
 });
 
