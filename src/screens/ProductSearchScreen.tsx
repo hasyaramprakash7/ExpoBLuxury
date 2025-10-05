@@ -9,17 +9,16 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Alert,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import * as Location from "expo-location";
 import { useNavigation } from "@react-navigation/native";
 
 // --- Redux Slices & Types ---
 import { AppDispatch, RootState } from "../app/store";
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
+import { fetchLocationStart } from "../features/locationSlice";
 import { Product } from "../components/NewProductCard";
 
 interface Vendor {
@@ -92,10 +91,13 @@ const ProductSearchScreen: React.FC = () => {
   const navigation = useNavigation();
   const [query, setQuery] = useState("");
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [userLocation, setUserLocation] = useState(null);
-  const [isLocationLoading, setIsLocationLoading] = useState(true);
-  const [locationError, setLocationError] = useState(null);
 
+  // --- Use the shared location state from the Redux store ---
+  const {
+    location: userLocation,
+    loading: isLocationLoading,
+    error: locationError,
+  } = useSelector((state: RootState) => state.location);
   const {
     allProducts,
     loading: productsLoading,
@@ -107,45 +109,11 @@ const ProductSearchScreen: React.FC = () => {
     error: vendorsError,
   } = useSelector((state: RootState) => state.vendorAuth);
 
-  const fetchUserLocation = useCallback(async () => {
-    setIsLocationLoading(true);
-    setLocationError(null);
-    try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setLocationError(
-          "Permission to access location was denied. Please enable it in app settings to see nearby shops."
-        );
-        Alert.alert(
-          "Location Permission Required",
-          "This app needs access to your location to show nearby shops. Please enable location services and grant permissions."
-        );
-        setIsLocationLoading(false);
-        return;
-      }
-      let locationData = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-        timeout: 15000,
-      });
-      setUserLocation({
-        latitude: locationData.coords.latitude,
-        longitude: locationData.coords.longitude,
-      });
-    } catch (locError) {
-      console.error("Error fetching user location:", locError);
-      setLocationError(
-        "Could not get your location. Please check your device's location settings."
-      );
-    } finally {
-      setIsLocationLoading(false);
-    }
-  }, []);
-
+  // --- Fetch products and vendors once on component mount ---
   useEffect(() => {
     dispatch(fetchAllVendorProducts());
     dispatch(fetchAllVendors());
-    fetchUserLocation();
-  }, [dispatch, fetchUserLocation]);
+  }, [dispatch]);
 
   const vendorMap = useMemo(() => {
     const map: { [key: string]: Vendor } = {};
@@ -275,13 +243,19 @@ const ProductSearchScreen: React.FC = () => {
 
   const isLoading = productsLoading || vendorsLoading || isLocationLoading;
 
+  // --- Handler for the retry button to re-fetch location ---
+  const handleRetryLocation = useCallback(() => {
+    // Trigger a new location fetch from the Redux slice.
+    // This ensures consistency with the HomeScreen.
+    dispatch(fetchLocationStart());
+  }, [dispatch]);
+
   // Renders a vertical grid of items
   const renderVerticalGrid = (
     title: string,
     data: any[],
     onPressItem: (item: any) => void,
-    renderItem: (item: any) => React.ReactNode,
-    noResultsMessage: string
+    renderItem: (item: any) => React.ReactNode
   ) => {
     if (data.length === 0) {
       return null;
@@ -347,7 +321,7 @@ const ProductSearchScreen: React.FC = () => {
             Please enable location services and try again.
           </Text>
           <TouchableOpacity
-            onPress={fetchUserLocation}
+            onPress={handleRetryLocation}
             style={styles.retryButton}
           >
             <Text style={styles.retryButtonText}>Retry</Text>
@@ -403,22 +377,19 @@ const ProductSearchScreen: React.FC = () => {
             "Hotels",
             hotelsCategory,
             handleCategoryPress,
-            (item) => renderGridItemContent(item, "category"),
-            "No hotels available."
+            (item) => renderGridItemContent(item, "category")
           )}
           {renderVerticalGrid(
             "Brands",
             uniqueBrands,
             handleBrandPress,
-            (item) => renderGridItemContent(item, "brand"),
-            "No brands available."
+            (item) => renderGridItemContent(item, "brand")
           )}
           {renderVerticalGrid(
-            "Grocery & Kitchen",
+            "Categories",
             otherCategories,
             handleCategoryPress,
-            (item) => renderGridItemContent(item, "category"),
-            "No grocery or kitchen products available."
+            (item) => renderGridItemContent(item, "category")
           )}
         </>
       );
@@ -433,6 +404,7 @@ const ProductSearchScreen: React.FC = () => {
           placeholder="Search products, categories, vendors, or tags..."
           value={query}
           onChangeText={setQuery}
+          autoFocus={true} // The key addition for immediate input
         />
         <Ionicons
           name="search"
@@ -482,7 +454,7 @@ const styles = StyleSheet.create({
   sectionContainer: {
     marginTop: 20,
     paddingHorizontal: 15,
-    marginBottom: 20,
+    marginBottom: 100,
   },
   sectionTitle: {
     fontSize: 22,
@@ -555,7 +527,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
-    paddingBottom:200,
+    paddingBottom: 200,
   },
   messageContainer: {
     flex: 1,

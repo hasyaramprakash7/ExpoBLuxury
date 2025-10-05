@@ -68,7 +68,8 @@ const ShopCard: React.FC<{
   onPress: () => void;
 }> = ({ shop, onPress }) => {
   const hasProducts = shop.productsCount > 0;
-  const hasPhone = shop.phoneNumber && shop.phoneNumber.length > 0;
+  // Use `shop.phone` instead of `shop.phoneNumber` based on your schema
+  const hasPhone = shop.phone && shop.phone.length > 0;
 
   return (
     <TouchableOpacity
@@ -93,41 +94,45 @@ const ShopCard: React.FC<{
           )}
           <View style={shopCardStyles.headerText}>
             <Text style={shopCardStyles.shopName}>{shop.shopName}</Text>
+            {/* ADDED: Business Type */}
+            {shop.businessType && (
+              <Text style={shopCardStyles.businessType}>
+                {shop.businessType}
+              </Text>
+            )}
             <View style={shopCardStyles.localSellerTag}>
               <Text style={shopCardStyles.localSellerText}>Local Seller</Text>
             </View>
-            {hasPhone && (
-              <Text style={shopCardStyles.phone}>
-                <Ionicons
-                  name="call-outline"
-                  size={12}
-                  color={Colors.grayText}
-                />{" "}
-                {shop.phoneNumber}
-              </Text>
-            )}
+          </View>
+          <View style={shopCardStyles.distanceBadge}>
+            <Ionicons name="location-outline" size={14} color={Colors.accentGreen} />
+            <Text style={shopCardStyles.distanceText}>
+              {shop.distance ? `${shop.distance.toFixed(1)} km` : "-- km"}
+            </Text>
           </View>
         </View>
       </View>
 
-      {/* POS and Products Count Section */}
-      <View style={shopCardStyles.infoRow}>
-        <Text style={shopCardStyles.infoText}>
-          Number of POSs: <Text style={shopCardStyles.infoValue}>--</Text>
-        </Text>
-      </View>
-
-      {/* Address and Distance Section */}
-      <View style={shopCardStyles.addressRow}>
-        <Ionicons name="location-outline" size={20} color={Colors.grayText} />
-        <View style={shopCardStyles.addressTextContainer}>
+      {/* Address and Contact Section */}
+      <View style={shopCardStyles.infoSection}>
+        <View style={shopCardStyles.addressContainer}>
+          <Ionicons name="map-outline" size={16} color={Colors.grayText} />
           <Text style={shopCardStyles.addressText}>
-            Address: {shop.address?.formattedAddress || "---"}
+            {shop.address?.formattedAddress || "---"}
           </Text>
         </View>
-        <Text style={shopCardStyles.distanceText}>
-          {shop.distance ? `${shop.distance.toFixed(1)} km` : "-- km"}
-        </Text>
+        {shop.email && (
+          <View style={shopCardStyles.contactRow}>
+            <Ionicons name="mail-outline" size={16} color={Colors.grayText} />
+            <Text style={shopCardStyles.contactInfo}>{shop.email}</Text>
+          </View>
+        )}
+        {hasPhone && (
+          <View style={shopCardStyles.contactRow}>
+            <Ionicons name="call-outline" size={16} color={Colors.grayText} />
+            <Text style={shopCardStyles.contactInfo}>{shop.phone}</Text>
+          </View>
+        )}
       </View>
 
       {/* Products and View All section */}
@@ -277,8 +282,22 @@ const ShopListings = () => {
           vendor.address.longitude
         );
       }
+
+      // --- ADDED LOGIC TO CONSTRUCT FORMATTED ADDRESS ---
+      const formattedAddress = vendor.address
+        ? `${vendor.address.district || ""}, ${vendor.address.state || ""}, ${
+            vendor.address.pincode || ""
+          }`.trim()
+        : "---";
+      // --- END OF ADDED LOGIC ---
+
       return {
         ...vendor,
+        // Update the address object to include the new formattedAddress
+        address: {
+          ...vendor.address,
+          formattedAddress: formattedAddress,
+        },
         productsCount,
         productImages,
         distance,
@@ -306,8 +325,9 @@ const ShopListings = () => {
         vendor.address.formattedAddress
           ?.toLowerCase()
           .includes(lowercasedSearchText) ||
-        vendor.phoneNumber?.includes(lowercasedSearchText) ||
-        vendor.brandName?.toLowerCase().includes(lowercasedSearchText)
+        vendor.phone?.includes(lowercasedSearchText) ||
+        vendor.businessType?.toLowerCase().includes(lowercasedSearchText) ||
+        vendor.email?.toLowerCase().includes(lowercasedSearchText)
     );
   }, [allVendorsWithProductsAndDistance, userLocation, searchText]);
 
@@ -556,6 +576,12 @@ const shopCardStyles = StyleSheet.create({
     fontWeight: "bold",
     color: Colors.textDarkBrown,
   },
+  // ADDED: Style for Business Type text
+  businessType: {
+    fontSize: 12,
+    color: Colors.grayText,
+    marginTop: 2,
+  },
   localSellerTag: {
     backgroundColor: Colors.accentGreen,
     borderRadius: 5,
@@ -569,40 +595,49 @@ const shopCardStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "bold",
   },
-  phone: {
+  // NEW: Distance badge to put in the top right
+  distanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.lightBlue,
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  distanceText: {
     fontSize: 12,
-    color: Colors.grayText,
-    marginTop: 4,
+    fontWeight: "bold",
+    color: Colors.accentGreen,
+    marginLeft: 4,
   },
-  infoRow: {
-    marginBottom: 5,
-  },
-  infoText: {
+  // UPDATED: Style to be used for both email and phone number
+  contactInfo: {
     fontSize: 14,
     color: Colors.grayText,
+    marginLeft: 8,
+    flexShrink: 1,
   },
-  infoValue: {
-    fontWeight: "bold",
-    color: Colors.textDarkBrown,
+  infoSection: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderGray,
+    paddingTop: 10,
+    marginTop: 10,
   },
-  addressRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
   },
-  addressTextContainer: {
-    flex: 1,
-    marginLeft: 5,
-    marginRight: 10,
+  addressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
   },
   addressText: {
     fontSize: 14,
     color: Colors.textDarkBrown,
-  },
-  distanceText: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: Colors.textDarkBrown,
+    marginLeft: 8,
+    flexShrink: 1,
   },
   productsRow: {
     flexDirection: "row",
@@ -613,6 +648,14 @@ const shopCardStyles = StyleSheet.create({
   productsInfo: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  infoText: {
+    fontSize: 14,
+    color: Colors.grayText,
+  },
+  infoValue: {
+    fontWeight: "bold",
+    color: Colors.textDarkBrown,
   },
   productImagesContainer: {
     flexDirection: "row",

@@ -12,7 +12,7 @@ import {
   Dimensions,
   Animated,
   Platform,
-  Image, // <-- IMPORTANT: Import Image
+  Image,
 } from "react-native";
 import { useSelector } from "react-redux";
 import { useNavigation, CommonActions } from "@react-navigation/native";
@@ -22,12 +22,15 @@ import HomeScreen from "../screens/HomeScreen";
 import OrderScreen from "../screens/OrderScreen";
 import PayScreen from "../userScreens/UserOrderScreen";
 import GiftScreen from "../screens/MyCategoriesScreen";
-import SearchScreen from "../screens/ProductSearchScreen";
+import InsuranceProductsAndDetails from "../screens/InsuranceProductsAndDetails";
+// --- NEW IMPORT ---
+import ProductSearchScreen from "../screens/ProductSearchScreen";
 
-// Import your new logo image
+// Import your new logo images
 const BLuxuryLogo = require("../../assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png");
+const RamLogo = require("../../assets/Financial Freedom, Your Way – Tata AIA Launches Shubh Flexi Income Plan for Smart Protection &amp___.jpeg"); // <-- IMPORTANT: Add your Ram logo image here
 
-// --- Redux Imports (for FloatingCartBar logic) ---
+// --- Redux Imports (for FloatingCartBar logic) unded) ---
 import { RootState } from "../app/store";
 
 // --- Type Definitions ---
@@ -62,12 +65,14 @@ interface CartReduxItem {
   _id: string;
 }
 
+// --- UPDATED: Add 'Ram' to the list of available tabs ---
 export type BottomTabParamList = {
   Home: undefined;
   Gift: undefined;
   Order: undefined;
   Pay: undefined;
   Search: undefined;
+  Ram: undefined;
 };
 
 const { width, height } = Dimensions.get("window");
@@ -87,14 +92,15 @@ const Colors = {
   shadowDark: "rgba(0, 0, 0, 0.1)",
   gradientStart: "#0A3D2B",
   gradientEnd: "#0A3D2B",
-  goldenYellow: "#FFD700", // New color for the logo's shadow/background
-  goldenShadow: "#0A3D2B", // A darker golden for shadow
+  goldenYellow: "#FFD700",
+  goldenShadow: "#0A3D2B",
 };
 
 const Tab = createBottomTabNavigator<BottomTabParamList>();
 
-// Custom Tab Bar Button with the new logo
-const CustomOrderTabBarButton = ({ onPress, focused }) => {
+// --- RESTORED: Custom Tab Bar Button with the new logo ---
+// This component is now used for both 'Order' and 'Ram' tabs
+const CustomOrderTabBarButton = ({ onPress, focused, imageSource }) => {
   const scaleValue = React.useRef(new Animated.Value(1)).current;
   const opacityValue = React.useRef(new Animated.Value(1)).current;
 
@@ -137,25 +143,6 @@ const CustomOrderTabBarButton = ({ onPress, focused }) => {
       onPress={handlePress}
       activeOpacity={1}
     >
-      {/*
-        The delivery badge is removed to simplify the design and match the new logo.
-        If you want to keep it, you can uncomment the following block.
-      */}
-      {/* <Animated.View
-        style={[
-          tabStyles.deliveryBadge,
-          {
-            transform: [{ scale: scaleValue }],
-          },
-        ]}
-      >
-        <View style={tabStyles.deliveryBadgeInner}>
-          <View style={tabStyles.deliveryDot} />
-          <Text style={tabStyles.deliveryText}>Delivery</Text>
-        </View>
-      </Animated.View> */}
-
-      {/* Main Order Button with the B Luxury logo */}
       <Animated.View
         style={[
           tabStyles.customButton,
@@ -167,13 +154,12 @@ const CustomOrderTabBarButton = ({ onPress, focused }) => {
         ]}
       >
         <Image
-          source={BLuxuryLogo}
+          source={imageSource}
           style={tabStyles.orderButtonLogo}
           resizeMode="contain"
         />
       </Animated.View>
 
-      {/* Floating Action Indicator */}
       {focused && (
         <View style={tabStyles.actionIndicator}>
           <View style={tabStyles.actionDot} />
@@ -183,24 +169,21 @@ const CustomOrderTabBarButton = ({ onPress, focused }) => {
   );
 };
 
-// --- Floating Cart Bar Component ---
+// --- Floating Cart Bar Component (no changes needed) ---
 const FloatingCartBar = () => {
   const navigation = useNavigation();
   const cartItems = useSelector(
     (state: RootState) => state.cart.items as CartReduxItem[]
   );
 
-  // Re-define pricing constants here, consistent with CartScreen
   const DELIVERY_CHARGE = 75;
   const FREE_DELIVERY_THRESHOLD = 200;
-  const PLATFORM_FEE_RATE = 0.03; // 19%
-  const GST_RATE = 0.05; // 5% GST
+  const PLATFORM_FEE_RATE = 0.03;
+  const GST_RATE = 0.05;
 
-  // Helper function to calculate effective price
   const getEffectivePrice = useCallback(
     (product: Product, quantity: number): number => {
       let price = product.discountedPrice || product.price || 0;
-
       if (
         product.largeQuantityPrice &&
         product.largeQuantityMinimumUnits &&
@@ -219,25 +202,30 @@ const FloatingCartBar = () => {
     []
   );
 
-  // Get the primary item name (or default to "Date Cortado")
   const primaryItemName = useMemo(() => {
     if (cartItems.length === 0) return "Date Cortado";
 
+    // --- MODIFIED LOGIC: Use a Set to find unique product IDs ---
+    const uniqueProductIds = new Set(
+      cartItems.map((item) => item.productId?._id)
+    );
+    const uniqueItemCount = uniqueProductIds.size;
     const firstItem = cartItems[0];
     const productName = firstItem.productId?.name || "Item";
 
-    if (cartItems.length > 1) {
-      const uniqueProducts = new Set(
-        cartItems.map((item) => item.productId?._id)
-      );
-      if (uniqueProducts.size > 1) {
-        return `${cartItems.length} Items`;
-      }
+    // Show generic item count if there is more than one unique product
+    if (uniqueItemCount > 1) {
+      return `${uniqueItemCount} Items`;
     }
+
+    // If there's only one unique product, show its name, truncated if necessary
+    if (productName.length > 15) {
+      return `${productName.substring(0, 15)}...`;
+    }
+
     return productName;
   }, [cartItems]);
 
-  // Memoize pricing calculations
   const pricingBreakdown = useMemo(() => {
     const discountedSubtotal = cartItems.reduce((sum, item) => {
       const product = item.productId || {};
@@ -271,18 +259,29 @@ const FloatingCartBar = () => {
 
   return (
     <View style={tabStyles.floatingCartBar}>
-      <View style={tabStyles.floatingCartTextContainer}>
+      <TouchableOpacity
+        onPress={() => {
+          const state = navigation.getState();
+          const currentRoute = state.routes[state.index];
+          if (currentRoute.name === "Gift") {
+            console.log("Already on Cart tab, not navigating again.");
+          } else {
+            navigation.navigate("CartScreen");
+          }
+        }}
+        activeOpacity={0.8}
+        style={tabStyles.floatingCartTextContainer}
+      >
         <Text style={tabStyles.floatingCartLabel}>{primaryItemName}</Text>
         <Text style={tabStyles.floatingCartPrice}>
           ₹{pricingBreakdown.finalTotal.toFixed(2)}
         </Text>
-      </View>
+      </TouchableOpacity>
       <TouchableOpacity
         style={tabStyles.floatingCartButton}
         onPress={() => {
           const state = navigation.getState();
           const currentRoute = state.routes[state.index];
-
           if (currentRoute.name === "Gift") {
             console.log("Already on Cart tab, not navigating again.");
           } else {
@@ -299,27 +298,24 @@ const FloatingCartBar = () => {
 
 const UserTabNavigator = () => {
   const cartItems = useSelector((state: RootState) => state.cart.items);
-
   return (
     <View style={tabStyles.navigatorContainer}>
       <Tab.Navigator
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarIcon: ({ focused }) => {
-            let iconName: keyof typeof Ionicons.glyphMap;
+            let iconName;
             const iconColor = focused ? Colors.starbucksGreen : Colors.grayText;
             const iconSize = focused ? 20 : 18;
 
-            if (route.name === "Home") {
+            // --- Updated logic for which tabs get a custom button vs. Ionicons ---
+            if (route.name === "Order" || route.name === "Ram") {
+              return null;
+            } else if (route.name === "Home") {
               iconName = focused ? "home" : "home-outline";
             } else if (route.name === "Gift") {
-              // CHANGE: Updated icon for the Categories screen
               iconName = focused ? "grid" : "grid-outline";
-            } else if (route.name === "Order") {
-              // The icon for "Order" is rendered directly within CustomOrderTabBarButton
-              return null; // Return null so the default icon isn't rendered
             } else if (route.name === "Pay") {
-              // CHANGE: Renamed from Pay to Order
               iconName = focused ? "card" : "card-outline";
             } else if (route.name === "Search") {
               iconName = focused ? "search" : "search-outline";
@@ -370,29 +366,44 @@ const UserTabNavigator = () => {
           component={HomeScreen}
           options={{ title: "Home" }}
         />
+
         <Tab.Screen
+          name="Order"
+          component={GiftScreen}
+          options={{
+            title: "",
+            tabBarButton: (props) => (
+              <CustomOrderTabBarButton {...props} imageSource={BLuxuryLogo} />
+            ),
+          }}
+        />
+        {/* <Tab.Screen
           name="Gift"
           component={GiftScreen}
           options={{ title: "Categories" }}
-        />
+        /> */}
+        {/* --- NEW: The sixth navigation button with the custom image --- */}
         <Tab.Screen
-          name="Order"
-          component={OrderScreen}
+          name="Ram"
+          component={InsuranceProductsAndDetails} // You can replace with your actual RamScreen component
           options={{
             title: "",
-            tabBarButton: (props) => <CustomOrderTabBarButton {...props} />,
+            tabBarButton: (props) => (
+              <CustomOrderTabBarButton {...props} imageSource={RamLogo} />
+            ),
           }}
         />
         <Tab.Screen
           name="Pay"
           component={PayScreen}
-          options={{ title: "order" }}
+          options={{ title: "Order" }}
         />
-        <Tab.Screen
+        {/* --- MODIFIED: Component is now ProductSearchScreen --- */}
+        {/* <Tab.Screen
           name="Search"
-          component={SearchScreen}
+          component={ProductSearchScreen}
           options={{ title: "Search" }}
-        />
+        /> */}
       </Tab.Navigator>
 
       {cartItems.length > 0 && <FloatingCartBar />}
@@ -442,57 +453,21 @@ const tabStyles = StyleSheet.create({
     textAlign: "center",
   },
   customButtonContainer: {
-    top: -40,
+    top: -25,
     justifyContent: "center",
     alignItems: "center",
     flex: 1,
     zIndex: 10,
     paddingBottom: 16,
   },
-  // The original delivery badge styles are commented out.
-  // Uncomment them if you want to use the badge.
-  // deliveryBadge: {
-  //  marginBottom: 1,
-  //  zIndex: 4,
-  // },
-  // deliveryBadgeInner: {
-  //  backgroundColor: Colors.glassWhite,
-  //  paddingHorizontal: 10,
-  //  paddingVertical: 5,
-  //  borderRadius: 20,
-  //  flexDirection: "row",
-  //  alignItems: "center",
-  //  shadowColor: Colors.shadowDark,
-  //  shadowOffset: { width: 0, height: 4 },
-  //  shadowOpacity: 0.15,
-  //  shadowRadius: 8,
-  //  elevation: 8,
-  //  borderWidth: 1,
-  //  borderColor: "rgba(255, 255, 255, 0.3)",
-  // },
-  // deliveryDot: {
-  //  width: 8,
-  //  height: 8,
-  //  borderRadius: 4,
-  //  backgroundColor: Colors.starbucksAccent,
-  //  marginRight: 8,
-  // },
-  // deliveryText: {
-  //  color: Colors.starbucksGreen,
-  //  fontSize: 12,
-  //  fontWeight: "700",
-  //  letterSpacing: 0.5,
-  // },
-
-  // Updated custom button styles for the new logo
   customButton: {
     width: 72,
     height: 72,
     borderRadius: 36,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "transparent", // The image itself will provide the background
-    shadowColor: Colors.goldenShadow, // Use a golden shadow
+    backgroundColor: "transparent",
+    shadowColor: Colors.goldenShadow,
     shadowOffset: {
       width: 0,
       height: 8,
@@ -500,20 +475,17 @@ const tabStyles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 12,
-    // No `buttonGradient` or `buttonInner` views are needed
   },
   customButtonFocused: {
     shadowOpacity: 0.4,
     shadowRadius: 16,
     elevation: 16,
   },
-  // New style for the logo image
   orderButtonLogo: {
-    width: "100%", // The image takes the full width of the button container
-    height: "100%", // The image takes the full height of the button container
+    width: "100%",
+    height: "100%",
     borderRadius: 36,
   },
-
   focusRing: {
     position: "absolute",
     width: 76,
@@ -546,8 +518,6 @@ const tabStyles = StyleSheet.create({
     backgroundColor: Colors.starbucksGreen,
     marginTop: 4,
   },
-
-  // --- Floating Cart Bar Styles ---
   floatingCartBar: {
     position: "absolute",
     bottom: Platform.OS === "ios" ? 90 : 75,
@@ -559,12 +529,17 @@ const tabStyles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 12,
     zIndex: 999,
     minHeight: 75,
+    left: 0,
+    right: 0,
   },
   floatingCartTextContainer: {
     flex: 1,
@@ -593,7 +568,10 @@ const tabStyles = StyleSheet.create({
     alignItems: "center",
     minWidth: 90,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,

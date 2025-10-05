@@ -436,7 +436,7 @@ ${deepLinkUrl}`;
 
       await Sharing.shareAsync(shareOptions.url, shareOptions);
 
-    //   showToast("Product shared successfully!", "success");
+    //   showToast("Product shared successfully!", "success");
     } catch (error) {
       console.error("Error sharing product:", error);
       showToast("Failed to share product. Please try again.", "error");
@@ -444,6 +444,16 @@ ${deepLinkUrl}`;
   };
 
   const isDisabled = isVendorOffline || isVendorOutOfRange;
+
+  // --- NEW ADDITION ---
+  const truncatedName = useMemo(() => {
+    const maxLen = 15;
+    if (product.name.length > maxLen) {
+      return `${product.name.slice(0, maxLen)}...`;
+    }
+    return product.name;
+  }, [product.name]);
+  // --- END OF NEW ADDITION ---
 
   return (
     <View style={[styles.cardContainer, isDisabled && styles.cardDisabled]}>
@@ -481,7 +491,9 @@ ${deepLinkUrl}`;
         </View>
       </TouchableOpacity>
       <View style={styles.detailsContainer}>
-        <Text style={styles.productName}>{product.name}</Text>
+        {/* --- NEW MODIFICATION HERE --- */}
+        <Text style={styles.productName}>{truncatedName}</Text>
+        {/* --- END OF MODIFICATION --- */}
         <View style={styles.stockContainer}>
           {displayStock > 0 ? (
             displayStock <= 10 ? (

@@ -1,6 +1,6 @@
 // src/components/OrderSummary.tsx
 
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -8,8 +8,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker"; // For dropdown selection
-import Ionicons from "@expo/vector-icons/Ionicons"; // Using Ionicons for consistency
+import { Picker } from "@react-native-picker/picker";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 // --- Color Palette (Rolex-inspired) ---
 const Colors = {
@@ -71,6 +71,12 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
   handleClear,
   orderLoading,
 }) => {
+  const [showFeesDetails, setShowFeesDetails] = useState(false);
+
+  const toggleFeesDetails = () => {
+    setShowFeesDetails(!showFeesDetails);
+  };
+
   return (
     <View style={summaryStyles.container}>
       <View style={summaryStyles.card}>
@@ -106,23 +112,39 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
           </Text>
         </View>
 
-        <View style={summaryStyles.detailRow}>
-          <Text style={summaryStyles.detailLabel}>
-            Platform Fee ({Math.round(PLATFORM_FEE_RATE * 100)}%)
-          </Text>
-          <Text style={summaryStyles.detailValue}>
-            ₹{pricingBreakdown.platformFee.toFixed(2)}
-          </Text>
-        </View>
+        {/* Combined Fees with Dropdown */}
+        <TouchableOpacity onPress={toggleFeesDetails}>
+          <View style={summaryStyles.detailRow}>
+            <Text style={summaryStyles.detailLabel}>Platform Fee & GST</Text>
+            <Ionicons
+              name={showFeesDetails ? "chevron-up" : "chevron-down"}
+              size={20}
+              color={Colors.rolexLightText}
+              style={summaryStyles.feesToggleIcon}
+            />
+          </View>
+        </TouchableOpacity>
 
-        <View style={summaryStyles.detailRow}>
-          <Text style={summaryStyles.detailLabel}>
-            GST ({Math.round(GST_RATE * 100)}%)
-          </Text>
-          <Text style={summaryStyles.detailValue}>
-            ₹{pricingBreakdown.gstAmount.toFixed(2)}
-          </Text>
-        </View>
+        {showFeesDetails && (
+          <View style={summaryStyles.feesBreakdown}>
+            <View style={summaryStyles.feesDetailRow}>
+              <Text style={summaryStyles.feesDetailLabel}>
+                Platform Fee ({Math.round(PLATFORM_FEE_RATE * 100)}%)
+              </Text>
+              <Text style={summaryStyles.feesDetailValue}>
+                ₹{pricingBreakdown.platformFee.toFixed(2)}
+              </Text>
+            </View>
+            <View style={summaryStyles.feesDetailRow}>
+              <Text style={summaryStyles.feesDetailLabel}>
+                GST ({Math.round(GST_RATE * 100)}%)
+              </Text>
+              <Text style={summaryStyles.feesDetailValue}>
+                ₹{pricingBreakdown.gstAmount.toFixed(2)}
+              </Text>
+            </View>
+          </View>
+        )}
 
         <View style={summaryStyles.detailRow}>
           <Text style={summaryStyles.detailLabel}>Delivery Charges</Text>
@@ -186,14 +208,13 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
           <View style={summaryStyles.pickerContainer}>
             <Picker
               selectedValue={paymentMethod}
-              onValueChange={(itemValue: "COD", itemIndex) =>
+              onValueChange={(itemValue: "COD") =>
                 setPaymentMethod(itemValue)
               }
               style={summaryStyles.picker}
               dropdownIconColor={Colors.rolexDarkText}
             >
               <Picker.Item label="Cash on Delivery (COD)" value="COD" />
-              {/* <Picker.Item label="Online Payment (Coming Soon)" value="Online Payment" enabled={false} /> */}
             </Picker>
             <View style={summaryStyles.pickerIcon}>
               <Ionicons
@@ -282,6 +303,36 @@ const summaryStyles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 10, // Increased spacing between detail rows
+  },
+  feesContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  feesToggleIcon: {
+    marginLeft: 5,
+  },
+  feesBreakdown: {
+    backgroundColor: Colors.rolexPlatinum,
+    borderRadius: 8,
+    padding: 15,
+    marginTop: -5,
+    marginBottom: 10,
+  },
+  feesDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  feesDetailLabel: {
+    fontSize: 14,
+    color: Colors.rolexDarkText,
+    fontFamily: "serif",
+  },
+  feesDetailValue: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: Colors.rolexDarkText,
+    fontFamily: "serif",
   },
   detailLabel: {
     fontSize: 16,

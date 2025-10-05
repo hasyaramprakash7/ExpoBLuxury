@@ -9,23 +9,29 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image, // For the asset-based image
+  Linking, // For opening the Play Store link and calling/emailing
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons"; // For icons
-import { useSelector, useDispatch } from "react-redux"; // To check login status and dispatch actions
-import { logout, updateUserProfile } from "../features/user/authSlice"; // Adjust path as per your project structure
-import { RootState } from "../app/store"; // Adjust path as per your project structure
+import { useSelector, useDispatch } from "react-redux";
+import { logout, updateUserProfile } from "../features/user/authSlice";
+import { RootState } from "../app/store";
 
 const { width, height } = Dimensions.get("window");
+
+// --- IMPORTANT: Replace this with the actual path to your local image asset ---
+const PROFILE_IMAGE_ASSET = require('../../assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png'); 
 
 export default function UserProfileScreen() {
   const navigation = useNavigation();
   const dispatch = useDispatch();
-  const { user, loading } = useSelector((state: RootState) => state.auth); // Get user info from Redux
+  const { user, loading } = useSelector((state: RootState) => state.auth);
 
   const [isEditing, setIsEditing] = useState(false);
-  const [showProfileData, setShowProfileData] = useState(false); // New state to control visibility of profile data section
+  const [showProfileData, setShowProfileData] = useState(false);
+  const [showHelpCenterDetails, setShowHelpCenterDetails] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -33,113 +39,24 @@ export default function UserProfileScreen() {
     address: { district: "", state: "", country: "", pincode: "" },
   });
 
-  // Define colors based on the image
+  // Define colors
   const colors = {
-    backgroundTop: "#F5ECD7", // Light beige/peach
-    backgroundBottom: "#FFFFFF", // White
-    headerText: "#000000", // Black for header title
-    iconColor: "#000000", // Black for icons
-    starbucksGreen: "#009632", // Green for certain accents if needed
-    loginButtonBg: "#000000", // Black for login button
-    loginButtonText: "#FFFFFF", // White for login button text
-    sectionText: "#4A4A4A", // Darker grey for section text
-    versionText: "#888888", // Grey for version text
-    borderColor: "#E0E0E0", // Light grey for borders
-    leafColor: "#E2D3B7", // Color for the leaf illustrations (approximate)
-    cupOutline: "#D4C7B3", // Outline for the cup image
-    cupFill: "#EAE7E1", // Fill for the cup
-    cupSleeve: "#009632", // Green sleeve for the cup
-    cupDetails: "#999999", // For cup eyes and mouth (slightly darker than outline for contrast)
-    profileGreen: "#009632", // A specific green for profile elements
+    backgroundTop: "#F5ECD7",
+    backgroundBottom: "#FFFFFF",
+    headerText: "#000000",
+    iconColor: "#000000",
+    starbucksGreen: "#009632",
+    loginButtonBg: "#000000",
+    loginButtonText: "#FFFFFF",
+    sectionText: "#4A4A4A",
+    versionText: "#888888",
+    borderColor: "#E0E0E0",
+    leafColor: "#E2D3B7",
+    profileGreen: "#009632",
   };
 
   useEffect(() => {
-    // This effect synchronizes the form state with the user data from Redux.
-    // It runs whenever the `user` object changes.
     if (user) {
-      setFormData({
-        name: user.name || "",
-        email: user.email || "", // Email is not editable in the form but good to have in state
-        phone: user.phone || "",
-        address: user.address || {
-          district: "",
-          state: "",
-          country: "",
-          pincode: "",
-        },
-      });
-    }
-  }, [user]);
-
-  const handleSave = async () => {
-    // Create an object to hold only the fields that have changed.
-    const updatedFields = {};
-
-    // Compare form data with the original user data from the Redux store.
-    if (formData.name !== user.name) {
-      updatedFields.name = formData.name;
-    }
-    if (formData.phone !== user.phone) {
-      updatedFields.phone = formData.phone;
-    }
-    // For the address object, stringify to easily compare if it has changed.
-    if (JSON.stringify(formData.address) !== JSON.stringify(user.address)) {
-      updatedFields.address = formData.address;
-    }
-
-    // If no fields have been changed, don't make an unnecessary API call.
-    if (Object.keys(updatedFields).length === 0) {
-      setIsEditing(false); // Simply exit the editing mode.
-      return;
-    }
-
-    // Dispatch the update action with only the changed fields.
-    const resultAction = await dispatch(updateUserProfile(updatedFields));
-
-    if (updateUserProfile.fulfilled.match(resultAction)) {
-      Alert.alert("Success", "Profile updated successfully!");
-      setIsEditing(false);
-      setShowProfileData(true); // Ensure profile data is shown after saving
-    } else {
-      // Show a detailed error message from the backend if available.
-      Alert.alert(
-        "Error",
-        (resultAction.payload as string) || "Failed to update profile."
-      );
-    }
-  };
-
-  const handleLogout = () => {
-    Alert.alert(
-      "Logout",
-      "Are you sure you want to log out?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Logout",
-          onPress: () => {
-            dispatch(logout());
-            setShowProfileData(false); // Hide profile data on logout
-            // The AppNavigator will see that the user is no longer authenticated
-            // and automatically redirect to the Login screen, or this screen will
-            // display the "Please login" message.
-          },
-        },
-      ],
-      { cancelable: true }
-    );
-  };
-
-  // Function to explicitly "sync" the UI to the current user data
-  // Now also controls the visibility of the profile data section
-  const handleToggleProfileData = () => {
-    setShowProfileData((prev) => !prev); // Toggle visibility
-    setIsEditing(false); // Always show display mode first
-    if (user) {
-      // Reset form data to current user state
       setFormData({
         name: user.name || "",
         email: user.email || "",
@@ -152,6 +69,81 @@ export default function UserProfileScreen() {
         },
       });
     }
+  }, [user]);
+
+  const handleSave = async () => {
+    const updatedFields = {};
+    if (formData.name !== user.name) {
+      updatedFields.name = formData.name;
+    }
+    if (formData.phone !== user.phone) {
+      updatedFields.phone = formData.phone;
+    }
+    if (JSON.stringify(formData.address) !== JSON.stringify(user.address)) {
+      updatedFields.address = formData.address;
+    }
+
+    if (Object.keys(updatedFields).length === 0) {
+      setIsEditing(false);
+      return;
+    }
+
+    const resultAction = await dispatch(updateUserProfile(updatedFields));
+
+    if (updateUserProfile.fulfilled.match(resultAction)) {
+      Alert.alert("Success", "Profile updated successfully!");
+      setIsEditing(false);
+      setShowProfileData(true);
+    } else {
+      Alert.alert(
+        "Error",
+        (resultAction.payload as string) || "Failed to update profile."
+      );
+    }
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to log out?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          onPress: () => {
+            dispatch(logout());
+            setShowProfileData(false);
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const handleToggleProfileData = () => {
+    // Toggles visibility and resets form data when opening/closing
+    setShowProfileData((prev) => !prev);
+    setIsEditing(false); 
+    if (user) {
+      setFormData({
+        name: user.name || "",
+        email: user.email || "",
+        phone: user.phone || "",
+        address: user.address || { district: "", state: "", country: "", pincode: "" },
+      });
+    }
+  };
+
+  const handleToggleHelpCenter = () => {
+    setShowHelpCenterDetails(prev => !prev);
+  };
+
+  const handleRateUsPress = () => {
+    const playStoreLink =
+      "https://play.google.com/store/apps/details?id=com.ram1234567890.BLuxury";
+    Linking.openURL(playStoreLink).catch((err) =>
+      Alert.alert("Error", "Could not open link: " + err.message)
+    );
   };
 
   // Helper function to render rows in the profile display.
@@ -162,6 +154,146 @@ export default function UserProfileScreen() {
         <Text style={styles.infoLabel}>{label}</Text>
         <Text style={styles.infoValue}>{value || "Not provided"}</Text>
       </View>
+    </View>
+  );
+
+  // RENDER FUNCTION FOR HELP CENTER DETAILS (unchanged)
+  const renderHelpCenterDetails = () => (
+    <View style={[styles.detailsContainer, { borderColor: colors.borderColor }]}>
+      <TouchableOpacity 
+        style={styles.detailItem} 
+        onPress={() => Linking.openURL('tel:7893828468')}
+      >
+        <Ionicons name="call-outline" size={width * 0.05} color={colors.profileGreen} />
+        <Text style={[styles.detailText, { color: colors.sectionText }]}>
+          Call: 7893828468
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity 
+        style={styles.detailItem} 
+        onPress={() => Linking.openURL('mailto:bluxury1000@gmail.com')}
+      >
+        <Ionicons name="mail-outline" size={width * 0.05} color={colors.profileGreen} />
+        <Text style={[styles.detailText, { color: colors.sectionText }]}>
+          Email: bluxury1000@gmail.com
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // --- NEW RENDER FUNCTION FOR PROFILE CARD / EDITING SECTION ---
+  const renderProfileCard = () => (
+    <View
+        style={[
+            styles.profileCardInline, // Use new style for inline card
+            { backgroundColor: colors.backgroundBottom },
+        ]}
+    >
+      {/* Edit Profile Button (top of the card) */}
+      <TouchableOpacity
+        style={styles.editProfileIconButton}
+        onPress={() => setIsEditing((prev) => !prev)} // Toggle edit mode
+      >
+        <Ionicons
+          name="pencil-outline"
+          size={width * 0.06}
+          color={colors.iconColor}
+        />
+      </TouchableOpacity>
+
+      {isEditing ? (
+        // --- EDITING VIEW ---
+        <View style={styles.editSection}>
+          <TextInput
+            style={[ styles.input, { borderColor: colors.borderColor, color: colors.sectionText } ]}
+            placeholder="Full Name"
+            placeholderTextColor={colors.versionText}
+            value={formData.name}
+            onChangeText={(text) => setFormData({ ...formData, name: text })}
+          />
+          <TextInput
+            style={[ styles.input, { borderColor: colors.borderColor, color: colors.sectionText } ]}
+            placeholder="Phone"
+            placeholderTextColor={colors.versionText}
+            value={formData.phone}
+            onChangeText={(text) => setFormData({ ...formData, phone: text })}
+            keyboardType="phone-pad"
+          />
+          <Text style={[styles.addressLabel, { color: colors.sectionText }]}>
+            Address Details:
+          </Text>
+          <TextInput
+            style={[ styles.input, { borderColor: colors.borderColor, color: colors.sectionText } ]}
+            placeholder="District"
+            placeholderTextColor={colors.versionText}
+            value={formData.address.district}
+            onChangeText={(text) =>
+              setFormData({ ...formData, address: { ...formData.address, district: text } })
+            }
+          />
+          <TextInput
+            style={[ styles.input, { borderColor: colors.borderColor, color: colors.sectionText } ]}
+            placeholder="State"
+            placeholderTextColor={colors.versionText}
+            value={formData.address.state}
+            onChangeText={(text) =>
+              setFormData({ ...formData, address: { ...formData.address, state: text } })
+            }
+          />
+          <TextInput
+            style={[ styles.input, { borderColor: colors.borderColor, color: colors.sectionText } ]}
+            placeholder="Country"
+            placeholderTextColor={colors.versionText}
+            value={formData.address.country}
+            onChangeText={(text) =>
+              setFormData({ ...formData, address: { ...formData.address, country: text } })
+            }
+          />
+          <TextInput
+            style={[ styles.input, { borderColor: colors.borderColor, color: colors.sectionText } ]}
+            placeholder="Pincode"
+            placeholderTextColor={colors.versionText}
+            value={formData.address.pincode}
+            onChangeText={(text) =>
+              setFormData({ ...formData, address: { ...formData.address, pincode: text } })
+            }
+            keyboardType="number-pad"
+          />
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.saveButton]}
+              onPress={handleSave}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.actionButtonText}>Save</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.cancelButton]}
+              onPress={() => setIsEditing(false)}
+            >
+              <Text style={styles.actionButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        // --- DISPLAY VIEW ---
+        <View style={styles.displaySection}>
+          {renderInfoRow("person-outline", "Name", user.name)}
+          {renderInfoRow("mail-outline", "Email", user.email)}
+          {renderInfoRow("call-outline", "Phone", user.phone)}
+          {renderInfoRow(
+            "location-outline",
+            "Address",
+            user.address?.district && user.address?.pincode
+              ? `${user.address.district}, ${user.address.state}, ${user.address.country} - ${user.address.pincode}`
+              : "Not provided"
+          )}
+        </View>
+      )}
     </View>
   );
 
@@ -179,295 +311,61 @@ export default function UserProfileScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundTop }}>
-      {/* Header */}
+      {/* Header (unchanged) */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.headerButton}
-        >
-          <Ionicons
-            name="chevron-back"
-            size={width * 0.07}
-            color={colors.iconColor}
-          />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton}>
+          <Ionicons name="chevron-back" size={width * 0.07} color={colors.iconColor} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.headerText }]}>
-          Account
-        </Text>
+        <Text style={[styles.headerTitle, { color: colors.headerText }]}>Account</Text>
         <View style={styles.headerRight}>
-          {user?.token &&
-            showProfileData && ( // Show sync button only if user is logged in AND profile data is visible
-              <TouchableOpacity
-                style={styles.headerButton}
-                onPress={handleToggleProfileData} // Toggles visibility and syncs
-              >
-                <Ionicons
-                  name="refresh-outline"
-                  size={width * 0.065}
-                  color={colors.iconColor}
-                />
-              </TouchableOpacity>
-            )}
-          <TouchableOpacity style={styles.headerButton}>
-            <Ionicons
-              name="notifications-outline"
-              size={width * 0.065}
-              color={colors.iconColor}
-            />
+          {user?.token && showProfileData && (
+            <TouchableOpacity style={styles.headerButton} onPress={handleToggleProfileData}>
+              <Ionicons name="refresh-outline" size={width * 0.065} color={colors.iconColor} />
+            </TouchableOpacity>
+          )}
+          {/* <TouchableOpacity style={styles.headerButton}>
+            <Ionicons name="notifications-outline" size={width * 0.065} color={colors.iconColor} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.headerButton, { marginLeft: width * 0.02 }]}
-          >
-            <Ionicons
-              name="settings-outline"
-              size={width * 0.065}
-              color={colors.iconColor}
-            />
-          </TouchableOpacity>
+          <TouchableOpacity style={[styles.headerButton, { marginLeft: width * 0.02 }]}>
+            <Ionicons name="settings-outline" size={width * 0.065} color={colors.iconColor} />
+          </TouchableOpacity> */}
         </View>
       </View>
 
-      {/* Background illustrations (approximate, using simple View for shapes) */}
-      <View
-        style={[styles.leafTopLeft, { backgroundColor: colors.leafColor }]}
-      />
-      <View
-        style={[styles.leafBottomRight, { backgroundColor: colors.leafColor }]}
-      />
-      <View
-        style={[styles.leafSmallLeft, { backgroundColor: colors.leafColor }]}
-      />
+      {/* Background illustrations (unchanged) */}
+      <View style={[styles.leafTopLeft, { backgroundColor: colors.leafColor }]} />
+      <View style={[styles.leafBottomRight, { backgroundColor: colors.leafColor }]} />
+      <View style={[styles.leafSmallLeft, { backgroundColor: colors.leafColor }]} />
 
       <ScrollView contentContainerStyle={styles.scrollViewContent}>
+        {/* Top Container with Profile Image and Login/Welcome Message */}
         <View style={styles.topContainer}>
-          {/* Profile Image (Coffee Cup) */}
-          <View
-            style={[
-              styles.profileImageContainer,
-              { borderColor: colors.cupOutline },
-            ]}
-          >
-            <View
-              style={[styles.cupBase, { backgroundColor: colors.cupFill }]}
-            />
-            <View
-              style={[styles.cupSleeve, { backgroundColor: colors.cupSleeve }]}
-            />
-            <View style={styles.cupFace}>
-              <View
-                style={[styles.cupEye, { backgroundColor: colors.cupDetails }]}
-              />
-              <View
-                style={[styles.cupEye, { backgroundColor: colors.cupDetails }]}
-              />
-              <View
-                style={[styles.cupMouth, { borderTopColor: colors.cupDetails }]}
-              />
-            </View>
+          <View style={styles.profileImageContainer}>
+            <Image source={PROFILE_IMAGE_ASSET} style={styles.profileImage} resizeMode="cover" />
           </View>
-
-          {!user?.token ? ( // Only show if user is not logged in
+          
+          {!user?.token ? (
             <>
-              <Text style={styles.welcomeText}>Welcome to Starbucks</Text>
+              <Text style={styles.welcomeText}>Welcome to BLuxury</Text>
               <TouchableOpacity
-                style={[
-                  styles.loginButton,
-                  { backgroundColor: colors.loginButtonBg },
-                ]}
-                onPress={() => navigation.navigate("Login")} // Navigate to LoginScreen
+                style={[ styles.loginButton, { backgroundColor: colors.loginButtonBg } ]}
+                onPress={() => navigation.navigate("Login")}
               >
-                <Text
-                  style={[
-                    styles.loginButtonText,
-                    { color: colors.loginButtonText },
-                  ]}
-                >
+                <Text style={[ styles.loginButtonText, { color: colors.loginButtonText } ]}>
                   Login or Sign Up
                 </Text>
               </TouchableOpacity>
             </>
           ) : (
-            // Show user's name if logged in
             <>
-              <Text
-                style={[styles.loggedInUserText, { color: colors.headerText }]}
-              >
-                Hello, {user.name || "Starbucks Member"}!
+              <Text style={[styles.loggedInUserText, { color: colors.headerText }]}>
+                Hello, {user.name || "BLuxury Member"}!
               </Text>
             </>
           )}
         </View>
 
-        {/* Profile Card / Pop-up section */}
-        {user?.token && showProfileData && (
-          <View
-            style={[
-              styles.profileCard,
-              { backgroundColor: colors.backgroundBottom },
-            ]}
-          >
-            {/* Edit Profile Button (top of the card) */}
-            <TouchableOpacity
-              style={styles.editProfileIconButton}
-              onPress={() => setIsEditing((prev) => !prev)} // Toggle edit mode
-            >
-              <Ionicons
-                name="pencil-outline"
-                size={width * 0.06}
-                color={colors.iconColor}
-              />
-            </TouchableOpacity>
-
-            {isEditing ? (
-              // --- EDITING VIEW ---
-              <View style={styles.editSection}>
-                <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      borderColor: colors.borderColor,
-                      color: colors.sectionText,
-                    },
-                  ]}
-                  placeholder="Full Name"
-                  placeholderTextColor={colors.versionText}
-                  value={formData.name}
-                  onChangeText={(text) =>
-                    setFormData({ ...formData, name: text })
-                  }
-                />
-                <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      borderColor: colors.borderColor,
-                      color: colors.sectionText,
-                    },
-                  ]}
-                  placeholder="Phone"
-                  placeholderTextColor={colors.versionText}
-                  value={formData.phone}
-                  onChangeText={(text) =>
-                    setFormData({ ...formData, phone: text })
-                  }
-                  keyboardType="phone-pad"
-                />
-                <Text
-                  style={[styles.addressLabel, { color: colors.sectionText }]}
-                >
-                  Address Details:
-                </Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      borderColor: colors.borderColor,
-                      color: colors.sectionText,
-                    },
-                  ]}
-                  placeholder="District"
-                  placeholderTextColor={colors.versionText}
-                  value={formData.address.district}
-                  onChangeText={(text) =>
-                    setFormData({
-                      ...formData,
-                      address: { ...formData.address, district: text },
-                    })
-                  }
-                />
-                <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      borderColor: colors.borderColor,
-                      color: colors.sectionText,
-                    },
-                  ]}
-                  placeholder="State"
-                  placeholderTextColor={colors.versionText}
-                  value={formData.address.state}
-                  onChangeText={(text) =>
-                    setFormData({
-                      ...formData,
-                      address: { ...formData.address, state: text },
-                    })
-                  }
-                />
-                <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      borderColor: colors.borderColor,
-                      color: colors.sectionText,
-                    },
-                  ]}
-                  placeholder="Country"
-                  placeholderTextColor={colors.versionText}
-                  value={formData.address.country}
-                  onChangeText={(text) =>
-                    setFormData({
-                      ...formData,
-                      address: { ...formData.address, country: text },
-                    })
-                  }
-                />
-                <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      borderColor: colors.borderColor,
-                      color: colors.sectionText,
-                    },
-                  ]}
-                  placeholder="Pincode"
-                  placeholderTextColor={colors.versionText}
-                  value={formData.address.pincode}
-                  onChangeText={(text) =>
-                    setFormData({
-                      ...formData,
-                      address: { ...formData.address, pincode: text },
-                    })
-                  }
-                  keyboardType="number-pad"
-                />
-                <View style={styles.buttonContainer}>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.saveButton]}
-                    onPress={handleSave}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.actionButtonText}>Save</Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.cancelButton]}
-                    onPress={() => setIsEditing(false)}
-                  >
-                    <Text style={styles.actionButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : (
-              // --- DISPLAY VIEW ---
-              <View style={styles.displaySection}>
-                {renderInfoRow("person-outline", "Name", user.name)}
-                {renderInfoRow("mail-outline", "Email", user.email)}
-                {renderInfoRow("call-outline", "Phone", user.phone)}
-                {renderInfoRow(
-                  "location-outline",
-                  "Address",
-                  user.address?.district && user.address?.pincode
-                    ? `${user.address.district}, ${user.address.state}, ${user.address.country} - ${user.address.pincode}`
-                    : "Not provided"
-                )}
-              </View>
-            )}
-          </View>
-        )}
-
+        {/* --- BOTTOM CONTAINER MOVED TO BE PART OF SCROLLVIEW CONTENT --- */}
         <View
           style={[
             styles.bottomContainer,
@@ -480,42 +378,36 @@ export default function UserProfileScreen() {
               styles.sectionItem,
               { borderBottomColor: colors.borderColor },
             ]}
+            onPress={handleToggleHelpCenter}
           >
             <View style={styles.sectionLeft}>
-              <Ionicons
-                name="help-circle-outline"
-                size={width * 0.05}
-                color={colors.starbucksGreen}
-              />
+              <Ionicons name="help-circle-outline" size={width * 0.05} color={colors.starbucksGreen} />
               <Text style={[styles.sectionText, { color: colors.sectionText }]}>
                 HELP CENTER
               </Text>
             </View>
             <Ionicons
-              name="chevron-forward"
+              name={showHelpCenterDetails ? "chevron-down" : "chevron-forward"}
               size={width * 0.06}
-              color={colors.sectionText} // Using sectionText for gray color
+              color={colors.sectionText}
             />
           </TouchableOpacity>
+          
+          {/* Conditional rendering of Help Center Details */}
+          {showHelpCenterDetails && renderHelpCenterDetails()}
 
-          {/* New Profile Section (toggles visibility of the card) */}
-          {user?.token && ( // Only show if user is logged in
+          {/* Profile Section - Toggles visibility of the card */}
+          {user?.token && (
             <TouchableOpacity
               style={[
                 styles.sectionItem,
                 { borderBottomColor: colors.borderColor },
               ]}
-              onPress={handleToggleProfileData} // This now toggles the profile data card
+              onPress={handleToggleProfileData}
             >
               <View style={styles.sectionLeft}>
-                <Ionicons
-                  name="person-outline"
-                  size={width * 0.05}
-                  color={colors.starbucksGreen}
-                />
-                <Text
-                  style={[styles.sectionText, { color: colors.sectionText }]}
-                >
+                <Ionicons name="person-outline" size={width * 0.05} color={colors.starbucksGreen} />
+                <Text style={[styles.sectionText, { color: colors.sectionText }]}>
                   PROFILE
                 </Text>
               </View>
@@ -527,19 +419,19 @@ export default function UserProfileScreen() {
             </TouchableOpacity>
           )}
 
+          {/* Conditional rendering of Profile Card */}
+          {user?.token && showProfileData && renderProfileCard()}
+
           {/* Rate Us Section */}
           <TouchableOpacity
             style={[
               styles.sectionItem,
               { borderBottomColor: colors.borderColor },
             ]}
+            onPress={handleRateUsPress}
           >
             <View style={styles.sectionLeft}>
-              <Ionicons
-                name="star-outline"
-                size={width * 0.05}
-                color={colors.starbucksGreen}
-              />
+              <Ionicons name="star-outline" size={width * 0.05} color={colors.starbucksGreen} />
               <Text style={[styles.sectionText, { color: colors.sectionText }]}>
                 RATE US ON THE APP STORE
               </Text>
@@ -547,20 +439,16 @@ export default function UserProfileScreen() {
             <Ionicons
               name="chevron-forward"
               size={width * 0.06}
-              color={colors.sectionText} // Using sectionText for gray color
+              color={colors.sectionText}
             />
           </TouchableOpacity>
 
-          {user?.token && ( // Only show logout if user is logged in
+          {user?.token && (
             <TouchableOpacity
               style={[styles.actionButton, styles.logoutButton]}
               onPress={handleLogout}
             >
-              <Ionicons
-                name="log-out-outline"
-                size={width * 0.045}
-                color="#fff"
-              />
+              <Ionicons name="log-out-outline" size={width * 0.045} color="#fff" />
               <Text style={styles.actionButtonText}>Logout</Text>
             </TouchableOpacity>
           )}
@@ -569,6 +457,7 @@ export default function UserProfileScreen() {
             BLuxury version 1.0.0
           </Text>
         </View>
+        {/* --- END BOTTOM CONTAINER --- */}
       </ScrollView>
     </SafeAreaView>
   );
@@ -590,7 +479,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: width * 0.04,
     paddingVertical: height * 0.015,
-    backgroundColor: "transparent", // Background handled by SafeAreaView
+    backgroundColor: "transparent",
   },
   headerButton: {
     padding: 5,
@@ -606,110 +495,75 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: height * 0.03,
     paddingBottom: height * 0.04,
-    backgroundColor: "transparent", // Background handled by SafeAreaView
+    backgroundColor: "transparent",
   },
   profileImageContainer: {
     width: width * 0.4,
     height: width * 0.4,
-    borderRadius: width * 0.2, // Half of width/height for perfect circle
+    borderRadius: width * 0.2,
     borderWidth: 2,
+    borderColor: "#000000",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: height * 0.03,
-    overflow: "hidden", // Ensure inner parts are clipped
+    overflow: "hidden",
+    backgroundColor: "#E0E0E0",
   },
-  cupBase: {
-    width: "80%",
-    height: "85%",
-    borderRadius: 5,
-    position: "absolute",
-    bottom: 0,
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-  },
-  cupSleeve: {
-    width: "90%",
-    height: "40%",
-    borderRadius: 5,
-    position: "absolute",
-    top: "30%",
-    zIndex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  cupFace: {
-    position: "absolute",
-    top: "45%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "60%",
-    zIndex: 2,
-  },
-  cupEye: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 5,
-  },
-  cupMouth: {
-    width: 25,
-    height: 12,
-    borderRadius: 15,
-    borderTopWidth: 2,
-    position: "absolute",
-    top: 15, // Adjust vertical position of mouth
+  profileImage: {
+    width: "100%",
+    height: "100%",
   },
   welcomeText: {
     fontSize: width * 0.06,
     fontWeight: "bold",
     color: "#000000",
     marginBottom: height * 0.02,
-    fontFamily: "sans-serif-medium", // Trying to match the font style
+    fontFamily: "sans-serif-medium",
   },
   loggedInUserText: {
-    fontSize: width * 0.055, // Slightly larger for logged-in name
+    fontSize: width * 0.055,
     fontWeight: "bold",
     marginTop: height * 0.01,
     fontFamily: "sans-serif-medium",
-    marginBottom: height * 0.03, // Add some space below the name
+    marginBottom: height * 0.03,
   },
   loginButton: {
     paddingVertical: height * 0.015,
     paddingHorizontal: width * 0.08,
-    borderRadius: 25, // More rounded corners
+    borderRadius: 25,
   },
   loginButtonText: {
     fontSize: width * 0.04,
     fontWeight: "bold",
     fontFamily: "sans-serif-medium",
   },
-  profileCard: {
-    width: "90%",
+  // --- NEW STYLE for inline profile card ---
+  profileCardInline: {
+    width: "100%", // Take up full width of bottomContainer padding area
     borderRadius: 15,
     padding: width * 0.05,
-    marginTop: height * 0.02, // Margin to separate from top section
-    marginBottom: height * 0.02,
-    alignSelf: "center", // Center the card
-    elevation: 5, // For shadow effect on Android
-    shadowColor: "#000", // For shadow effect on iOS
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
+    paddingTop: height * 0.02,
+    marginTop: height * 0.01, 
+    marginBottom: height * 0.01,
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    position: 'relative', // Necessary for the edit icon to be positioned correctly
   },
   editProfileIconButton: {
     padding: width * 0.02,
-    alignSelf: "flex-end", // Aligns to the right within its parent
-    position: "absolute", // Allows precise positioning within the card
-    top: 0,
-    right: 0,
-    zIndex: 1, // Ensure it's above other content
+    position: "absolute",
+    top: 5, // Adjusted to fit inside the new card style
+    right: 5,
+    zIndex: 1,
   },
   displaySection: {
-    // No specific styles needed here, as the card styles are on profileCard
+    // No specific styles needed here
   },
   editSection: {
-    // No specific styles needed here, as the card styles are on profileCard
+    // No specific styles needed here
   },
   infoRow: {
     flexDirection: "row",
@@ -719,7 +573,7 @@ const styles = StyleSheet.create({
   },
   infoTextContainer: {
     marginLeft: width * 0.03,
-    flex: 1, // Allows text to take available space
+    flex: 1,
   },
   infoLabel: {
     fontSize: width * 0.035,
@@ -759,20 +613,20 @@ const styles = StyleSheet.create({
     borderRadius: 25,
   },
   saveButton: {
-    backgroundColor: "#28a745", // Green for save
+    backgroundColor: "#28a745",
     flex: 1,
     marginRight: width * 0.015,
   },
   cancelButton: {
-    backgroundColor: "#dc3545", // Red for cancel
+    backgroundColor: "#dc3545",
     flex: 1,
     marginLeft: width * 0.015,
   },
   logoutButton: {
-    backgroundColor: "#dc3545", // Red for logout
+    backgroundColor: "#dc3545",
     marginTop: height * 0.03,
     alignSelf: "center",
-    width: "60%", // Adjust width
+    width: "60%",
   },
   actionButtonText: {
     color: "#fff",
@@ -786,12 +640,12 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 25,
     paddingHorizontal: width * 0.05,
     paddingTop: height * 0.04,
-    elevation: 5, // For shadow effect on Android
-    shadowColor: "#000", // For shadow effect on iOS
+    elevation: 5,
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: -3 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
-    marginTop: height * 0.02, // Adjust margin to separate from top container
+    marginTop: height * 0.02,
   },
   sectionItem: {
     flexDirection: "row",
@@ -808,15 +662,36 @@ const styles = StyleSheet.create({
   sectionText: {
     fontSize: width * 0.04,
     marginLeft: width * 0.03,
-    fontWeight: "600", // Semi-bold
+    fontWeight: "600",
     fontFamily: "sans-serif-medium",
   },
   versionText: {
     textAlign: "center",
     marginTop: height * 0.05,
-    marginBottom: height * 0.1, // Add some bottom margin for spacing
+    marginBottom: height * 0.1,
     fontSize: width * 0.035,
-    fontFamily: "sans-serif-light", // Lighter font for version
+    fontFamily: "sans-serif-light",
+  },
+  // Help Center Details Styles
+  detailsContainer: {
+    paddingHorizontal: width * 0.05,
+    paddingVertical: height * 0.01,
+    backgroundColor: '#F9F9F9',
+    borderRadius: 10,
+    marginBottom: height * 0.01,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    marginHorizontal: width * 0.02, // Adjust to fit inside the padding of bottomContainer
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: height * 0.01,
+  },
+  detailText: {
+    fontSize: width * 0.04,
+    marginLeft: width * 0.03,
+    textDecorationLine: 'underline',
   },
   // Simple leaf illustrations (approximations)
   leafTopLeft: {

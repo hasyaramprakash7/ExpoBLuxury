@@ -1,5 +1,4 @@
 // App.tsx
-// --- App.tsx (Main App entry point) ---
 import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
@@ -27,6 +26,7 @@ import * as Font from "expo-font";
 import * as SplashScreenExpo from "expo-splash-screen";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import axios from "axios";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 // --- Redux Imports ---
 import { store, RootState, AppDispatch } from "./src/app/store";
@@ -39,13 +39,11 @@ import {
 } from "./src/features/deliveryBoy/deliveryBoyOrderSlice";
 
 // --- Screen Imports ---
-// User Screens
 import LoginScreen from "./src/userScreens/LoginScreen";
 import SignupScreen from "./src/userScreens/SignupScreen";
 import UserTabNavigator from "./src/navigation/UserTabNavigator";
 import UserProfileScreen from "./src/userScreens/UserProfileScreen";
 import UserOrderScreen from "./src/userScreens/UserOrderScreen";
-// Vendor Screens
 import VendorLoginScreen from "./src/vendorScreens/VendorLoginScreen";
 import SignupVendorScreen from "./src/vendorScreens/SignupVendorScreen";
 import VendorDashboardScreen from "./src/vendorScreens/VendorDashboardScreen";
@@ -53,12 +51,10 @@ import VendorProductCRUDScreen from "./src/vendorScreens/VendorProductCRUD";
 import VendorOrderList from "./src/vendorScreens/VendorOrderList";
 import AllDeliveryBoys from "./src/vendorScreens/AllDeliveryBoys";
 import WhatsappInvoiceSender from "./src/vendorScreens/WhatsappInvoiceSender";
-// Delivery Boy Screens
 import DeliveryBoyLoginScreen from "./src/deliveryBoyScreens/DeliveryBoyLoginScreen";
 import DeliveryBoySignupScreen from "./src/deliveryBoyScreens/DeliveryBoySignupScreen";
 import DeliveryBoyDashboardScreen from "./src/deliveryBoyScreens/DeliveryBoyDashboardScreen";
 import DeliveryBoyOrdersPage from "./src/deliveryBoyScreens/DeliveryBoyOrders";
-// General Screens
 import ProductDetailsScreen from "./src/components/ProductDetailsScreen";
 import OrderScreen from "./src/screens/OrderScreen";
 import CartScreen from "./src/screens/Cart";
@@ -70,6 +66,10 @@ import BrandProductsScreen from "./src/screens/BrandProductsScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import ProductSearchScreen from "./src/screens/ProductSearchScreen";
 import MyCategoriesScreen from "./src/screens/MyCategoriesScreen";
+import InsuranceProductCRUDScreen from "./src/vendorScreens/InsuranceProductCRUDScreen";
+import VendorAppointmentsList from "./src/vendorScreens/VendorAppointmentsList";
+import InsuranceProductsAndDetails from "./src/screens/InsuranceProductsAndDetails";
+import ProductDetailScreen from "./src/components/ProductDetailScreen";
 
 // --- Keep the splash screen visible while we fetch resources ---
 SplashScreenExpo.preventAutoHideAsync();
@@ -135,6 +135,10 @@ export type RootStackParamList = {
   CategoryProducts: { categoryName: string };
   ShopProducts: { vendorId: string; vendorName: string };
   BrandProducts: { brandName: string };
+  InsuranceProductCRUD: undefined;
+  VendorAppointmentsList: undefined;
+  InsuranceProductsAndDetails: undefined; // <-- Corrected this entry
+  ProductDetailScreen: { productId: string }; // <-- Added this new screen for Insurance product details
 };
 
 export type BottomTabParamList = {
@@ -355,18 +359,18 @@ const AppNavigator = () => {
         ]);
 
         if (deliveryBoyToken) {
-          dispatch(fetchDeliveryBoyProfile())
+          dispatch(fetchDeliveryBoyProfile() as any)
             .unwrap()
             .catch(() => {
               dispatch(logoutDeliveryBoy());
             });
         }
         if (userToken) {
-          dispatch(fetchUserProfile());
-          dispatch(fetchCart());
+          dispatch(fetchUserProfile() as any);
+          dispatch(fetchCart() as any);
         }
         if (vendorToken) {
-          dispatch(fetchVendorProfile());
+          dispatch(fetchVendorProfile() as any);
         }
       } catch (e) {
         console.error("Failed to load resources or tokens", e);
@@ -425,6 +429,14 @@ const AppNavigator = () => {
           component={VendorProductCRUDScreen}
         />
         <Stack.Screen name="VendorOrderList" component={VendorOrderList} />
+        <Stack.Screen
+          name="InsuranceProductCRUD"
+          component={InsuranceProductCRUDScreen}
+        />
+        <Stack.Screen
+          name="VendorAppointmentsList"
+          component={VendorAppointmentsList}
+        />
         <Stack.Screen name="ActiveDeliveryBoys" component={AllDeliveryBoys} />
         <Stack.Screen
           name="VendorGenerateInvoice"
@@ -460,7 +472,16 @@ const AppNavigator = () => {
           name="CategoryProducts"
           component={CategoryProductsScreen}
         />
+          
         <Stack.Screen name="Search" component={ProductSearchScreen} />
+        <Stack.Screen
+          name="InsuranceProductsAndDetails"
+          component={InsuranceProductsAndDetails}
+        />
+        <Stack.Screen // <-- New entry for the specific insurance product detail screen
+          name="ProductDetailScreen"
+          component={ProductDetailScreen}
+        />
         <Stack.Screen
           name="MyCategoriesScreen"
           component={MyCategoriesScreen}
@@ -471,7 +492,6 @@ const AppNavigator = () => {
       </Stack.Navigator>
     );
   } else {
-    // --- FIX: Conditionally set the initial route based on the last action's error ---
     if (vendorError) {
       initialAuthRoute = "VendorLogin";
     }
@@ -507,10 +527,12 @@ const AppNavigator = () => {
 export default function App() {
   return (
     <Provider store={store}>
-      <SafeAreaProvider>
-        <AppNavigator />
-        <Toast config={toastConfig} />
-      </SafeAreaProvider>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <AppNavigator />
+          <Toast config={toastConfig} />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
     </Provider>
   );
 }

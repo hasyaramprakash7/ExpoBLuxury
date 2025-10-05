@@ -17,13 +17,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
-import { addOrUpdateItem } from "../features/cart/cartSlice"; // This is the corrected import
+import { addOrUpdateItem } from "../features/cart/cartSlice";
 import image from "../../assets/How To Choose The Right E-commerce Platform_ A Guide For Business Growth.jpeg";
+import image1 from "../../assets/Gemini_Generated_Image_an9bnuan9bnuan9b.png";
 
-// --- Import the new component ---
 import NewProductCard1 from "../components/NewPeoductCard1";
 
-// --- Redux Slices & Types ---
 import { AppDispatch, RootState } from "../app/store";
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
@@ -47,13 +46,11 @@ const Colors = {
   lightgreen: "#23df9eff",
 };
 
-// --- Helper function to format category names by replacing underscores with spaces ---
 const getCategoryName = (fullCategoryName) => {
   if (!fullCategoryName) return "";
   return fullCategoryName.replace(/_/g, " ");
 };
 
-// --- Haversine Distance Calculation Function ---
 const haversineDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -78,8 +75,6 @@ const shuffleArray = (array) => {
   return newArray;
 };
 
-// --- Re-created Components for New UI ---
-
 const TabBarButton = ({ iconName, label, isSelected = false }) => (
   <TouchableOpacity style={allStyles.tabButton}>
     <Ionicons
@@ -98,10 +93,10 @@ const TabBarButton = ({ iconName, label, isSelected = false }) => (
   </TouchableOpacity>
 );
 
-const SectionHeader = ({ title }) => (
+const SectionHeader = ({ title, onPress }) => (
   <View style={allStyles.sectionHeader}>
     <Text style={allStyles.sectionTitle}>{title}</Text>
-    <TouchableOpacity style={allStyles.seeAllButton}>
+    <TouchableOpacity style={allStyles.seeAllButton} onPress={onPress}>
       <Text style={allStyles.seeAllText}>See All</Text>
       <Ionicons
         name="chevron-forward-outline"
@@ -111,55 +106,6 @@ const SectionHeader = ({ title }) => (
     </TouchableOpacity>
   </View>
 );
-
-const TopDealsCard = ({ product, onPress }) => {
-  const originalPrice = product.price;
-  const discountedPrice = product.discountedPrice;
-  let discountPercentage = 0;
-
-  // Calculate the discount percentage if both prices are available and valid
-  if (originalPrice && discountedPrice && originalPrice > discountedPrice) {
-    discountPercentage = ((originalPrice - discountedPrice) / originalPrice) * 100;
-  }
-
-  return (
-    <TouchableOpacity
-      style={allStyles.topDealCard}
-      onPress={() => onPress(product)}
-    >
-      <View style={allStyles.superBadge}>
-        <Text style={allStyles.superBadgeText}>Super</Text>
-      </View>
-      <Image source={{ uri: product.images[0] }} style={allStyles.topDealImage} />
-      <View style={allStyles.topDealInfo}>
-        <Text style={allStyles.topDealName} numberOfLines={1}>
-          {product.name}
-        </Text>
-        {discountedPrice && originalPrice ? (
-          <View style={allStyles.priceContainer}>
-            <Text style={allStyles.topDealPrice}>
-              ₹{discountedPrice.toFixed(0)}
-            </Text>
-            {discountPercentage > 0 && (
-              <Text style={allStyles.discountText}>
-                {discountPercentage.toFixed(0)}%OFF
-              </Text>
-            )}
-          </View>
-        ) : (
-          <Text style={allStyles.topDealPrice}>
-            ₹{originalPrice.toFixed(2)}
-          </Text>
-        )}
-        {product.minOrderQuantity && (
-          <Text style={allStyles.topDealMinOrder}>
-            Min. order: {product.minOrderQuantity} piece
-          </Text>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-};
 
 const FloatingCartBar = () => {
   const navigation = useNavigation();
@@ -249,7 +195,6 @@ const FloatingCartBar = () => {
   );
 };
 
-// --- NEW Image Banner Component ---
 const ImageBanner = ({ imageUrl, onPress }) => (
   <TouchableOpacity onPress={onPress} style={allStyles.imageBannerContainer}>
     <Image source={imageUrl} style={allStyles.imageBanner} resizeMode="cover" />
@@ -272,6 +217,7 @@ const HomeScreen = () => {
   );
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [numRecommendedProducts, setNumRecommendedProducts] = useState(10);
 
   const fetchUserLocation = useCallback(async () => {
     dispatch(fetchLocationStart());
@@ -317,6 +263,7 @@ const HomeScreen = () => {
         dispatch(fetchAllVendorProducts()),
         fetchUserLocation(),
       ]);
+      setNumRecommendedProducts(10); // Reset count on refresh
     } catch (error) {
       console.error("Failed to refresh data:", error);
     } finally {
@@ -468,15 +415,22 @@ const HomeScreen = () => {
     navigation.navigate("CategoryProducts", { categoryName: category.name });
   };
 
-  // New handler for the image banner press
+  // Handlers for the ad banners
   const handleAdPress = () => {
-    // Navigate to a specific screen, open a URL, or perform an action
     navigation.navigate("ShopListings");
-    // Example: navigation.navigate("AdDetailsScreen");
+  };
+
+  const handleAdPress1 = () => {
+    navigation.navigate("InsuranceProductsAndDetails");
+  };
+
+  // NEW: Handler for the free shipping banner
+  const handleFreeShippingBannerPress = () => {
+    navigation.navigate("InsuranceProductsAndDetails");
   };
 
   const handleSearchPress = () => {
-    navigation.navigate("UserTabs", { screen: "Search" });
+    navigation.navigate("Search");
   };
 
   const handleCartPress = () => {
@@ -490,6 +444,46 @@ const HomeScreen = () => {
   const handleProductPress = (product) => {
     navigation.navigate("ProductDetails", { product });
   };
+
+  const handleSeeAllPress = (sectionTitle) => {
+    if (sectionTitle === "Top Deals" && topDeals.length > 0) {
+      navigation.navigate("CategoryProducts", {
+        categoryName: topDeals[0]?.category,
+      });
+    } else if (sectionTitle === "Hotels" && hotelsCategory.length > 0) {
+      navigation.navigate("CategoryProducts", { categoryName: "Hotels" });
+    } else if (sectionTitle === "Nearby Shops") {
+      navigation.navigate("ShopListings");
+    } else if (sectionTitle === "Popular Brands" && uniqueBrands.length > 0) {
+      navigation.navigate("BrandProducts", {
+        brandName: uniqueBrands[0]?.name,
+      });
+    } else if (sectionTitle === "Product Categories" && otherCategories.length > 0) {
+      navigation.navigate("CategoryProducts", {
+        categoryName: otherCategories[0]?.name,
+      });
+    }
+  };
+
+  const onScrollEnd = (event, sectionTitle) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const isAtEnd =
+      contentOffset.x >= contentSize.width - layoutMeasurement.width - 1;
+    if (isAtEnd) {
+      handleSeeAllPress(sectionTitle);
+    }
+  };
+
+  const handleRecommendedScroll = ({ nativeEvent }) => {
+    const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
+    const isCloseToBottom =
+      contentOffset.y + layoutMeasurement.height >= contentSize.height - 50;
+
+    if (isCloseToBottom && numRecommendedProducts < inRangeProducts.length) {
+      setNumRecommendedProducts((prev) => Math.min(prev + 10, inRangeProducts.length));
+    }
+  };
+
 
   const isLoading = productsLoading || vendorsLoading || isLocationLoading;
   const cartItems = useSelector((state) => state.cart.items);
@@ -551,12 +545,24 @@ const HomeScreen = () => {
             colors={[Colors.dark]}
           />
         }
+        onScroll={handleRecommendedScroll}
+        scrollEventThrottle={16}
       >
-        {/* First Order Banner */}
-        <TouchableOpacity style={allStyles.freeShippingBanner}>
+    
+        <ImageBanner
+          imageUrl={image1}
+          onPress={handleAdPress1}
+        />
+            {/* First Order Banner */}
+        <TouchableOpacity
+          style={allStyles.freeShippingBanner}
+          onPress={handleFreeShippingBannerPress}
+        >
           <View style={allStyles.bannerTextContainer}>
             <Text style={allStyles.bannerTitle}>
-              <Text style={allStyles.bannerTitleBold}>FREE shipping above 1000 ₹</Text>
+              <Text style={allStyles.bannerTitleBold}>
+               TATA ALA   10 % Returns 
+              </Text>
             </Text>
             <Text style={allStyles.bannerSubtitle}>
               Unlock exclusive perks with Savings Booster
@@ -569,40 +575,43 @@ const HomeScreen = () => {
           />
         </TouchableOpacity>
 
-        {/* New Image Ad Banner */}
-        <ImageBanner
-          imageUrl={image} // Correctly using the imported local image variable
-          onPress={handleAdPress}
-        />
 
-        {/* Top Deals Section */}
         {topDeals.length > 0 && (
           <View style={allStyles.horizontalSection}>
-            <SectionHeader title="Top Deals" />
+            <SectionHeader
+              title="Top Deals"
+              onPress={() => handleSeeAllPress("Top Deals")}
+            />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={allStyles.horizontalScrollContainer}
+              onScrollEndDrag={(event) => onScrollEnd(event, "Top Deals")}
             >
-              {topDeals.map((product, index) => (
-                <TopDealsCard
-                  key={index}
-                  product={product}
-                  onPress={handleProductPress}
-                />
+              {topDeals.map((product) => (
+                <View key={product._id} style={allStyles.horizontalItemContainer}>
+                  <NewProductCard1
+                    product={product}
+                    isVendorOffline={false} // Assuming online for top deals
+                    isVendorOutOfRange={false} // Assuming in range for top deals
+                  />
+                </View>
               ))}
             </ScrollView>
           </View>
         )}
 
-        {/* Hotels Section (No Price) */}
         {hotelsCategory.length > 0 && (
           <View style={allStyles.horizontalSection}>
-            <SectionHeader title="Hotels" />
+            <SectionHeader
+              title="Hotels"
+              onPress={() => handleSeeAllPress("Hotels")}
+            />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={allStyles.horizontalScrollContainer}
+              onScrollEndDrag={(event) => onScrollEnd(event, "Hotels")}
             >
               {hotelsCategory.slice(0, 4).map((hotel, index) => (
                 <TouchableOpacity
@@ -630,14 +639,17 @@ const HomeScreen = () => {
           </View>
         )}
 
-        {/* Nearby Shops Section (No Price) */}
         {uniqueShops.length > 0 && (
           <View style={allStyles.horizontalSection}>
-            <SectionHeader title="Nearby Shops" />
+            <SectionHeader
+              title="Nearby Shops"
+              onPress={() => handleSeeAllPress("Nearby Shops")}
+            />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={allStyles.horizontalScrollContainer}
+              onScrollEndDrag={(event) => onScrollEnd(event, "Nearby Shops")}
             >
               {uniqueShops.slice(0, 4).map((shop, index) => (
                 <TouchableOpacity
@@ -669,46 +681,52 @@ const HomeScreen = () => {
           </View>
         )}
 
-        {/* Popular Brands Section (With Price) */}
         {uniqueBrands.length > 0 && (
           <View style={allStyles.horizontalSection}>
-            <SectionHeader title="Popular Brands" />
+            <SectionHeader
+              title="Popular Brands"
+              onPress={() => handleSeeAllPress("Popular Brands")}
+            />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={allStyles.horizontalScrollContainer}
+              onScrollEndDrag={(event) => onScrollEnd(event, "Popular Brands")}
             >
               {uniqueBrands.slice(0, 4).map((brand, index) => {
-                const brandProduct = inRangeProducts.find(
+                const productForBrand = inRangeProducts.find(
                   (p) => p.brandName === brand.name
                 );
+                if (!productForBrand) return null;
+                const vendorForProduct = inRangeVendors.find(v => v._id === productForBrand.vendorId);
+                const isVendorOffline = vendorForProduct ? !vendorForProduct.isOnline : false;
+                const isVendorOutOfRange = vendorForProduct ? vendorForProduct.distance > vendorForProduct.deliveryRange : false;
+
                 return (
-                  <TopDealsCard
-                    key={index}
-                    product={{
-                      ...brand,
-                      price: brandProduct?.price || 0,
-                      discountedPrice: brandProduct?.discountedPrice,
-                      minOrderQuantity: brandProduct?.minOrderQuantity || 1,
-                      images: [brand.imageUrl],
-                      name: brand.name,
-                    }}
-                    onPress={() => handleBrandPress(brand)}
-                  />
+                  <View key={index} style={allStyles.horizontalItemContainer}>
+                    <NewProductCard1
+                      product={productForBrand}
+                      isVendorOffline={isVendorOffline}
+                      isVendorOutOfRange={isVendorOutOfRange}
+                    />
+                  </View>
                 );
               })}
             </ScrollView>
           </View>
         )}
 
-        {/* Product Categories Section (No Price) */}
         {otherCategories.length > 0 && (
           <View style={allStyles.horizontalSection}>
-            <SectionHeader title="Product Categories" />
+            <SectionHeader
+              title="Product Categories"
+              onPress={() => handleSeeAllPress("Product Categories")}
+            />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={allStyles.horizontalScrollContainer}
+              onScrollEndDrag={(event) => onScrollEnd(event, "Product Categories")}
             >
               {otherCategories.slice(0, 4).map((category, index) => (
                 <TouchableOpacity
@@ -737,12 +755,11 @@ const HomeScreen = () => {
           </View>
         )}
 
-        {/* Recommended Products Section */}
         {inRangeProducts.length > 0 && (
           <View style={allStyles.gridSection}>
             <SectionHeader title="Recommended for you" />
             <View style={allStyles.productGridContainer}>
-              {inRangeProducts.slice(0, 10).map((product) => {
+              {inRangeProducts.slice(0, numRecommendedProducts).map((product) => {
                 const vendor = inRangeVendors.find(
                   (v) => v._id === product.vendorId
                 );
@@ -786,11 +803,7 @@ const HomeScreen = () => {
               <Text style={allStyles.searchPlaceholder}>55 inch smart tv</Text>
             </TouchableOpacity>
             <TouchableOpacity style={allStyles.cameraButton}>
-              <Ionicons
-                name="search"
-                size={24}
-                color={Colors.grayText}
-              />
+              <Ionicons name="search" size={24} color={Colors.grayText} />
             </TouchableOpacity>
             <TouchableOpacity
               style={allStyles.cartButton}
@@ -820,7 +833,6 @@ const HomeScreen = () => {
 
         {renderContent()}
 
-        {/* Render the Floating Cart Bar if cart is not empty */}
         {!isCartEmpty && <FloatingCartBar />}
       </View>
     </SafeAreaView>
@@ -932,10 +944,9 @@ const allStyles = StyleSheet.create({
     fontSize: 12,
     color: Colors.grayText,
   },
-  // --- Styles for the new Image Banner component ---
   imageBannerContainer: {
     width: "100%",
-    height: 150, // Adjust the height as needed
+    height: 250,
     marginTop: 10,
     paddingHorizontal: 10,
   },
@@ -944,7 +955,6 @@ const allStyles = StyleSheet.create({
     height: "100%",
     borderRadius: 8,
   },
-  // --- End new styles ---
   categoriesSection: {
     paddingVertical: 10,
     backgroundColor: Colors.white,
@@ -995,6 +1005,11 @@ const allStyles = StyleSheet.create({
   },
   horizontalScrollContainer: {
     paddingHorizontal: 10,
+  },
+  // New style for horizontal NewProductCard1
+  horizontalItemContainer: {
+    width: width * 0.43,
+    marginRight: 10,
   },
   topDealCard: {
     width: width * 0.35,
@@ -1059,7 +1074,7 @@ const allStyles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   itemContainer: {
-    width: "48%", // 2 items per row with spacing
+    width: "48%",
     marginBottom: 15,
   },
   loadingContainer: {
@@ -1119,7 +1134,7 @@ const allStyles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 12,
-    zIndex: 999, // Add a high zIndex to make it float on top
+    zIndex: 999,
   },
   floatingCartTextContainer: {
     flex: 1,
@@ -1182,7 +1197,6 @@ const allStyles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
   },
-  // New styles for discount text
   priceContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1191,7 +1205,7 @@ const allStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "bold",
     color: Colors.redAlert,
-    backgroundColor: "rgba(220, 38, 38, 0.1)", // Light red background for emphasis
+    backgroundColor: "rgba(220, 38, 38, 0.1)",
     paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 4,

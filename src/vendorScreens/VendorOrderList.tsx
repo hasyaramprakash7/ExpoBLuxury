@@ -266,6 +266,10 @@ const VendorOrderList = () => {
         {
           text: "Yes",
           onPress: () => {
+            // Check if the new status is 'processing'
+            if (newStatus === "processing") {
+              handleNewOrderAcknowledgment(); // This stops the sound and resets the alert state
+            }
             dispatch(updateVendorOrderStatus({ orderId, newStatus }))
               .unwrap()
               .then(() => {

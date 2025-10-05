@@ -139,35 +139,50 @@ export default function VendorProductCRUDScreen() {
     }
 
     const brandName = form.brandName.trim();
-    if (brandName.length < 2 || brandName.length > 50) {
+    if (
+      brandName.length > 0 &&
+      (brandName.length < 2 || brandName.length > 50)
+    ) {
       Alert.alert(
         "Validation Error",
-        "Brand Name must be between 2 and 50 characters."
+        "Brand Name must be between 2 and 50 characters, or empty."
       );
       return;
     }
 
-    let finalCategory = selectedMainCategory;
-    if (selectedSubCategory) {
-      finalCategory += `_${selectedSubCategory}`;
-    } else {
-      Alert.alert("Validation Error", "Please select a subcategory.");
+    // Check if a category has been selected for new products
+    // For updates, the category might not change, so this check is only for new products
+    if (!editingId && !selectedMainCategory) {
+      Alert.alert("Validation Error", "Please select a category.");
       return;
-    }
-
-    if (form.category) {
-      finalCategory += `_${form.category}`;
     }
 
     const formData = new FormData();
     Object.keys(form).forEach((key) => {
-      if (key !== "category" && form[key as keyof typeof form] !== "") {
-        formData.append(key, (form as any)[key]);
+      const value = form[key as keyof typeof form];
+      if (value !== "") {
+        // Ensure correct string and boolean handling
+        if (typeof value === "boolean") {
+          formData.append(key, value.toString());
+        } else if (typeof value === "string") {
+          formData.append(key, value);
+        } else if (typeof value === "number") {
+          formData.append(key, value.toString());
+        }
       }
     });
 
-    formData.append("category", finalCategory);
+    // Construct the full category string to send to the backend
+    let finalCategory = selectedMainCategory;
+    if (selectedSubCategory) {
+      finalCategory += `_${selectedSubCategory}`;
+    }
+    if (form.category) {
+      finalCategory += `_${form.category}`;
+    }
+    formData.set("category", finalCategory);
 
+    // Append new image files
     newImageFiles.forEach((file) => {
       const uriParts = file.uri.split(".");
       const fileType = uriParts[uriParts.length - 1];
@@ -178,8 +193,11 @@ export default function VendorProductCRUDScreen() {
       } as any);
     });
 
-    if (editingId) {
-      formData.append("currentImages", JSON.stringify(currentProductImageUrls));
+    // For update, append the current images to keep them
+    if (editingId && currentProductImageUrls.length > 0) {
+      currentProductImageUrls.forEach((url) => {
+        formData.append("images", url);
+      });
     }
 
     try {
@@ -207,68 +225,46 @@ export default function VendorProductCRUDScreen() {
   const handleEdit = (product: any) => {
     setEditingId(product._id);
     const categoryString = product.category || "";
+    const categoryParts = categoryString.split("_");
 
-    setSelectedMainCategory("");
-    setSelectedSubCategory("");
-    handleChange("category", "");
+    // Reset category states
+    setSelectedMainCategory(categoryParts[0] || "");
+    setSelectedSubCategory(categoryParts[1] || "");
 
-    // Normalize the category string by replacing underscores with spaces
-    const normalizedString = categoryString.replace(/_/g, " ");
-
-    let parsedMainCategory = "";
-    let parsedSubCategory = "";
-    let parsedSubSubCategory = "";
-    let remainingString = normalizedString;
-
-    // Find the main category
-    const mainKeys = Object.keys(categories).sort(
-      (a, b) => b.length - a.length
-    );
-    for (const key of mainKeys) {
-      if (normalizedString.startsWith(key)) {
-        parsedMainCategory = key;
-        remainingString = normalizedString.substring(key.length).trim();
-        break;
-      }
-    }
-    setSelectedMainCategory(parsedMainCategory);
-
-    // Find the subcategory
-    if (parsedMainCategory) {
-      const subCatData =
-        categories[parsedMainCategory as keyof typeof categories];
-      if (subCatData) {
-        const subKeys = Object.keys(subCatData).sort(
-          (a, b) => b.length - a.length
-        );
-        for (const key of subKeys) {
-          if (remainingString.startsWith(key)) {
-            parsedSubCategory = key;
-            remainingString = remainingString.substring(key.length).trim();
-            break;
-          }
-        }
-        setSelectedSubCategory(parsedSubCategory);
-
-        // The remaining string is the sub-subcategory
-        if (parsedSubCategory) {
-          parsedSubSubCategory = remainingString;
-          handleChange("category", parsedSubSubCategory);
-        }
-      }
-    }
-
-    const formValues = Object.keys(initialFormState).reduce((acc, key) => {
-      acc[key] = product[key] !== undefined ? String(product[key]) : "";
-      return acc;
-    }, {} as any);
-
+    // Populate all form fields from the product object
     setForm({
-      ...formValues,
+      name: product.name || "",
+      description: product.description || "",
+      brandName: product.brandName || "", // FIX: Populate brandName
+      price: product.price !== undefined ? String(product.price) : "",
+      discountedPrice:
+        product.discountedPrice !== undefined
+          ? String(product.discountedPrice)
+          : "",
+      discountPercent:
+        product.discountPercent !== undefined
+          ? String(product.discountPercent)
+          : "",
+      category: categoryParts.slice(2).join("_") || "", // FIX: Correctly set the last part of the category
+      stock: product.stock !== undefined ? String(product.stock) : "", // FIX: Populate stock
       isAvailable: product.isAvailable,
-      category: parsedSubSubCategory, // Use the parsed value
+      bulkPrice:
+        product.bulkPrice !== undefined ? String(product.bulkPrice) : "",
+      bulkMinimumUnits:
+        product.bulkMinimumUnits !== undefined
+          ? String(product.bulkMinimumUnits)
+          : "",
+      largeQuantityPrice:
+        product.largeQuantityPrice !== undefined
+          ? String(product.largeQuantityPrice)
+          : "",
+      largeQuantityMinimumUnits:
+        product.largeQuantityMinimumUnits !== undefined
+          ? String(product.largeQuantityMinimumUnits)
+          : "",
     });
 
+    // Set images
     setCurrentProductImageUrls(product.images || []);
     setNewImageFiles([]);
   };
@@ -292,22 +288,39 @@ export default function VendorProductCRUDScreen() {
     if (currentLevel === "main") {
       setSelectedMainCategory(value);
       setSelectedSubCategory("");
-      handleChange("category", "");
-      setCurrentLevel("sub");
+      setForm((prev) => ({ ...prev, category: "" }));
+
+      const subcategories = categories[value as keyof typeof categories];
+      if (
+        subcategories &&
+        typeof subcategories === "object" &&
+        !Array.isArray(subcategories)
+      ) {
+        setCurrentLevel("sub");
+      } else {
+        setForm((prev) => ({ ...prev, category: value }));
+        setIsModalVisible(false);
+      }
     } else if (currentLevel === "sub") {
       setSelectedSubCategory(value);
-      handleChange("category", "");
-      if (
+      setForm((prev) => ({ ...prev, category: "" }));
+
+      const subSubcategories =
         categories[selectedMainCategory as keyof typeof categories]?.[
           value as keyof (typeof categories)[keyof typeof categories]
-        ]?.length > 0
+        ];
+      if (
+        subSubcategories &&
+        Array.isArray(subSubcategories) &&
+        subSubcategories.length > 0
       ) {
         setCurrentLevel("sub-sub");
       } else {
+        setForm((prev) => ({ ...prev, category: value }));
         setIsModalVisible(false);
       }
     } else if (currentLevel === "sub-sub") {
-      handleChange("category", value);
+      setForm((prev) => ({ ...prev, category: value }));
       setIsModalVisible(false);
     }
     setFilterQuery("");

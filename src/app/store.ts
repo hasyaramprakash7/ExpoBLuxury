@@ -5,10 +5,10 @@ import vendorOrderReducer from '../features/vendor/vendorOrderSlice';
 import cartReducer from '../features/cart/cartSlice';
 import orderReducer from '../features/orders/orderSlice';
 import vendorProductReducer from "../features/vendor/vendorProductSlices";
-
-// Correctly import the deliveryBoyAuthReducer (assuming it's the default export from deliveryBoyOrderSlice)
 import deliveryBoyAuthReducer from '../features/deliveryBoy/deliveryBoyOrderSlice';
-import locationReducer from "../features/locationSlice"; // <-- Add this line
+import locationReducer from "../features/locationSlice";
+import insuranceReducer from "../features/insuranceSlice"; // <-- New import for the insurance slice
+import appointmentReducer from '../features/appointmentSlice';
 
 export const store = configureStore({
   reducer: {
@@ -18,17 +18,17 @@ export const store = configureStore({
     vendorProducts: vendorProductReducer,
     cart: cartReducer,
     order: orderReducer,
-    location: locationReducer, // <-- Add this line
-    // Ensure the key here matches what you use in useSelector
-    deliveryBoyAuth: deliveryBoyAuthReducer, // This is correct
+    location: locationReducer,
+    deliveryBoyAuth: deliveryBoyAuthReducer,
+    insurance: insuranceReducer, // <-- Added the new reducer here
+        appointments: appointmentReducer,
+
   },
-  // Middleware is added to avoid serialization errors with FormData (good practice)
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: false,
     }),
 });
 
-// Define RootState and AppDispatch types for use throughout the app
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;

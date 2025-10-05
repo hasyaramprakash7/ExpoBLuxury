@@ -177,6 +177,8 @@ const VendorDashboardSidePanel = ({
             <View style={styles.navAccent} />
           </TouchableOpacity>
 
+          
+
           <TouchableOpacity
             onPress={() => navigation.navigate("VendorOrderList")}
             style={styles.navButton}
@@ -189,6 +191,35 @@ const VendorDashboardSidePanel = ({
             <Text style={styles.navSubtitle}>View & Manage</Text>
             <View style={styles.navAccent} />
           </TouchableOpacity>
+        </View>
+        <View style={styles.navigationGrid}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate("VendorAppointmentsList")}
+            style={styles.navButton}
+            activeOpacity={0.7}
+          >
+            <View style={styles.navIconRing}>
+              <Package size={28} color="#D35400" />
+            </View>
+            <Text style={styles.navTitle}>VendorAppointmentsList</Text>
+            <Text style={styles.navSubtitle}>Manage Products</Text>
+            <View style={styles.navAccent} />
+          </TouchableOpacity>
+
+           <TouchableOpacity
+            onPress={() => navigation.navigate("InsuranceProductCRUD")}
+            style={styles.navButton}
+            activeOpacity={0.7}
+          >
+            <View style={styles.navIconRing}>
+              <Package size={28} color="#D35400" />
+            </View>
+            <Text style={styles.navTitle}>InsuranceProductCRUD</Text>
+            <Text style={styles.navSubtitle}>Manage Products</Text>
+            <View style={styles.navAccent} />
+          </TouchableOpacity>
+
+       
         </View>
       </View>
 
