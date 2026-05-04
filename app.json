@@ -1,0 +1,84 @@
+{
+  "expo": {
+    "name": "BLuxury",
+    "slug": "BLuxury",
+    "version": "1.1.2",
+    "orientation": "portrait",
+    "icon": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "scheme": "bluxury",
+    "owner": "ram1234567890",
+    "splash": {
+      "image": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A3D2B"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ram1234567890.BLuxury",
+      "config": {
+        "googleMapsApiKey": "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "BLuxury needs location to show chicken vendors.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "BLuxury tracks delivery in the background.",
+        "NSMicrophoneUsageDescription": "BLuxury needs microphone for voice notes.",
+        "NSPhotoLibraryUsageDescription": "BLuxury needs photos for chat.",
+        "NSCameraUsageDescription": "BLuxury needs camera for photos.",
+        "NSContactsUsageDescription": "BLuxury needs contacts to find friends.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.ram1234567890.BLuxury",
+      "versionCode": 55,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c"
+        }
+      },
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.READ_CONTACTS",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.WAKE_LOCK",
+        "android.permission.USE_FULL_SCREEN_INTENT"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
+        "backgroundColor": "#0A3D2B"
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysPermission": "Allow BLuxury to track delivery in the background.",
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-notifications",
+      "expo-audio",
+      "expo-video",
+      "expo-image-picker",
+      "expo-contacts"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "afacfce8-3d2f-43da-a474-82a8e24597e7"
+      }
+    }
+  }
+}
