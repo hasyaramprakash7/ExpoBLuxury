@@ -29,7 +29,7 @@ import { useAudioRecorder, useAudioPlayer, AudioModule } from "expo-audio";
 import * as ImagePicker from "expo-image-picker";
 
 // 🔥 Import Notification Helper
-import { sendChatNotification } from "../utils/NotificationHelper";
+import { sendChatNotification } from "../userScreens/utils/NotificationHelper";
 
 // Shared Browser Components
 import { ParsedMessageText } from "../components/SharedChatElements";
@@ -68,7 +68,7 @@ import {
   leaveGroup,
   deleteGroup,
 } from "../features/chat/chatSlice";
-import socket from "../utils/socket";
+import socket from "../userScreens/utils/socket";
 
 const { width, height } = Dimensions.get("window");
 

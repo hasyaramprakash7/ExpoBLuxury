@@ -1,5 +1,5 @@
 import axios from 'axios';
-import config from '../config/config';
+import config from '../../config/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
@@ -44,7 +44,7 @@ api.interceptors.request.use(
                 console.error("API Interceptor: Error getting deliveryBoyToken from AsyncStorage:", e);
             }
         }
-        
+
         // 4. Fallback to regular user token if no specific role token found
         if (!token) {
             try {
@@ -89,7 +89,7 @@ api.interceptors.response.use(
             await AsyncStorage.removeItem("deliveryBoy");
             await SecureStore.deleteItemAsync("adminToken");
             await AsyncStorage.removeItem("token");
-            
+
             // You might also want to clear any corresponding user state in your Redux store.
         } else if (error.response) {
             console.error("API Interceptor Response Error:", error.response.status, error.response.data);

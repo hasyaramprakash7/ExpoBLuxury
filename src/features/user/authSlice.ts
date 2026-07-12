@@ -2,7 +2,7 @@ import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import config from '../../config/config';
-import { registerForPushNotificationsAsync } from '../../utils/NotificationHelper'; 
+import { registerForPushNotificationsAsync } from '../../userScreens/utils/NotificationHelper';
 
 // 🔥 UPDATED: Removed the embedded 'address' object to match the new normalized backend.
 // Addresses are now correctly handled globally by the locationSlice.
@@ -13,9 +13,9 @@ interface User {
   email: string;
   phone: string;
   role?: 'user' | 'vendor' | 'admin';
-  profilePic?: string | null; 
+  profilePic?: string | null;
   token: string;
-  pushToken?: string; 
+  pushToken?: string;
 }
 
 export interface RegisteredContact {
@@ -34,17 +34,17 @@ export interface AppConfigData {
 
 interface AuthState {
   user: User | null;
-  allUsers: User[]; 
-  registeredContacts: RegisteredContact[]; 
-  appConfig: AppConfigData | null; 
+  allUsers: User[];
+  registeredContacts: RegisteredContact[];
+  appConfig: AppConfigData | null;
   loading: boolean;
-  isSendingInvite: boolean; 
-  isSyncingContacts: boolean; 
+  isSendingInvite: boolean;
+  isSyncingContacts: boolean;
   error: string | null;
 }
 
 interface LoginCredentials {
-  identifier: string; 
+  identifier: string;
   password: string;
 }
 
@@ -53,7 +53,7 @@ export const fetchAppConfig = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const res = await axios.get(`${config.apiUrl}/auth/app-version`);
-      return res.data; 
+      return res.data;
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.message || 'Failed to check app version.');
     }
@@ -113,7 +113,7 @@ export const fetchAllUsers = createAsyncThunk(
       const res = await axios.get(`${config.apiUrl}/auth/all-users`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      return res.data.users; 
+      return res.data.users;
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.message || 'Failed to fetch users.');
     }
@@ -130,22 +130,22 @@ export const fetchUserProfile = createAsyncThunk(
       const res = await axios.get(`${config.apiUrl}/auth/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       const user = { ...res.data.user, token };
-      
+
       const currentPushToken = await registerForPushNotificationsAsync();
       if (currentPushToken && user.pushToken !== currentPushToken) {
-         axios.put(`${config.apiUrl}/auth/update-push-token`, { pushToken: currentPushToken }, {
-            headers: { Authorization: `Bearer ${token}` }
-         }).catch(e => console.log("Failed to update push token in background", e));
+        axios.put(`${config.apiUrl}/auth/update-push-token`, { pushToken: currentPushToken }, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch(e => console.log("Failed to update push token in background", e));
       }
 
       await AsyncStorage.setItem('user', JSON.stringify(user));
       return user;
     } catch (err: any) {
       return rejectWithValue({
-          message: err.response?.data?.message || 'Session expired. Please log in again.',
-          status: err.response?.status
+        message: err.response?.data?.message || 'Session expired. Please log in again.',
+        status: err.response?.status
       });
     }
   }
@@ -165,7 +165,7 @@ export const updateUserProfile = createAsyncThunk(
           Authorization: `Bearer ${token}`,
         },
       });
-      
+
       const updatedUser = { ...res.data.user, token };
       await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
       return updatedUser;
@@ -186,7 +186,7 @@ export const sendSmsInvites = createAsyncThunk(
       const res = await axios.post(`${config.apiUrl}/auth/send-invites`, { contacts }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      return res.data; 
+      return res.data;
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.message || 'Failed to send invites.');
     }
@@ -204,7 +204,7 @@ export const syncContacts = createAsyncThunk(
       const res = await axios.post(`${config.apiUrl}/auth/sync-contacts`, { phoneNumbers }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      return res.data.registeredContacts; 
+      return res.data.registeredContacts;
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.message || 'Failed to sync contacts.');
     }
@@ -229,18 +229,18 @@ export const logoutUser = createAsyncThunk(
       await AsyncStorage.removeItem('user');
       await AsyncStorage.removeItem('token');
     }
-    return true; 
+    return true;
   }
 );
 
 const initialState: AuthState = {
   user: null,
-  allUsers: [], 
-  registeredContacts: [], 
-  appConfig: null, 
+  allUsers: [],
+  registeredContacts: [],
+  appConfig: null,
   loading: false,
-  isSendingInvite: false, 
-  isSyncingContacts: false, 
+  isSendingInvite: false,
+  isSyncingContacts: false,
   error: null,
 };
 
@@ -292,14 +292,14 @@ const authSlice = createSlice({
       .addCase(fetchUserProfile.rejected, (state, action: any) => {
         state.loading = false;
         const status = action.payload?.status;
-        
+
         if (status === 401) {
-            state.error = action.payload?.message as string;
-            state.user = null;
-            AsyncStorage.removeItem('user');
-            AsyncStorage.removeItem('token');
+          state.error = action.payload?.message as string;
+          state.user = null;
+          AsyncStorage.removeItem('user');
+          AsyncStorage.removeItem('token');
         } else {
-            state.error = 'Network error: Using cached profile.';
+          state.error = 'Network error: Using cached profile.';
         }
       })
       .addCase(updateUserProfile.pending, (state) => { state.loading = true; })
@@ -311,16 +311,16 @@ const authSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      .addCase(sendSmsInvites.pending, (state) => { 
-        state.isSendingInvite = true; 
-        state.error = null; 
+      .addCase(sendSmsInvites.pending, (state) => {
+        state.isSendingInvite = true;
+        state.error = null;
       })
-      .addCase(sendSmsInvites.fulfilled, (state) => { 
-        state.isSendingInvite = false; 
+      .addCase(sendSmsInvites.fulfilled, (state) => {
+        state.isSendingInvite = false;
       })
-      .addCase(sendSmsInvites.rejected, (state, action) => { 
-        state.isSendingInvite = false; 
-        state.error = action.payload as string; 
+      .addCase(sendSmsInvites.rejected, (state, action) => {
+        state.isSendingInvite = false;
+        state.error = action.payload as string;
       })
       .addCase(syncContacts.pending, (state) => {
         state.isSyncingContacts = true;
@@ -336,8 +336,8 @@ const authSlice = createSlice({
       })
       .addCase(logoutUser.fulfilled, (state) => {
         state.user = null;
-        state.allUsers = []; 
-        state.registeredContacts = []; 
+        state.allUsers = [];
+        state.registeredContacts = [];
         state.error = null;
         state.loading = false;
         state.isSendingInvite = false;

@@ -23,7 +23,7 @@ import axios from "axios";
 
 import { logoutUser, updateUserProfile } from "../features/user/authSlice";
 import { resetChatState } from "../features/chat/chatSlice";
-import socket from "../utils/socket";
+import socket from "./utils/socket";
 import config from "../config/config"; // Fixed path
 import { RootState } from "../app/store";
 

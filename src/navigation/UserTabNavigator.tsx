@@ -19,7 +19,7 @@ import HomeScreen from "../screens/HomeScreen";
 import InsuranceProductsAndDetails from "../screens/InsuranceProductsAndDetails";
 import UserOrderScreen from "../userScreens/UserOrderScreen";
 import ProductSearchScreen from "../screens/UserPropertyListScreen";
-import Search from "../screens/ProductSearchScreen";
+import Search from "../screens/NewArrivals";
 
 const { width } = Dimensions.get("window");
 
@@ -204,12 +204,14 @@ const UserTabNavigator = () => {
         tabBar={(props) => <ScrollableUnderCartTabBar {...props} />}
         screenOptions={{ headerShown: false }}
       >
+
         <Tab.Screen name="Order" component={HomeScreen} />
         <Tab.Screen name="RealEstate" component={ProductSearchScreen} />
+                        <Tab.Screen name="Ai" component={Search} />
+
         <Tab.Screen name="Home" component={ChatScreen} />
         <Tab.Screen name="Ram" component={InsuranceProductsAndDetails} />
         <Tab.Screen name="Pay" component={UserOrderScreen} />
-        <Tab.Screen name="Search" component={Search} />
       </Tab.Navigator>
     </View>
   );

@@ -33,12 +33,12 @@ import { useShareIntent } from "expo-share-intent";
 import {
   setupNotifications,
   registerForPushNotificationsAsync,
-} from "./src/utils/NotificationHelper";
+} from "./src/userScreens/utils/NotificationHelper";
 import { store, persistor, RootState, AppDispatch } from "./src/app/store";
 import socket, {
   connectUserToSocket,
   disconnectUserFromSocket,
-} from "./src/utils/socket";
+} from "./src/userScreens/utils/socket";
 
 import {
   fetchUserProfile,
@@ -84,7 +84,7 @@ import VendorAppointmentsList from "./src/vendorScreens/VendorAppointmentsList";
 import InsuranceProductsAndDetails from "./src/screens/InsuranceProductsAndDetails";
 import ProductDetailScreen from "./src/components/ProductDetailScreen";
 import ProductDetailScreen10 from "./src/components/ProductDetailScreen10";
-import FloatingCartButton from "./src/utils/FloatingCartButton";
+import FloatingCartButton from "./src/userScreens/utils/FloatingCartButton";
 
 import PropertyCRUDScreen from "./src/vendorScreens/PropertyCRUDScreen";
 import PropertyDetailScreen from "./src/screens/PropertyDetailScreen";
@@ -94,7 +94,7 @@ import UserPropertyListScreen from "./src/screens/UserPropertyListScreen";
 import AddressScreen from "./src/userScreens/AddressScreen";
 
 // 🔥 Import Navigation Ref & Types
-import { navigationRef, RootStackParamList } from "./src/utils/navigationRef";
+import { navigationRef, RootStackParamList } from "./src/userScreens/utils/navigationRef";
 
 SplashScreenExpo.preventAutoHideAsync();
 

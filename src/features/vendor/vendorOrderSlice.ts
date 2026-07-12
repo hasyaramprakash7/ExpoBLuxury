@@ -1,6 +1,6 @@
 // src/features/vendor/vendorOrderSlice.ts
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-import api from "../../utils/api"; // CORRECTED: Import your global API instance
+import api from "../../userScreens/utils/api"; // CORRECTED: Import your global API instance
 import { Order } from "../../types/models"; // Import Order from shared types
 
 // Define the state structure for this slice

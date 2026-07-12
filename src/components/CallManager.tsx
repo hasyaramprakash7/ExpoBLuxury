@@ -23,7 +23,7 @@ import {
   endCall,
   startCall,
 } from "../features/chat/chatSlice";
-import socket from "../utils/socket";
+import socket from "../userScreens/utils/socket";
 
 const AGORA_APP_ID = "YOUR_AGORA_APP_ID"; // 🔥 Replace with your App ID from Agora Console
 

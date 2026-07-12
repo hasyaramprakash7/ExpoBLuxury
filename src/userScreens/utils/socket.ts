@@ -1,10 +1,10 @@
 import { io, Socket } from "socket.io-client";
-import appConfig from "../config/config"; 
+import appConfig from "../../config/config";
 
 const SOCKET_BASE_URL = appConfig.apiUrl.replace("/api", "");
 
 const socket: Socket = io(SOCKET_BASE_URL, {
-  autoConnect: true, 
+  autoConnect: true,
   transports: ["websocket"],
   reconnection: true,
   reconnectionAttempts: 10,

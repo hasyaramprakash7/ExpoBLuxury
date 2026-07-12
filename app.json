@@ -73,7 +73,16 @@
       "expo-audio",
       "expo-video",
       "expo-image-picker",
-      "expo-contacts"
+      "expo-contacts",
+      "expo-asset",
+      "expo-web-browser",
+      "expo-speech-recognition",
+      [
+        "llama.rn",
+        {
+          "enableEntitlements": true
+        }
+      ]
     ],
     "extra": {
       "eas": {

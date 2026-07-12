@@ -2,27 +2,27 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Vendor } from "../../types/models";
-import api from "../../utils/api";
+import api from "../../userScreens/utils/api";
 import * as SecureStore from 'expo-secure-store';
-import { registerForPushNotificationsAsync } from '../../utils/NotificationHelper';
+import { registerForPushNotificationsAsync } from '../../userScreens/utils/NotificationHelper';
 
 const getVendorToken = () => AsyncStorage.getItem("vendorToken");
 
 interface AuthState {
     vendor: Vendor | null;
-    token: string | null; 
-    allVendors: Vendor[]; 
+    token: string | null;
+    allVendors: Vendor[];
     nearbyVendors: Vendor[]; // 🔥 ADDED: State for nearby H3 vendors
-    loading: boolean; 
+    loading: boolean;
     error: string | null;
-    isAuthenticated: boolean; 
-    conversations: any[]; 
+    isAuthenticated: boolean;
+    conversations: any[];
 }
 
 // --- STANDARD REGISTER ---
 export const registerVendor = createAsyncThunk<
-    { vendor: Vendor; token: string }, 
-    FormData, 
+    { vendor: Vendor; token: string },
+    FormData,
     { rejectValue: string }
 >(
     "vendorAuth/registerVendor",
@@ -36,7 +36,7 @@ export const registerVendor = createAsyncThunk<
             });
             await AsyncStorage.setItem("vendorToken", res.data.token);
             await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
-            
+
             await SecureStore.deleteItemAsync("deliveryBoyToken");
             await AsyncStorage.removeItem("token");
 
@@ -49,8 +49,8 @@ export const registerVendor = createAsyncThunk<
 
 // --- OTP REGISTER ---
 export const registerVendorWithOtp = createAsyncThunk<
-    { vendor: Vendor; token: string }, 
-    FormData, 
+    { vendor: Vendor; token: string },
+    FormData,
     { rejectValue: string }
 >(
     "vendorAuth/registerVendorWithOtp",
@@ -64,7 +64,7 @@ export const registerVendorWithOtp = createAsyncThunk<
             });
             await AsyncStorage.setItem("vendorToken", res.data.token);
             await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
-            
+
             await SecureStore.deleteItemAsync("deliveryBoyToken");
             await AsyncStorage.removeItem("token");
 
@@ -89,10 +89,10 @@ export const loginVendor = createAsyncThunk<
             const res = await api.post(`/vendors/login`, { identifier, password, pushToken });
             await AsyncStorage.setItem("vendorToken", res.data.token);
             await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
-            
+
             await SecureStore.deleteItemAsync("deliveryBoyToken");
             await AsyncStorage.removeItem("token");
-            
+
             return { vendor: res.data.vendor, token: res.data.token };
         } catch (err: any) {
             return rejectWithValue(err.response?.data?.message || "Login failed");
@@ -114,10 +114,10 @@ export const loginVendorWithOtp = createAsyncThunk<
             const res = await api.post(`/vendors/login-with-otp`, { phone, otp, pushToken });
             await AsyncStorage.setItem("vendorToken", res.data.token);
             await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
-            
+
             await SecureStore.deleteItemAsync("deliveryBoyToken");
             await AsyncStorage.removeItem("token");
-            
+
             return { vendor: res.data.vendor, token: res.data.token };
         } catch (err: any) {
             return rejectWithValue(err.response?.data?.message || "OTP Login failed");
@@ -139,14 +139,14 @@ export const fetchVendorProfile = createAsyncThunk<
                 await AsyncStorage.removeItem("vendorToken");
                 return rejectWithValue("No vendor token found");
             }
-            
+
             const res = await api.get(`/vendors/profile`);
             const vendor = res.data.vendor;
-            
+
             const currentPushToken = await registerForPushNotificationsAsync();
             if (currentPushToken && vendor.pushToken !== currentPushToken) {
-               api.put(`/vendors/update-push-token`, { pushToken: currentPushToken })
-                 .catch(e => console.log("Failed to update push token in background", e));
+                api.put(`/vendors/update-push-token`, { pushToken: currentPushToken })
+                    .catch(e => console.log("Failed to update push token in background", e));
             }
 
             await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
@@ -169,7 +169,7 @@ export const updateVendorProfile = createAsyncThunk<
         try {
             const token = await getVendorToken();
             if (!token) return rejectWithValue("No token found");
-            
+
             const res = await api.put(`/vendors/update`, formData, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
@@ -182,8 +182,8 @@ export const updateVendorProfile = createAsyncThunk<
 );
 
 export const toggleVendorStatus = createAsyncThunk<
-    { currentStatus: boolean }, 
-    boolean, 
+    { currentStatus: boolean },
+    boolean,
     { rejectValue: string }
 >(
     "vendorAuth/toggleVendorStatus",
@@ -191,7 +191,7 @@ export const toggleVendorStatus = createAsyncThunk<
         try {
             const token = await getVendorToken();
             if (!token) return rejectWithValue("No token found");
-            
+
             const res = await api.put(`/vendors/status`, { isOnline });
             const currentVendorString = await AsyncStorage.getItem("vendor");
             if (currentVendorString) {
@@ -207,15 +207,15 @@ export const toggleVendorStatus = createAsyncThunk<
 );
 
 export const fetchAllVendors = createAsyncThunk<
-    Vendor[], 
+    Vendor[],
     void,
     { rejectValue: string }
 >(
     "vendorAuth/fetchAllVendors",
     async (_, { rejectWithValue }) => {
         try {
-            const res = await api.get(`/vendors/all`); 
-            return res.data.vendors; 
+            const res = await api.get(`/vendors/all`);
+            return res.data.vendors;
         } catch (err: any) {
             return rejectWithValue(err.response?.data?.message || "Failed to fetch all vendors");
         }
@@ -240,7 +240,7 @@ export const fetchNearbyVendors = createAsyncThunk<
 );
 
 export const fetchVendorConversations = createAsyncThunk<
-    any[], 
+    any[],
     void,
     { rejectValue: string }
 >(
@@ -287,7 +287,7 @@ const initialState: AuthState = {
     loading: false,
     error: null,
     isAuthenticated: false,
-    conversations: [], 
+    conversations: [],
 };
 
 const vendorAuthSlice = createSlice({
@@ -380,7 +380,7 @@ const vendorAuthSlice = createSlice({
             .addCase(fetchVendorProfile.rejected, (state, action) => {
                 state.loading = false;
                 state.error = action.payload ?? "Failed to fetch profile";
-                state.vendor = null; 
+                state.vendor = null;
                 state.token = null;
                 state.isAuthenticated = false;
             })
@@ -388,7 +388,7 @@ const vendorAuthSlice = createSlice({
             .addCase(updateVendorProfile.pending, (state) => { state.loading = true; state.error = null; })
             .addCase(updateVendorProfile.fulfilled, (state, action) => {
                 state.loading = false;
-                state.vendor = action.payload.vendor; 
+                state.vendor = action.payload.vendor;
             })
             .addCase(updateVendorProfile.rejected, (state, action) => {
                 state.loading = false;
@@ -399,7 +399,7 @@ const vendorAuthSlice = createSlice({
             .addCase(toggleVendorStatus.fulfilled, (state, action) => {
                 state.loading = false;
                 if (state.vendor) {
-                    state.vendor.isOnline = action.payload.currentStatus; 
+                    state.vendor.isOnline = action.payload.currentStatus;
                 }
             })
             .addCase(toggleVendorStatus.rejected, (state, action) => {
@@ -409,7 +409,7 @@ const vendorAuthSlice = createSlice({
             // Fetch All Vendors
             .addCase(fetchAllVendors.pending, (state) => { state.error = null; })
             .addCase(fetchAllVendors.fulfilled, (state, action) => {
-                state.allVendors = action.payload; 
+                state.allVendors = action.payload;
             })
             .addCase(fetchAllVendors.rejected, (state, action) => {
                 state.error = action.payload ?? "Failed to fetch all vendors";
@@ -418,7 +418,7 @@ const vendorAuthSlice = createSlice({
             // 🔥 Fetch Nearby Vendors
             .addCase(fetchNearbyVendors.pending, (state) => { state.error = null; state.loading = true; })
             .addCase(fetchNearbyVendors.fulfilled, (state, action) => {
-                state.nearbyVendors = action.payload; 
+                state.nearbyVendors = action.payload;
                 state.loading = false;
             })
             .addCase(fetchNearbyVendors.rejected, (state, action) => {
@@ -430,7 +430,7 @@ const vendorAuthSlice = createSlice({
             .addCase(fetchVendorConversations.pending, (state) => { state.loading = true; state.error = null; })
             .addCase(fetchVendorConversations.fulfilled, (state, action) => {
                 state.loading = false;
-                state.conversations = action.payload; 
+                state.conversations = action.payload;
             })
             .addCase(fetchVendorConversations.rejected, (state, action) => {
                 state.loading = false;

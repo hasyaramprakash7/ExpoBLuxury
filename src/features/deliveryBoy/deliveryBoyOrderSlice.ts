@@ -1,9 +1,9 @@
 // src/features/delivery/deliveryBoySlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
-import api from "../../utils/api";
+import api from "../../userScreens/utils/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Order } from "../orders/orderSlice";
-import { registerForPushNotificationsAsync } from '../../utils/NotificationHelper'; // 🔥 ADDED
+import { registerForPushNotificationsAsync } from '../../userScreens/utils/NotificationHelper'; // 🔥 ADDED
 
 export interface DeliveryBoy {
   _id: string;
@@ -65,7 +65,7 @@ export const registerDeliveryBoy = createAsyncThunk<
       });
       const token = res.data.token;
       await AsyncStorage.setItem("deliveryBoyToken", token);
-      
+
       const profileRes = await api.get("/deliveryboy/profile", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -93,7 +93,7 @@ export const loginDeliveryBoy = createAsyncThunk<
       const res = await api.post("/deliveryboy/login", { email, password, pushToken });
       const token = res.data.token;
       await AsyncStorage.setItem("deliveryBoyToken", token);
-      
+
       const profileRes = await api.get("/deliveryboy/profile", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -117,7 +117,7 @@ export const fetchDeliveryBoyProfile = createAsyncThunk<
     try {
       const token = await getDeliveryBoyToken();
       if (!token) throw new Error("No valid token");
-      
+
       const res = await api.get("/deliveryboy/profile", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -127,9 +127,9 @@ export const fetchDeliveryBoyProfile = createAsyncThunk<
       // 🔥 Update push token silently
       const currentPushToken = await registerForPushNotificationsAsync();
       if (currentPushToken && dboy.pushToken !== currentPushToken) {
-         api.put(`/deliveryboy/update-push-token`, { pushToken: currentPushToken }, {
-            headers: { Authorization: `Bearer ${token}` }
-         }).catch(e => console.log("Failed to update dboy push token", e));
+        api.put(`/deliveryboy/update-push-token`, { pushToken: currentPushToken }, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch(e => console.log("Failed to update dboy push token", e));
       }
 
       return {
@@ -152,7 +152,7 @@ export const updateDeliveryBoyProfile = createAsyncThunk<
     try {
       const token = await getDeliveryBoyToken();
       if (!token) throw new Error("No valid token");
-      
+
       const res = await api.put("/deliveryboy/update", updatedData, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -195,7 +195,7 @@ export const toggleAvailability = createAsyncThunk<
     try {
       const token = await getDeliveryBoyToken();
       if (!token) throw new Error("No valid token");
-      
+
       const res = await api.patch("/deliveryboy/toggle-availability", {}, {
         headers: { Authorization: `Bearer ${token}` },
       });

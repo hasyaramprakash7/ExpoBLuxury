@@ -34,7 +34,7 @@ import { useAudioRecorder, useAudioPlayer, AudioModule } from "expo-audio";
 import * as ImagePicker from "expo-image-picker";
 
 // 🔥 Import Notification Helper
-import { sendChatNotification } from "../utils/NotificationHelper";
+import { sendChatNotification } from "../userScreens/utils/NotificationHelper";
 
 // Shared Browser Components
 import {
@@ -57,7 +57,7 @@ import {
   clearMessages,
   fetchChatList,
 } from "../features/chat/chatSlice";
-import socket from "../utils/socket";
+import socket from "../userScreens/utils/socket";
 
 // ==========================================
 // 🔥 CENTRALIZED ROYAL NAVY BLUE THEME

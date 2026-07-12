@@ -12,8 +12,8 @@ import {
 } from "react-native";
 import { useSelector } from "react-redux";
 import { Ionicons } from "@expo/vector-icons";
-import { RootState } from "../app/store";
-import { navigationRef } from "../utils/navigationRef";
+import { RootState } from "../../app/store";
+import { navigationRef } from "./navigationRef";
 const { width, height } = Dimensions.get("window");
 
 // Local Colors for Luxury Theme

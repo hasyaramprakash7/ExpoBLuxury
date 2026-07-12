@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
-import api from '../../utils/api'; 
+import api from '../../userScreens/utils/api';
 
 // ==========================================
 // 🔥 INTERFACES
@@ -23,12 +23,12 @@ export interface Message {
     messageType: "text" | "image" | "audio" | "video" | "product";
     timestamp: string;
     read: boolean;
-    
+
     // Advanced Chat Features
     isGroupMessage?: boolean;
     group?: string;
     status?: 'sent' | 'delivered' | 'read';
-    replyTo?: any; 
+    replyTo?: any;
     reactions?: Reaction[];
     isDeletedForEveryone?: boolean;
     deletedForMe?: string[];
@@ -38,7 +38,7 @@ export interface Contact {
     _id: string;
     name: string;
     profilePic?: string;
-    shopName?: string; 
+    shopName?: string;
     shopImage?: string; // Added to support vendor shop images
     role: "User" | "Vendor" | "DeliveryBoy" | "Group";
     email?: string;
@@ -46,13 +46,13 @@ export interface Contact {
 }
 
 export interface Conversation {
-    _id: string; 
-    isGroup?: boolean; 
+    _id: string;
+    isGroup?: boolean;
     lastMessage: string;
     lastMessageType: string;
     timestamp: string;
     unreadCount: number;
-    contact: Contact; 
+    contact: Contact;
 }
 
 export interface Group {
@@ -78,10 +78,10 @@ export interface StatusItem {
 }
 
 export interface StatusFeed {
-    _id: string; 
+    _id: string;
     authorModel: string;
     statuses: StatusItem[];
-    authorDetails: any; 
+    authorDetails: any;
 }
 
 interface ChatState {
@@ -90,12 +90,12 @@ interface ChatState {
     messages: Message[];
     groups: Group[];
     currentGroup: Group | null;
-    
+
     // Status State
     statusFeed: StatusFeed[];
     myStatuses: StatusItem[];
     statusViewers: any[];
-    
+
     loading: boolean;
     error: string | null;
     isSending: boolean;
@@ -122,7 +122,7 @@ const initialState: ChatState = {
 export const fetchChatList = createAsyncThunk("chat/fetchChatList", async (_, { rejectWithValue }) => {
     try {
         const res = await api.get("/chat/list/conversations");
-        return res.data.chatList; 
+        return res.data.chatList;
     } catch (err: any) {
         return rejectWithValue(err.response?.data?.message || "Failed to load chat list");
     }
@@ -176,11 +176,11 @@ export const markGroupMessagesAsRead = createAsyncThunk("chat/markGroupMessagesA
 });
 
 export const deleteMessage = createAsyncThunk<string, { messageId: string, deleteType: 'me' | 'everyone' }, { rejectValue: string }>(
-    "chat/deleteMessage", 
+    "chat/deleteMessage",
     async ({ messageId, deleteType }, { rejectWithValue }) => {
         try {
             await api.delete(`/chat/messages/${messageId}?deleteType=${deleteType}`);
-            return messageId; 
+            return messageId;
         } catch (err: any) {
             return rejectWithValue(err.response?.data?.message || "Delete failed");
         }
@@ -362,10 +362,10 @@ const chatSlice = createSlice({
         },
         receiveMessage: (state, action: PayloadAction<Message>) => {
             const msg = action.payload;
-            
+
             // 1. Add message to active chat window if it belongs there
             const isRelevantChat = state.activePartnerId && (
-                msg.sender === state.activePartnerId || 
+                msg.sender === state.activePartnerId ||
                 msg.receiver === state.activePartnerId ||
                 msg.group === state.activePartnerId
             );
@@ -383,7 +383,7 @@ const chatSlice = createSlice({
                 // Update the last message string and timestamp, but keep the `contact` object exactly as it is.
                 state.conversations[convoIndex].lastMessage = msg.content || (msg.messageType === 'image' ? "📷 Image" : "🎤 Audio");
                 state.conversations[convoIndex].timestamp = msg.timestamp;
-                
+
                 // Increment unread count if we are not currently inside this chat room
                 if (state.activePartnerId !== targetId) {
                     state.conversations[convoIndex].unreadCount = (state.conversations[convoIndex].unreadCount || 0) + 1;
@@ -409,32 +409,32 @@ const chatSlice = createSlice({
     extraReducers: (builder) => {
         builder
             // --- CHAT HISTORY & SENDING ---
-            .addCase(fetchChatList.fulfilled, (state, action) => { 
-                state.conversations = action.payload; 
+            .addCase(fetchChatList.fulfilled, (state, action) => {
+                state.conversations = action.payload;
             })
             .addCase(fetchMessages.pending, (state) => { state.loading = true; })
-            .addCase(fetchMessages.fulfilled, (state, action) => { 
-                state.loading = false; 
-                state.messages = action.payload; 
+            .addCase(fetchMessages.fulfilled, (state, action) => {
+                state.loading = false;
+                state.messages = action.payload;
             })
-            .addCase(fetchMessages.rejected, (state, action) => { 
-                state.loading = false; 
-                state.error = action.payload as string; 
+            .addCase(fetchMessages.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload as string;
             })
             .addCase(fetchGroupMessages.pending, (state) => { state.loading = true; })
-            .addCase(fetchGroupMessages.fulfilled, (state, action) => { 
-                state.loading = false; 
-                state.messages = action.payload; 
+            .addCase(fetchGroupMessages.fulfilled, (state, action) => {
+                state.loading = false;
+                state.messages = action.payload;
             })
-            .addCase(fetchGroupMessages.rejected, (state, action) => { 
-                state.loading = false; 
-                state.error = action.payload as string; 
+            .addCase(fetchGroupMessages.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload as string;
             })
             .addCase(sendMessage.pending, (state) => { state.isSending = true; })
             .addCase(sendMessage.fulfilled, (state, action) => {
                 state.isSending = false;
                 const msg = action.payload;
-                
+
                 // 1. Deduplication check for HTTP sender adding to active messages
                 if (state.activePartnerId === msg.receiver || state.activePartnerId === msg.sender || state.activePartnerId === msg.group) {
                     if (!state.messages.some(m => m._id === msg._id)) {
@@ -452,10 +452,10 @@ const chatSlice = createSlice({
                 }
             })
             .addCase(sendMessage.rejected, (state) => { state.isSending = false; })
-            
+
             // --- MESSAGE ACTIONS (Delete, Read, React) ---
-            .addCase(deleteMessage.fulfilled, (state, action) => { 
-                state.messages = state.messages.filter(m => m._id !== action.payload); 
+            .addCase(deleteMessage.fulfilled, (state, action) => {
+                state.messages = state.messages.filter(m => m._id !== action.payload);
             })
             .addCase(markMessagesAsRead.fulfilled, (state, action) => {
                 const partnerId = action.payload;
@@ -502,15 +502,15 @@ const chatSlice = createSlice({
     },
 });
 
-export const { 
-    setActivePartner, 
-    receiveMessage, 
+export const {
+    setActivePartner,
+    receiveMessage,
     updateMessageLocally,
-    deleteMessageLocally, 
-    setPartnerSeen, 
+    deleteMessageLocally,
+    setPartnerSeen,
     clearError,
     clearMessages,
-    resetChatState 
+    resetChatState
 } = chatSlice.actions;
 
 export default chatSlice.reducer;
