@@ -7,7 +7,7 @@ import {
   toggleVendorStatus,
 } from "../features/vendor/vendorAuthSlice";
 import { fetchVendorOrders } from "../features/vendor/vendorOrderSlice";
-import { RootState, AppDispatch } from "../app/store"; // Import RootState and AppDispatch
+import { RootState, AppDispatch } from "../app/store";
 import {
   View,
   Text,
@@ -15,12 +15,9 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
-  ActivityIndicator,
-  Image,
-  Linking,
-  SafeAreaView, // Import SafeAreaView
+  SafeAreaView,
 } from "react-native";
-import { useNavigation, CommonActions } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import VendorProfileCard from "./VendorProfileCard";
 import VendorDashboardSidePanel from "./VendorDashboardSidePanel";
@@ -28,22 +25,16 @@ import {
   User,
   AlertCircle,
   CheckCircle,
-  MapPin,
-  Loader2,
   Home,
-  ShoppingCart,
   Receipt,
-  Search,
-  ChartArea,
   MessageCircle,
-} from "lucide-react-native"; // Using lucide-react-native for icons
-import * as Location from "expo-location"; // For geolocation
-import * as ImagePicker from "expo-image-picker"; // For image picking
-import axios from "axios"; // Keep axios for Nominatim API calls
-import { Vendor, Order, Address } from "../types/models"; // Import types
+} from "lucide-react-native";
+import * as Location from "expo-location";
+import * as ImagePicker from "expo-image-picker";
+import axios from "axios";
+import { Vendor, Order, Address } from "../types/models";
 import { Ionicons } from "@expo/vector-icons";
 
-// Define the RootStackParamList for navigation
 type RootStackParamList = {
   VendorLogin: undefined;
   VendorDashboard: undefined;
@@ -51,6 +42,8 @@ type RootStackParamList = {
   VendorOrderList: undefined;
   VendorActiveDeliveryBoys: { orderId: string };
   VendorGenerateInvoice: { orderData: Order; vendorData: Vendor };
+  VendorChatScreen: undefined;
+  VendorProductCRUD: undefined;
 };
 
 type VendorDashboardNavigationProp = StackNavigationProp<
@@ -58,69 +51,46 @@ type VendorDashboardNavigationProp = StackNavigationProp<
   "VendorDashboard"
 >;
 
-/**
- * VendorDashboard Component (Parent Container)
- *
- * This component acts as the main dashboard container for vendors.
- * It manages the core state and logic, and renders sub-components for profile management,
- * quick actions, and business statistics.
- */
 export default function VendorDashboard() {
   const dispatch: AppDispatch = useDispatch();
   const navigation = useNavigation<VendorDashboardNavigationProp>();
 
-  // Select vendor data and loading status from the Redux store
   const { vendor, loading: vendorAuthLoading } = useSelector(
-    (state: RootState) => state.vendorAuth,
+    (state: RootState) => state.vendorAuth
   );
-  // Select orders data and loading status from the vendorOrders slice
   const {
     orders: vendorOrders,
     loading: vendorOrdersLoading,
-    error: vendorOrdersError,
   } = useSelector((state: RootState) => state.vendorOrders);
 
-  // State for managing edit mode and form data
   const [isEditing, setIsEditing] = useState(false);
   const [shopImageFile, setShopImageFile] =
-    useState<ImagePicker.ImagePickerAsset | null>(null); // Stores the actual file object for upload
+    useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [loadingAddress, setLoadingAddress] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
+
   const [formData, setFormData] = useState<Vendor>({
-    _id: "", // Will be populated from Redux vendor object
+    _id: "",
     name: "",
     email: "",
     phone: "",
     shopName: "",
-    shopImage: "", // This will hold the URL for display (either existing or object URL for new file)
+    shopImage: "",
     businessType: "",
     gstNo: "",
-    deliveryRange: undefined, // Ensure this matches backend type
+    deliveryRange: 0,
     address: {
-      latitude: undefined,
-      longitude: undefined,
+      latitude: "",
+      longitude: "",
       pincode: "",
       state: "",
       district: "",
       country: "India",
     },
     isOnline: false,
-    isApproved: false, // Default to false, will be updated from backend
+    isApproved: false,
   });
 
-  // State for geolocation/pincode fetching
-  const [loadingAddress, setLoadingAddress] = useState(false); // Combined loading state
-  const [signupError, setSignupError] = useState<string | null>(null); // For general form errors including address
-
-  /**
-   * Helper for showing modal/alert messages using React Native Alert.
-   */
-  const showModal = (message: string) => {
-    Alert.alert("Information", message);
-  };
-
-  /**
-   * useEffect Hook: Populates formData when vendor data is loaded or updated from Redux.
-   * Ensures form fields reflect the current vendor's profile information.
-   */
   useEffect(() => {
     if (vendor) {
       setFormData({
@@ -129,277 +99,181 @@ export default function VendorDashboard() {
         email: vendor.email || "",
         phone: vendor.phone || "",
         shopName: vendor.shopName || "",
-        shopImage: vendor.shopImage || "", // Use existing shop image URL
+        shopImage: vendor.shopImage || "",
         businessType: vendor.businessType || "",
         gstNo: vendor.gstNo || "",
-        deliveryRange: vendor.deliveryRange, // Ensure this matches backend type
+        deliveryRange: vendor.deliveryRange || 0,
         address: {
-          latitude: vendor.address?.latitude,
-          longitude: vendor.address?.longitude,
+          latitude: vendor.address?.latitude?.toString() || "",
+          longitude: vendor.address?.longitude?.toString() || "",
           pincode: vendor.address?.pincode || "",
           state: vendor.address?.state || "",
           district: vendor.address?.district || "",
           country: vendor.address?.country || "India",
         },
-        isOnline: vendor.isOnline,
-        isApproved: vendor.isApproved,
+        isOnline: vendor.isOnline || false,
+        isApproved: vendor.isApproved || false,
       });
-      // When vendor data changes, ensure we are not in editing mode and clear any selected file
       setIsEditing(false);
       setShopImageFile(null);
     }
-  }, [vendor]); // Dependency array ensures this runs when 'vendor' object changes
+  }, [vendor]);
 
-  /**
-   * useEffect Hook: Fetches vendor orders when the vendor ID is available.
-   */
   useEffect(() => {
     if (vendor?._id) {
-      dispatch(fetchVendorOrders(vendor._id)); // Pass vendor._id as argument
+      dispatch(fetchVendorOrders(vendor._id));
     }
-  }, [dispatch, vendor?._id]); // Dispatch when vendor ID becomes available or changes
+  }, [dispatch, vendor?._id]);
 
-  /**
-   * Calculate Order Statistics
-   * These calculations will now be derived directly from the `vendorOrders` array.
-   */
   const totalOrders = vendorOrders.length;
   const pendingOrders = vendorOrders.filter(
-    (order) => order.status === "placed" || order.status === "processing",
+    (order) => order.status === "placed" || order.status === "processing"
   ).length;
-
   const totalRevenue = vendorOrders.reduce((sum, order) => {
-    let orderRevenue = 0;
-    // Assuming order.items is always an array of OrderItem
     if (order.items && Array.isArray(order.items)) {
-      orderRevenue = order.items.reduce((itemSum, item) => {
-        return itemSum + item.price * item.quantity;
-      }, 0);
+      return sum + order.items.reduce((s, item) => s + item.price * item.quantity, 0);
     }
-    // If your backend also sends a totalAmount field at the top level of the Order object,
-    // you might want to use that instead or as a fallback.
-    // For now, relying on sum of items.
-    return sum + orderRevenue;
+    return sum;
   }, 0);
 
-  /**
-   * Handles changes for all input fields in the form.
-   * Updates the formData state based on the input name and value.
-   */
+  const showModal = (message: string) => Alert.alert("Information", message);
+
   const handleChange = useCallback((name: string, value: string) => {
-    // Handle nested address fields specifically
     if (name.startsWith("address.")) {
-      const key = name.split(".")[1] as keyof Address; // Extracts 'latitude', 'pincode', etc.
+      const key = name.split(".")[1] as keyof Address;
       setFormData((prev) => ({
         ...prev,
-        address: {
-          ...prev.address,
-          [key]: value,
-        },
+        address: { ...prev.address, [key]: value },
       }));
     } else {
-      // Handle other top-level fields
       setFormData((prev) => ({ ...prev, [name]: value }));
     }
-    setSignupError(null); // Clear errors on change
+    setSignupError(null);
   }, []);
 
-  /**
-   * Handles the selection of a new shop image file using ImagePicker.
-   */
   const handleImageChange = useCallback(async () => {
-    const permissionResult =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (permissionResult.granted === false) {
-      Alert.alert(
-        "Permission Denied",
-        "Permission to access camera roll is required!",
-      );
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission Denied", "Camera roll access is required.");
       return;
     }
-
-    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+    const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [4, 3],
       quality: 1,
     });
-
-    if (
-      !pickerResult.canceled &&
-      pickerResult.assets &&
-      pickerResult.assets.length > 0
-    ) {
-      const selectedAsset = pickerResult.assets[0];
-      setShopImageFile(selectedAsset);
-      setFormData((prev) => ({ ...prev, shopImage: selectedAsset.uri }));
+    if (!result.canceled && result.assets.length > 0) {
+      const asset = result.assets[0];
+      setShopImageFile(asset);
+      setFormData((prev) => ({ ...prev, shopImage: asset.uri }));
     }
   }, []);
 
-  /**
-   * Fetches current geolocation and reverse geocodes it to get address details.
-   */
+  // ---------- FIXED: Fetch Current Location (uses Expo reverseGeocode) ----------
   const handleFetchLocation = useCallback(async () => {
-    console.log(
-      "handleFetchLocation triggered: Attempting to get geolocation...",
-    );
     setLoadingAddress(true);
-    setSignupError(null); // Clear previous errors
-
+    setSignupError(null);
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        showModal(
-          "Permission to access location was denied. Please enable it in settings.",
-        );
+        showModal("Location permission denied. Please enable it in settings.");
         setLoadingAddress(false);
         return;
       }
 
-      let location = await Location.getCurrentPositionAsync({
+      const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
       const { latitude, longitude } = location.coords;
-      console.log("Geolocation success:", { latitude, longitude });
 
-      setFormData((prev) => ({
-        ...prev,
-        address: { ...prev.address, latitude, longitude },
-      }));
-
-      // OpenStreetMap Nominatim API for reverse geocoding
-      const nominatimUrl = `https://nominatim.openstreetmap.org/reverse`;
-      const response = await axios.get(nominatimUrl, {
-        params: {
-          lat: latitude,
-          lon: longitude,
-          format: "json",
-          addressdetails: 1,
-        },
-        headers: {
-          "User-Agent": "YourAppName/1.0 (your-email@example.com)", // Replace with your app name and email
-        },
-      });
-
-      console.log("Reverse geocoding success:", response.data);
-
-      const address = response.data.address || {};
-
+      // Store as strings
       setFormData((prev) => ({
         ...prev,
         address: {
           ...prev.address,
-          pincode: address.postcode || "",
-          state: address.state || "",
-          district: address.county || address.city_district || "",
-          country: address.country || "",
-          latitude: latitude, // Ensure latitude/longitude are kept
-          longitude: longitude,
+          latitude: latitude.toString(),
+          longitude: longitude.toString(),
         },
       }));
-      showModal("Address auto-filled from your location.");
+
+      // Reverse geocode using Expo (no API key, reliable)
+      const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (geocode.length > 0) {
+        const geo = geocode[0];
+        setFormData((prev) => ({
+          ...prev,
+          address: {
+            ...prev.address,
+            pincode: geo.postalCode || prev.address.pincode,
+            state: geo.region || prev.address.state,
+            district: geo.district || prev.address.district,
+            country: geo.country || prev.address.country,
+          },
+        }));
+        showModal("Address auto-filled from your location.");
+      } else {
+        showModal("Could not get address details. Please enter manually.");
+      }
     } catch (error: any) {
-      console.error("Error fetching address from coordinates:", error);
-      showModal(
-        "Could not fetch address details automatically. Please enter manually. Error: " +
-          error.message,
-      );
+      console.error("Location fetch error:", error);
+      showModal("Failed to fetch location: " + error.message);
     } finally {
       setLoadingAddress(false);
     }
   }, [showModal]);
 
-  /**
-   * Handles autofilling state, district, and country based on pincode.
-   * This function will be triggered onBlur from the pincode input field.
-   */
+  // ---------- FIXED: Pincode auto-fill using PostPIN India API ----------
   const handlePincodeBlur = useCallback(async () => {
-    const { pincode } = formData.address;
-
-    // Basic pincode validation for India (6 digits)
+    const pincode = formData.address.pincode;
     if (!pincode || pincode.length !== 6 || isNaN(Number(pincode))) {
       setSignupError("Please enter a valid 6-digit pincode.");
       return;
     }
-    setSignupError(null); // Clear previous errors
+    setSignupError(null);
+    setLoadingAddress(true);
 
     try {
-      setLoadingAddress(true);
-      console.log("Fetching address using pincode:", pincode);
+      // Use free PostPIN India API
+      const response = await axios.get(`https://api.postalpincode.in/pincode/${pincode}`);
+      const data = response.data;
 
-      // Using Nominatim Search API for pincode
-      const res = await axios.get(
-        "https://nominatim.openstreetmap.org/search",
-        {
-          params: {
-            postalcode: pincode,
-            format: "json",
-            addressdetails: 1,
-            countrycodes: "in", // Limit search to India
-          },
-          headers: {
-            "User-Agent": "YourAppName/1.0 (your-email@example.com)", // Replace with your app name and email
-          },
-        },
-      );
-
-      console.log("Pincode search response:", res.data);
-
-      if (res.data.length > 0) {
-        const address = res.data[0].address;
-
-        setFormData((prev) => ({
-          // Corrected from setForm to setFormData
-          ...prev,
-          address: {
-            ...prev.address,
-            // Note: Nominatim's 'state' and 'county' might not always map perfectly
-            // to Indian 'State' and 'District' names. Adjust mapping if needed.
-            state: address.state || "",
-            district: address.county || address.city_district || "",
-            country: address.country || "",
-            // Do NOT clear latitude and longitude here if they were already set by geolocation.
-            // If you want pincode to override location, uncomment next two lines:
-            // latitude: res.data[0].lat || "",
-            // longitude: res.data[0].lon || "",
-          },
-        }));
-        showModal("Address details updated based on pincode.");
+      if (data && data[0]?.Status === "Success") {
+        const postOffice = data[0].PostOffice[0];
+        if (postOffice) {
+          setFormData((prev) => ({
+            ...prev,
+            address: {
+              ...prev.address,
+              state: postOffice.State || prev.address.state,
+              district: postOffice.District || prev.address.district,
+              country: postOffice.Country || prev.address.country,
+            },
+          }));
+          showModal("Address details updated from pincode.");
+        } else {
+          showModal("No address found for this pincode.");
+        }
       } else {
-        showModal("No address found for this pincode.");
+        showModal("Invalid pincode or no data found.");
       }
-    } catch (err: any) {
-      console.error("Error fetching address from pincode:", err);
-      showModal(
-        "Failed to fetch address from pincode. Please check the pincode or enter details manually. Error: " +
-          err.message,
-      );
+    } catch (error: any) {
+      console.error("Pincode fetch error:", error);
+      showModal("Failed to fetch pincode details: " + error.message);
     } finally {
       setLoadingAddress(false);
     }
-  }, [formData.address.pincode, showModal]); // Dependency: re-run if pincode changes
+  }, [formData.address.pincode, showModal]);
 
-  /**
-   * Handles saving the updated vendor profile.
-   * Dispatches the updateVendorProfile action and provides user feedback.
-   */
   const handleSave = useCallback(async () => {
     const dataToUpdate = new FormData();
 
-    // Append all string/number fields
     Object.entries(formData).forEach(([key, value]) => {
-      if (
-        key !== "address" &&
-        key !== "shopImage" &&
-        value !== undefined &&
-        value !== null
-      ) {
+      if (key !== "address" && key !== "shopImage" && value !== undefined && value !== null) {
         dataToUpdate.append(key, String(value));
       }
     });
 
-    // Append address fields
     if (formData.address) {
       Object.entries(formData.address).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
@@ -408,136 +282,84 @@ export default function VendorDashboard() {
       });
     }
 
-    // Append shop image file if selected
     if (shopImageFile) {
       const uriParts = shopImageFile.uri.split(".");
       const fileType = uriParts[uriParts.length - 1];
       const fileName = `shop_image_${Date.now()}.${fileType}`;
-
       dataToUpdate.append("shopImage", {
         uri: shopImageFile.uri,
         name: fileName,
         type: `image/${fileType}`,
-      } as any); // Type assertion needed for FormData in RN
+      } as any);
     }
 
-    // Ensure deliveryRange is a number if your backend expects it as such
-    if (formData.deliveryRange !== undefined) {
-      dataToUpdate.append("deliveryRange", String(formData.deliveryRange));
-    }
-
-    // Basic validation before saving
     if (!formData.name || !formData.email || !formData.shopName) {
-      Alert.alert(
-        "Validation Error",
-        "Please fill in all required profile fields (Name, Email, Shop Name).",
-      );
+      Alert.alert("Validation Error", "Please fill all required fields.");
       return;
     }
-    if (
-      !formData.address.latitude ||
-      !formData.address.longitude ||
-      !formData.address.pincode
-    ) {
+    if (!formData.address.latitude || !formData.address.longitude || !formData.address.pincode) {
       Alert.alert(
         "Validation Error",
-        "Please provide complete address details including latitude, longitude, and pincode. Use 'Fetch Current Location' or enter pincode to autofill.",
+        "Please provide complete address (latitude, longitude, pincode). Use 'Fetch Location' or enter pincode."
       );
       return;
     }
 
     const result = await dispatch(updateVendorProfile(dataToUpdate));
-
     if (result.meta.requestStatus === "fulfilled") {
-      Alert.alert("Success", "Profile updated successfully!");
+      Alert.alert("Success", "Profile updated!");
       setIsEditing(false);
-      setShopImageFile(null); // Clear the file after successful upload
-      dispatch(fetchVendorProfile()); // Re-fetch to ensure latest data
+      setShopImageFile(null);
+      dispatch(fetchVendorProfile());
     } else {
-      Alert.alert(
-        "Update Failed",
-        (result.payload as string) || "Unknown error occurred.",
-      );
+      Alert.alert("Update Failed", (result.payload as string) || "Unknown error.");
     }
   }, [dispatch, formData, shopImageFile]);
 
-  /**
-   * Handles vendor logout.
-   * Prompts for confirmation before dispatching the logoutVendor action.
-   */
   const handleLogout = useCallback(() => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
+    Alert.alert("Logout", "Are you sure?", [
+      { text: "Cancel", style: "cancel" },
       {
         text: "Yes",
         onPress: () => {
-          // This dispatch will update the Redux state,
-          // causing the AppNavigator in App.tsx to re-render
-          // and switch to the AuthFlow, which contains VendorLogin.
           dispatch(logoutVendor());
-          Alert.alert("Success", "Logged out successfully!");
+          Alert.alert("Success", "Logged out!");
         },
       },
     ]);
   }, [dispatch]);
 
-  /**
-   * Handles toggling the vendor's online/offline status.
-   * Dispatches the toggleVendorStatus async thunk.
-   */
   const handleToggleOnlineStatus = useCallback(async () => {
     if (!vendor) return;
-
-    const currentIsOnline = vendor.isOnline;
-    const newIsOnlineStatus = !currentIsOnline;
-
-    const result = await dispatch(toggleVendorStatus(newIsOnlineStatus));
-
+    const newStatus = !vendor.isOnline;
+    const result = await dispatch(toggleVendorStatus(newStatus));
     if (result.meta.requestStatus === "fulfilled") {
-      Alert.alert(
-        "Status Updated",
-        `Vendor is now ${newIsOnlineStatus ? "Online" : "Offline"}.`,
-      );
+      Alert.alert("Status Updated", `Vendor is now ${newStatus ? "Online" : "Offline"}.`);
     } else {
-      Alert.alert(
-        "Update Failed",
-        (result.payload as string) || "Unknown error.",
-      );
+      Alert.alert("Update Failed", (result.payload as string) || "Error.");
     }
   }, [dispatch, vendor]);
 
-  /**
-   * Function to determine status display style based on isApproved and isOnline.
-   * This function is kept in the parent as it's used by both child components.
-   * @param {boolean} isApproved - Vendor's approval status.
-   * @param {boolean} isOnline - Vendor's online status.
-   * @returns {JSX.Element} A styled Text component with icon and text.
-   */
   const getStatusDisplay = useCallback(
     (isApproved: boolean | undefined, isOnline: boolean | undefined) => {
-      let textStyle: any = [styles.statusBase];
+      let textStyle: any[] = [styles.statusBase];
       let icon = null;
       let text = "Unknown";
-
       if (!isApproved) {
         textStyle.push(styles.statusPending);
-        icon = <AlertCircle size={12} color="#b45309" />; // Tailwind yellow-800
+        icon = <AlertCircle size={12} color="#b45309" />;
         text = "Pending Approval";
       } else {
         if (isOnline) {
           textStyle.push(styles.statusOnline);
-          icon = <CheckCircle size={12} color="#166534" />; // Tailwind green-800
+          icon = <CheckCircle size={12} color="#166534" />;
           text = "Online";
         } else {
           textStyle.push(styles.statusOffline);
-          icon = <AlertCircle size={12} color="#4b5563" />; // Tailwind gray-800
+          icon = <AlertCircle size={12} color="#4b5563" />;
           text = "Offline";
         }
       }
-
       return (
         <View style={textStyle}>
           {icon}
@@ -545,33 +367,31 @@ export default function VendorDashboard() {
         </View>
       );
     },
-    [],
+    []
   );
 
-  // --- Conditional Rendering: Access Denied ---
   if (!vendor) {
     return (
-      <View style={styles.accessDeniedContainer}>
-        <View style={styles.accessDeniedCard}>
-          <View style={styles.accessDeniedIconBg}>
-            <User size={32} color="#dc2626" />
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.accessDeniedContainer}>
+          <View style={styles.accessDeniedCard}>
+            <View style={styles.accessDeniedIconBg}>
+              <User size={32} color="#dc2626" />
+            </View>
+            <Text style={styles.accessDeniedTitle}>Access Denied</Text>
+            <Text style={styles.accessDeniedText}>Please login to continue.</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate("VendorLogin")}
+              style={styles.accessDeniedButton}
+            >
+              <Text style={styles.accessDeniedButtonText}>Go to Login</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.accessDeniedTitle}>Access Denied</Text>
-          <Text style={styles.accessDeniedText}>
-            No vendor data found. Please login to continue.
-          </Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate("VendorLogin")}
-            style={styles.accessDeniedButton}
-          >
-            <Text style={styles.accessDeniedButtonText}>Go to Login</Text>
-          </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
-  // --- Main Vendor Dashboard UI ---
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
@@ -580,13 +400,10 @@ export default function VendorDashboard() {
       >
         <View style={styles.headerCard}>
           <Text style={styles.headerTitle}>Vendor Dashboard</Text>
-          <Text style={styles.headerWelcome}>
-            Welcome, {vendor.name || vendor.shopName}!
-          </Text>
+          <Text style={styles.headerWelcome}>Welcome, {vendor.name || vendor.shopName}!</Text>
         </View>
 
         <View style={styles.dashboardGrid}>
-          {/* Profile Section */}
           <View style={styles.profileSection}>
             <VendorProfileCard
               vendor={vendor}
@@ -605,8 +422,6 @@ export default function VendorDashboard() {
               showModal={showModal}
             />
           </View>
-
-          {/* Quick Actions & Business Stats */}
           <VendorDashboardSidePanel
             vendor={vendor}
             loading={vendorAuthLoading}
@@ -622,16 +437,12 @@ export default function VendorDashboard() {
         </View>
       </ScrollView>
 
-      {/* Bottom Navigation Bar */}
       <View style={styles.bottomNav}>
         <TouchableOpacity
           onPress={() => navigation.navigate("VendorChatScreen")}
           style={styles.navItem}
-          activeOpacity={0.7}
         >
-          <View style={styles.navItem}>
-            <MessageCircle size={24} color="#6c757d" />
-          </View>
+          <MessageCircle size={24} color="#6c757d" />
           <Text style={styles.navText}>Chat</Text>
         </TouchableOpacity>
 
@@ -639,161 +450,92 @@ export default function VendorDashboard() {
           <Home size={24} color="#005612" />
           <Text style={[styles.navText, { color: "#005612" }]}>Home</Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => navigation.navigate("VendorProductCRUD")}
         >
           <Ionicons name="add-circle-outline" size={24} color="#6c757d" />
-          <Text style={[styles.navText, { color: "#6c757d" }]}>
-            Add Product
-          </Text>
+          <Text style={styles.navText}>Add Product</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => navigation.navigate("VendorOrderList")}
           style={styles.navItem}
-          activeOpacity={0.7}
+          onPress={() => navigation.navigate("VendorOrderList")}
         >
-          <View style={styles.navItem}>
-            <Receipt size={24} color="#6c757d" />
-          </View>
-          <Text style={styles.navText}>ORDERS</Text>
-        </TouchableOpacity>
-
-        {/* <TouchableOpacity style={styles.navItem}>
           <Receipt size={24} color="#6c757d" />
-          <Text style={[styles.navText, { color: "#6c757d" }]}>Orders</Text>
-        </TouchableOpacity> */}
+          <Text style={styles.navText}>Orders</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
+// ---------- STYLES (unchanged) ----------
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-  },
-  container: {
-    flex: 1,
-    backgroundColor: "#f8fafc", // slate-50
-  },
-  contentContainer: {
-    paddingVertical: 32,
-    paddingHorizontal: 16,
-    paddingBottom: 80, // Add padding at the bottom to prevent content from being hidden by the bottom nav
-  },
+  safeArea: { flex: 1, backgroundColor: "#f8fafc" },
+  container: { flex: 1, backgroundColor: "#f8fafc" },
+  contentContainer: { paddingVertical: 32, paddingHorizontal: 16, paddingBottom: 80 },
   headerCard: {
     backgroundColor: "#ffffff",
     borderRadius: 12,
+    padding: 24,
+    marginBottom: 32,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
-    padding: 24,
-    marginBottom: 32,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#1e293b", // gray-800
-    marginBottom: 8,
-  },
-  headerWelcome: {
-    fontSize: 16,
-    color: "#475569", // gray-600
-  },
-  dashboardGrid: {
-    flexDirection: "column",
-    gap: 32,
-  },
-  profileSection: {
-    flex: 2, // Takes 2/3 of space on larger screens
-  },
-  // Status Display Styles
+  headerTitle: { fontSize: 28, fontWeight: "bold", color: "#1e293b", marginBottom: 8 },
+  headerWelcome: { fontSize: 16, color: "#475569" },
+  dashboardGrid: { flexDirection: "column", gap: 32 },
+  profileSection: { flex: 2 },
   statusBase: {
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 9999, // rounded-full
+    borderRadius: 9999,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
+    alignSelf: "flex-start",
   },
-  statusPending: {
-    backgroundColor: "#fef3c7", // yellow-100
-  },
-  statusOnline: {
-    backgroundColor: "#dcfce7", // green-100
-  },
-  statusOffline: {
-    backgroundColor: "#f3f4f6", // gray-100
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: "500", // font-medium
-  },
-  // Access Denied Styles
-  accessDeniedContainer: {
-    flex: 1,
-    backgroundColor: "#f8fafc", // slate-50
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  statusPending: { backgroundColor: "#fef3c7" },
+  statusOnline: { backgroundColor: "#dcfce7" },
+  statusOffline: { backgroundColor: "#f3f4f6" },
+  statusText: { fontSize: 12, fontWeight: "500" },
+  accessDeniedContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
   accessDeniedCard: {
     backgroundColor: "#ffffff",
     borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
     padding: 32,
     alignItems: "center",
     maxWidth: 400,
     marginHorizontal: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
   accessDeniedIconBg: {
     width: 64,
     height: 64,
-    backgroundColor: "#fee2e2", // red-100
+    backgroundColor: "#fee2e2",
     borderRadius: 9999,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
   },
-  accessDeniedTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#1e293b", // gray-800
-    marginBottom: 8,
-  },
-  accessDeniedText: {
-    fontSize: 16,
-    color: "#475569", // gray-600
-    marginBottom: 24,
-    textAlign: "center",
-  },
+  accessDeniedTitle: { fontSize: 20, fontWeight: "600", color: "#1e293b", marginBottom: 8 },
+  accessDeniedText: { fontSize: 16, color: "#475569", marginBottom: 24, textAlign: "center" },
   accessDeniedButton: {
-    marginTop: 16,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 6,
-    backgroundColor: "#2563eb", // blue-600
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 3,
+    backgroundColor: "#2563eb",
   },
-  accessDeniedButtonText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#ffffff",
-  },
-
-  // --- Bottom Navigation Bar Styles ---
+  accessDeniedButtonText: { fontSize: 14, fontWeight: "500", color: "#ffffff" },
   bottomNav: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -806,24 +548,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 10,
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: -2,
-    },
+    shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.08,
     shadowRadius: 5,
     elevation: 10,
   },
-  navItem: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 8,
-  },
-  navText: {
-    fontSize: 12,
-    fontWeight: "500",
-    marginTop: 4,
-  },
+  navItem: { alignItems: "center", justifyContent: "center", padding: 8 },
+  navText: { fontSize: 12, fontWeight: "500", marginTop: 4 },
 });

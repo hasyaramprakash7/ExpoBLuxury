@@ -76,29 +76,35 @@ export const registerVendorWithOtp = createAsyncThunk<
 );
 
 // --- STANDARD LOGIN ---
+// In loginVendor
 export const loginVendor = createAsyncThunk<
     { vendor: Vendor; token: string },
     { identifier: string; password: string },
     { rejectValue: string }
 >(
     "vendorAuth/loginVendor",
-    async ({ identifier, password }: { identifier: string; password: string }, { rejectWithValue }) => {
+    async ({ identifier, password }, { rejectWithValue }) => {
         try {
+            console.log('🔐 [loginVendor] Getting push token...');
             const pushToken = await registerForPushNotificationsAsync();
+            console.log('🔐 [loginVendor] Push token obtained:', pushToken);
 
+            console.log('🌐 [loginVendor] Sending login request with pushToken:', pushToken);
             const res = await api.post(`/vendors/login`, { identifier, password, pushToken });
+            console.log('✅ [loginVendor] Login response:', res.data);
             await AsyncStorage.setItem("vendorToken", res.data.token);
             await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
-
             await SecureStore.deleteItemAsync("deliveryBoyToken");
             await AsyncStorage.removeItem("token");
-
             return { vendor: res.data.vendor, token: res.data.token };
         } catch (err: any) {
+            console.error('❌ [loginVendor] Error:', err.response?.data || err.message);
             return rejectWithValue(err.response?.data?.message || "Login failed");
         }
     }
 );
+
+// Similarly for loginVendorWithOtp, registerVendor, registerVendorWithOtp
 
 // --- OTP LOGIN ---
 export const loginVendorWithOtp = createAsyncThunk<
@@ -107,18 +113,24 @@ export const loginVendorWithOtp = createAsyncThunk<
     { rejectValue: string }
 >(
     "vendorAuth/loginVendorWithOtp",
-    async ({ phone, otp }: { phone: string; otp: string }, { rejectWithValue }) => {
+    async ({ phone, otp }, { rejectWithValue }) => {
         try {
-            const pushToken = await registerForPushNotificationsAsync();
+            // 🔥 Get token WITHOUT userId (we don't have vendor ID yet)
+            const pushToken = await registerForPushNotificationsAsync(); // no userId
 
             const res = await api.post(`/vendors/login-with-otp`, { phone, otp, pushToken });
-            await AsyncStorage.setItem("vendorToken", res.data.token);
-            await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
+            const vendor = res.data.vendor;
+            
+            // 🔥 NOW we have the vendor ID, register the token again to store in PushToken collection
+            if (vendor._id && pushToken) {
+                await registerForPushNotificationsAsync(vendor._id);
+            }
 
+            await AsyncStorage.setItem("vendorToken", res.data.token);
+            await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
             await SecureStore.deleteItemAsync("deliveryBoyToken");
             await AsyncStorage.removeItem("token");
-
-            return { vendor: res.data.vendor, token: res.data.token };
+            return { vendor, token: res.data.token };
         } catch (err: any) {
             return rejectWithValue(err.response?.data?.message || "OTP Login failed");
         }
@@ -143,7 +155,8 @@ export const fetchVendorProfile = createAsyncThunk<
             const res = await api.get(`/vendors/profile`);
             const vendor = res.data.vendor;
 
-            const currentPushToken = await registerForPushNotificationsAsync();
+            // 🔥 Get token and store in PushToken collection
+            const currentPushToken = await registerForPushNotificationsAsync(vendor._id);
             if (currentPushToken && vendor.pushToken !== currentPushToken) {
                 api.put(`/vendors/update-push-token`, { pushToken: currentPushToken })
                     .catch(e => console.log("Failed to update push token in background", e));
@@ -418,9 +431,10 @@ const vendorAuthSlice = createSlice({
             // 🔥 Fetch Nearby Vendors
             .addCase(fetchNearbyVendors.pending, (state) => { state.error = null; state.loading = true; })
             .addCase(fetchNearbyVendors.fulfilled, (state, action) => {
-                state.nearbyVendors = action.payload;
-                state.loading = false;
-            })
+  console.log('✅ fetchNearbyVendors succeeded with count:', action.payload.length);
+  state.nearbyVendors = action.payload;
+  state.loading = false;
+})
             .addCase(fetchNearbyVendors.rejected, (state, action) => {
                 state.error = action.payload ?? "Failed to fetch nearby vendors";
                 state.nearbyVendors = [];

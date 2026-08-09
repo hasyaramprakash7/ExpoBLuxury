@@ -199,7 +199,7 @@ const MyCategoriesScreen = () => {
     }));
     list.unshift({
       name: ALL_CATEGORIES_PATH,
-      imageUrl: allProducts?.[0]?.images?.[0],
+      imageUrl: allProducts?.[0]?.images?.[0] || "https://via.placeholder.com/150",
     });
     return list;
   }, [allProducts]);
@@ -237,11 +237,11 @@ const MyCategoriesScreen = () => {
               />
               <Text
                 style={[
-                  ,
+                  styles.categoryText,
                   selectedCategory === item.name && styles.activeCategoryText,
                 ]}
               >
-                {/* {getCategoryDisplayName(item.name)} */}
+                {getCategoryDisplayName(item.name)}
               </Text>
             </TouchableOpacity>
           )}
@@ -327,14 +327,14 @@ const MyCategoriesScreen = () => {
           />
         }
       />
-      {hasCart && <FloatingCartBar cartItems={Object.values(cartItems)} />}
+      {/* {hasCart && <FloatingCartBar cartItems={Object.values(cartItems)} />} */}
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   horizontalBarContainer: {
-    paddingTop:40,
+    paddingTop: 40,
     paddingVertical: 15,
     backgroundColor: "#FFF",
     borderBottomWidth: 1,

@@ -15,7 +15,6 @@ import {
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import * as ImagePicker from "expo-image-picker";
-import { Picker } from "@react-native-picker/picker";
 import { FontAwesome, Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -29,35 +28,15 @@ import {
 } from "../features/vendor/vendorProductSlices";
 import { RootState, AppDispatch } from "../app/store";
 
-// --- Size Constants (Defined here for the UI) ---
+// --- Size Constants ---
 const STANDARD_SIZES = [
-  "XS",
-  "S",
-  "M",
-  "L",
-  "XL",
-  "XXL",
-  "28", // Pants/Denim sizes
-  "30",
-  "32",
-  "34",
-  "36",
-  "6", // Shoe sizes
-  "7",
-  "8",
-  "9",
-  "10",
-  "11",
+  "XS", "S", "M", "L", "XL", "XXL",
+  "28", "30", "32", "34", "36",
+  "6", "7", "8", "9", "10", "11",
   "One Size",
-  "1kg",
-  "5kg",
-  "10kg",
-  "20kg",
-  "30Kg",
-  "50kg",
+  "1kg", "5kg", "10kg", "20kg", "30Kg", "50kg",
 ];
 
-// --- Type Definitions (unchanged) ---
 type VendorStackParamList = {
   VendorDashboard: undefined;
   VendorProductCRUD: undefined;
@@ -87,26 +66,19 @@ const initialFormState = {
 export default function VendorProductCRUDScreen() {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation<VendorProductCRUDScreenNavigationProp>();
-  const {
-    myProducts: products,
-    loading,
-    error,
-  } = useSelector((state: RootState) => state.vendorProducts);
+  const { myProducts: products, loading, error } = useSelector(
+    (state: RootState) => state.vendorProducts
+  );
   const { vendor } = useSelector((state: RootState) => state.vendorAuth);
 
   const [form, setForm] = useState(initialFormState);
   const [selectedMainCategory, setSelectedMainCategory] = useState("");
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
-  const [newImageFiles, setNewImageFiles] = useState<
-    ImagePicker.ImagePickerAsset[]
-  >([]);
-  const [currentProductImageUrls, setCurrentProductImageUrls] = useState<
-    string[]
-  >([]);
+  const [newImageFiles, setNewImageFiles] = useState<ImagePicker.ImagePickerAsset[]>([]);
+  const [currentProductImageUrls, setCurrentProductImageUrls] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  // NEW STATE: To hold selected sizes
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
+  const [customSizeInput, setCustomSizeInput] = useState("");
 
   // Modal State
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -130,10 +102,9 @@ export default function VendorProductCRUDScreen() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // NEW HANDLER: Toggle size selection
   const handleSelectSize = (size: string) => {
     setSelectedSizes((prev) =>
-      prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size],
+      prev.includes(size) ? prev.filter((s) => s !== size) : [...prev, size]
     );
   };
 
@@ -144,7 +115,8 @@ export default function VendorProductCRUDScreen() {
     setNewImageFiles([]);
     setCurrentProductImageUrls([]);
     setEditingId(null);
-    setSelectedSizes([]); // NEW: Reset selected sizes
+    setSelectedSizes([]);
+    setCustomSizeInput("");
   };
 
   const handlePickImages = async () => {
@@ -161,70 +133,79 @@ export default function VendorProductCRUDScreen() {
 
   const handleRemoveNewImage = (indexToRemove: number) => {
     setNewImageFiles((prevFiles) =>
-      prevFiles.filter((_, index) => index !== indexToRemove),
+      prevFiles.filter((_, index) => index !== indexToRemove)
     );
   };
 
   const handleRemoveCurrentImage = (urlToRemove: string) => {
     setCurrentProductImageUrls((prevUrls) =>
-      prevUrls.filter((url) => url !== urlToRemove),
+      prevUrls.filter((url) => url !== urlToRemove)
     );
   };
 
+  // ---- LOGGING HELPER ----
+  const logFormData = (formData: FormData) => {
+    console.log("📦 FormData entries:");
+    // @ts-ignore – FormData.entries() is available in modern RN
+    for (let [key, value] of formData.entries()) {
+      if (value instanceof Object && value.uri) {
+        console.log(`  ${key}: (file) ${value.uri}`);
+      } else {
+        console.log(`  ${key}: ${value}`);
+      }
+    }
+  };
+
   const handleSubmit = async () => {
+    // --- Validation ---
     if (!form.name || !form.price || !form.stock) {
       Alert.alert("Validation Error", "Please fill Name, Price, and Stock.");
       return;
     }
+    if (!form.description) {
+      Alert.alert("Validation Warning", "Description is required.");
+      return;
+    }
 
     const brandName = form.brandName.trim();
-    if (
-      brandName.length > 0 &&
-      (brandName.length < 2 || brandName.length > 50)
-    ) {
+    if (brandName.length > 0 && (brandName.length < 2 || brandName.length > 50)) {
       Alert.alert(
         "Validation Error",
-        "Brand Name must be between 2 and 50 characters, or empty.",
+        "Brand Name must be between 2 and 50 characters, or empty."
       );
       return;
     }
 
-    // Check if a category has been selected for new products
     if (!editingId && !selectedMainCategory) {
       Alert.alert("Validation Error", "Please select a category.");
       return;
     }
 
+    // --- Build FormData ---
     const formData = new FormData();
+
+    // 1. Text fields
     Object.keys(form).forEach((key) => {
       const value = form[key as keyof typeof form];
-      if (value !== "") {
-        // Ensure correct string and boolean handling
+      if (value !== "" && value !== null && value !== undefined) {
         if (typeof value === "boolean") {
           formData.append(key, value.toString());
-        } else if (typeof value === "string") {
-          formData.append(key, value);
-        } else if (typeof value === "number") {
-          formData.append(key, value.toString());
+        } else {
+          formData.append(key, String(value));
         }
       }
     });
 
-    // Construct the full category string to send to the backend
+    // 2. Category
     let finalCategory = selectedMainCategory;
-    if (selectedSubCategory) {
-      finalCategory += `_${selectedSubCategory}`;
-    }
-    if (form.category) {
-      finalCategory += `_${form.category}`;
-    }
+    if (selectedSubCategory) finalCategory += `_${selectedSubCategory}`;
+    if (form.category) finalCategory += `_${form.category}`;
     formData.set("category", finalCategory);
 
-    // NEW: Append the selected sizes as a comma-separated string
-    // The backend is set up to parse this string into an array.
+    // 3. Sizes – comma‑separated string
     formData.append("sizes", selectedSizes.join(","));
 
-    // Append new image files
+    // 4. New image files
     newImageFiles.forEach((file) => {
       const uriParts = file.uri.split(".");
       const fileType = uriParts[uriParts.length - 1];
@@ -235,21 +216,13 @@ export default function VendorProductCRUDScreen() {
       } as any);
     });
 
-    // For update, append the current images to keep them
-    if (editingId && currentProductImageUrls.length > 0) {
-      currentProductImageUrls.forEach((url) => {
-        formData.append("images", url);
-      });
-    }
+    // ---- LOG ----
+    logFormData(formData);
 
+    // ---- Dispatch ----
     try {
       if (editingId) {
-        await dispatch(
-          updateProduct({
-            id: editingId,
-            formData,
-          }),
-        ).unwrap();
+        await dispatch(updateProduct({ id: editingId, formData })).unwrap();
         Alert.alert("Success", "Product updated!");
       } else {
         await dispatch(addProduct(formData)).unwrap();
@@ -257,90 +230,87 @@ export default function VendorProductCRUDScreen() {
       }
       resetForm();
     } catch (err: any) {
+      console.error("❌ Product submission error:", err);
+      if (err.response) {
+        console.error("   Response data:", err.response.data);
+        console.error("   Status:", err.response.status);
+      } else if (err.request) {
+        console.error("   Request made but no response:", err.request);
+      } else {
+        console.error("   Error message:", err.message);
+      }
       Alert.alert(
         "Operation Failed",
-        err?.message || "An unknown error occurred.",
+        err?.message || "Unknown error. Check console."
       );
     }
   };
 
+  // ---------- Edit Handler ----------
   const handleEdit = (product: any) => {
+    console.log("📝 Editing product:", product);
+    console.log("📝 Product sizes raw:", product.sizes);
+
     setEditingId(product._id);
     const categoryString = product.category || "";
     const categoryParts = categoryString.split("_");
 
-    // Reset category states
     setSelectedMainCategory(categoryParts[0] || "");
     setSelectedSubCategory(categoryParts[1] || "");
 
-    // Populate all form fields from the product object
     setForm({
       name: product.name || "",
       description: product.description || "",
-      brandName: product.brandName || "", // FIX: Populate brandName
+      brandName: product.brandName || "",
       price: product.price !== undefined ? String(product.price) : "",
       discountedPrice:
-        product.discountedPrice !== undefined
-          ? String(product.discountedPrice)
-          : "",
+        product.discountedPrice !== undefined ? String(product.discountedPrice) : "",
       discountPercent:
-        product.discountPercent !== undefined
-          ? String(product.discountPercent)
-          : "",
-      category: categoryParts.slice(2).join("_") || "", // FIX: Correctly set the last part of the category
-      stock: product.stock !== undefined ? String(product.stock) : "", // FIX: Populate stock
+        product.discountPercent !== undefined ? String(product.discountPercent) : "",
+      category: categoryParts.slice(2).join("_") || "",
+      stock: product.stock !== undefined ? String(product.stock) : "",
       isAvailable: product.isAvailable,
-      bulkPrice:
-        product.bulkPrice !== undefined ? String(product.bulkPrice) : "",
+      bulkPrice: product.bulkPrice !== undefined ? String(product.bulkPrice) : "",
       bulkMinimumUnits:
-        product.bulkMinimumUnits !== undefined
-          ? String(product.bulkMinimumUnits)
-          : "",
+        product.bulkMinimumUnits !== undefined ? String(product.bulkMinimumUnits) : "",
       largeQuantityPrice:
-        product.largeQuantityPrice !== undefined
-          ? String(product.largeQuantityPrice)
-          : "",
+        product.largeQuantityPrice !== undefined ? String(product.largeQuantityPrice) : "",
       largeQuantityMinimumUnits:
         product.largeQuantityMinimumUnits !== undefined
           ? String(product.largeQuantityMinimumUnits)
           : "",
     });
 
-    // NEW: Set selected sizes from the product object (which is an array)
-    setSelectedSizes(product.sizes || []);
+    // 🔥 FIX: Ensure sizes is an array
+    let sizesArray = [];
+    if (Array.isArray(product.sizes)) {
+      sizesArray = product.sizes;
+    } else if (typeof product.sizes === "string") {
+      sizesArray = product.sizes.split(",").map(s => s.trim()).filter(s => s.length > 0);
+    }
+    console.log("📝 Parsed sizes array:", sizesArray);
+    setSelectedSizes(sizesArray);
 
-    // Set images
     setCurrentProductImageUrls(product.images || []);
     setNewImageFiles([]);
+    setCustomSizeInput("");
   };
 
   const handleDelete = (id: string) => {
     Alert.alert("Confirm Deletion", "Are you sure?", [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => dispatch(deleteProduct(id)),
-      },
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => dispatch(deleteProduct(id)) },
     ]);
   };
 
-  // --- Category Modal Logic (Unchanged) ---
+  // ---------- Category Modal Logic ----------
   const handleSelectCategory = (value: string) => {
     if (currentLevel === "main") {
       setSelectedMainCategory(value);
       setSelectedSubCategory("");
       setForm((prev) => ({ ...prev, category: "" }));
-
       const subcategories = categories[value as keyof typeof categories];
-      if (
-        subcategories &&
-        typeof subcategories === "object" &&
-        !Array.isArray(subcategories)
-      ) {
+      if (subcategories && typeof subcategories === "object" && !Array.isArray(subcategories)) {
         setCurrentLevel("sub");
       } else {
         setForm((prev) => ({ ...prev, category: value }));
@@ -349,16 +319,11 @@ export default function VendorProductCRUDScreen() {
     } else if (currentLevel === "sub") {
       setSelectedSubCategory(value);
       setForm((prev) => ({ ...prev, category: "" }));
-
       const subSubcategories =
         categories[selectedMainCategory as keyof typeof categories]?.[
           value as keyof (typeof categories)[keyof typeof categories]
         ];
-      if (
-        subSubcategories &&
-        Array.isArray(subSubcategories) &&
-        subSubcategories.length > 0
-      ) {
+      if (subSubcategories && Array.isArray(subSubcategories) && subSubcategories.length > 0) {
         setCurrentLevel("sub-sub");
       } else {
         setForm((prev) => ({ ...prev, category: value }));
@@ -378,13 +343,8 @@ export default function VendorProductCRUDScreen() {
     if (currentLevel === "main") {
       currentCategoryData = categories;
     } else if (currentLevel === "sub" && selectedMainCategory) {
-      currentCategoryData =
-        categories[selectedMainCategory as keyof typeof categories];
-    } else if (
-      currentLevel === "sub-sub" &&
-      selectedMainCategory &&
-      selectedSubCategory
-    ) {
+      currentCategoryData = categories[selectedMainCategory as keyof typeof categories];
+    } else if (currentLevel === "sub-sub" && selectedMainCategory && selectedSubCategory) {
       const subCategoryData =
         categories[selectedMainCategory as keyof typeof categories][
           selectedSubCategory as keyof (typeof categories)[keyof typeof categories]
@@ -399,7 +359,7 @@ export default function VendorProductCRUDScreen() {
     }
 
     return options.filter((option) =>
-      option.toLowerCase().includes(filterQuery.toLowerCase()),
+      option.toLowerCase().includes(filterQuery.toLowerCase())
     );
   };
 
@@ -411,98 +371,37 @@ export default function VendorProductCRUDScreen() {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-    >
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.title}>
-          {editingId ? "Edit Product" : "Manage Products"}
-        </Text>
+        <Text style={styles.title}>{editingId ? "Edit Product" : "Manage Products"}</Text>
       </View>
-      <View style={styles.form}>
-        <CustomTextInput
-          label="Name*"
-          value={form.name}
-          onChangeText={(v) => handleChange("name", v)}
-        />
-        <CustomTextInput
-          label="Description"
-          value={form.description}
-          onChangeText={(v) => handleChange("description", v)}
-          multiline
-        />
-        <CustomTextInput
-          label="Brand Name"
-          value={form.brandName}
-          onChangeText={(v) => handleChange("brandName", v)}
-        />
-        <CustomTextInput
-          label="Price (₹)*"
-          value={form.price}
-          onChangeText={(v) => handleChange("price", v)}
-          keyboardType="numeric"
-        />
-        <CustomTextInput
-          label="Discounted Price (₹)"
-          value={form.discountedPrice}
-          onChangeText={(v) => handleChange("discountedPrice", v)}
-          keyboardType="numeric"
-        />
-        <CustomTextInput
-          label="Discount Percent (%)"
-          value={form.discountPercent}
-          onChangeText={(v) => handleChange("discountPercent", v)}
-          keyboardType="numeric"
-        />
-        <CustomTextInput
-          label="Stock*"
-          value={form.stock}
-          onChangeText={(v) => handleChange("stock", v)}
-          keyboardType="numeric"
-        />
 
-        {/* Category Inputs with Modal Trigger */}
+      <View style={styles.form}>
+        <CustomTextInput label="Name*" value={form.name} onChangeText={(v) => handleChange("name", v)} />
+        <CustomTextInput label="Description*" value={form.description} onChangeText={(v) => handleChange("description", v)} multiline />
+        <CustomTextInput label="Brand Name" value={form.brandName} onChangeText={(v) => handleChange("brandName", v)} />
+        <CustomTextInput label="Price (₹)*" value={form.price} onChangeText={(v) => handleChange("price", v)} keyboardType="numeric" />
+        <CustomTextInput label="Discounted Price (₹)" value={form.discountedPrice} onChangeText={(v) => handleChange("discountedPrice", v)} keyboardType="numeric" />
+        <CustomTextInput label="Discount Percent (%)" value={form.discountPercent} onChangeText={(v) => handleChange("discountPercent", v)} keyboardType="numeric" />
+        <CustomTextInput label="Stock*" value={form.stock} onChangeText={(v) => handleChange("stock", v)} keyboardType="numeric" />
+
+        {/* Category Selection */}
         <Text style={styles.label}>Category Selection</Text>
-        <TouchableOpacity
-          style={styles.categoryInput}
-          onPress={() => {
-            setCurrentLevel("main");
-            setIsModalVisible(true);
-          }}
-        >
-          <Text style={styles.categoryInputText}>
-            {selectedMainCategory || "-- Select Main Category --"}
-          </Text>
+        <TouchableOpacity style={styles.categoryInput} onPress={() => { setCurrentLevel("main"); setIsModalVisible(true); }}>
+          <Text style={styles.categoryInputText}>{selectedMainCategory || "-- Select Main Category --"}</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[
-            styles.categoryInput,
-            !selectedMainCategory && styles.disabledInput,
-          ]}
-          onPress={() => {
-            if (selectedMainCategory) {
-              setCurrentLevel("sub");
-              setIsModalVisible(true);
-            }
-          }}
+          style={[styles.categoryInput, !selectedMainCategory && styles.disabledInput]}
+          onPress={() => { if (selectedMainCategory) { setCurrentLevel("sub"); setIsModalVisible(true); } }}
           disabled={!selectedMainCategory}
         >
-          <Text style={styles.categoryInputText}>
-            {selectedSubCategory || "-- Select Subcategory --"}
-          </Text>
+          <Text style={styles.categoryInputText}>{selectedSubCategory || "-- Select Subcategory --"}</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[
-            styles.categoryInput,
-            !selectedSubCategory && styles.disabledInput,
-          ]}
+          style={[styles.categoryInput, !selectedSubCategory && styles.disabledInput]}
           onPress={() => {
             if (
               selectedSubCategory &&
@@ -516,32 +415,28 @@ export default function VendorProductCRUDScreen() {
           }}
           disabled={!selectedSubCategory}
         >
-          <Text style={styles.categoryInputText}>
-            {form.category || "-- Select Sub-Subcategory (Optional) --"}
-          </Text>
+          <Text style={styles.categoryInputText}>{form.category || "-- Select Sub-Subcategory (Optional) --"}</Text>
         </TouchableOpacity>
         {editingId && products.find((p) => p._id === editingId)?.category && (
           <View style={styles.currentCategoryContainer}>
             <Text style={styles.editingCategoryText}>Current Category:</Text>
             <Text style={styles.editingCategoryValue}>
-              {products
-                .find((p) => p._id === editingId)
-                ?.category.replace(/_/g, " ")}
+              {products.find((p) => p._id === editingId)?.category.replace(/_/g, " ")}
             </Text>
           </View>
         )}
-        {/* --- End Category Inputs --- */}
 
-        {/* NEW SIZE SELECTION SECTION */}
+        {/* ============================== */}
+        {/*  SIZES – UPDATED WITH CUSTOM PILLS  */}
+        {/* ============================== */}
         <Text style={styles.sectionTitle}>Available Sizes (Multi-Select)</Text>
+
+        {/* Standard sizes as pills */}
         <View style={styles.sizeSelectionContainer}>
           {STANDARD_SIZES.map((size) => (
             <TouchableOpacity
               key={size}
-              style={[
-                styles.sizePill,
-                selectedSizes.includes(size) && styles.selectedSizePill,
-              ]}
+              style={[styles.sizePill, selectedSizes.includes(size) && styles.selectedSizePill]}
               onPress={() => handleSelectSize(size)}
             >
               <Text
@@ -555,60 +450,81 @@ export default function VendorProductCRUDScreen() {
             </TouchableOpacity>
           ))}
         </View>
-        {/* END NEW SIZE SELECTION SECTION */}
+
+        {/* ===== CUSTOM SIZES (selected but not in STANDARD) ===== */}
+        {selectedSizes.filter((size) => !STANDARD_SIZES.includes(size)).length > 0 && (
+          <View style={{ marginTop: 8 }}>
+            <Text style={[styles.label, { marginBottom: 4 }]}>
+              Custom sizes:
+            </Text>
+            <View style={styles.sizeSelectionContainer}>
+              {selectedSizes
+                .filter((size) => !STANDARD_SIZES.includes(size))
+                .map((customSize) => (
+                  <TouchableOpacity
+                    key={customSize}
+                    style={[styles.sizePill, styles.selectedSizePill]}
+                    onPress={() => handleSelectSize(customSize)}
+                  >
+                    <Text style={[styles.sizePillText, styles.selectedSizePillText]}>
+                      {customSize}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+            </View>
+          </View>
+        )}
+
+        {/* Custom size input */}
+        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}>
+          <TextInput
+            style={[styles.input, { flex: 1, marginRight: 8 }]}
+            placeholder="Custom size (e.g., 500g, 2XL)"
+            value={customSizeInput}
+            onChangeText={setCustomSizeInput}
+          />
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: "#005612", paddingHorizontal: 16 }]}
+            onPress={() => {
+              if (customSizeInput.trim()) {
+                handleSelectSize(customSizeInput.trim());
+                setCustomSizeInput("");
+              }
+            }}
+          >
+            <Text style={styles.buttonText}>Add</Text>
+          </TouchableOpacity>
+        </View>
+        {/* ===== END SIZES ===== */}
 
         <Text style={styles.sectionTitle}>Bulk Pricing (Optional)</Text>
-        <CustomTextInput
-          label="Bulk Price (₹)"
-          value={form.bulkPrice}
-          onChangeText={(v) => handleChange("bulkPrice", v)}
-          keyboardType="numeric"
-        />
-        <CustomTextInput
-          label="Minimum Units for Bulk Price"
-          value={form.bulkMinimumUnits}
-          onChangeText={(v) => handleChange("bulkMinimumUnits", v)}
-          keyboardType="numeric"
-        />
-        <Text style={styles.sectionTitle}>
-          Large Quantity Pricing (Optional)
-        </Text>
-        <CustomTextInput
-          label="Large Qty Price (₹)"
-          value={form.largeQuantityPrice}
-          onChangeText={(v) => handleChange("largeQuantityPrice", v)}
-          keyboardType="numeric"
-        />
-        <CustomTextInput
-          label="Minimum Units for Large Qty"
-          value={form.largeQuantityMinimumUnits}
-          onChangeText={(v) => handleChange("largeQuantityMinimumUnits", v)}
-          keyboardType="numeric"
-        />
+        <CustomTextInput label="Bulk Price (₹)" value={form.bulkPrice} onChangeText={(v) => handleChange("bulkPrice", v)} keyboardType="numeric" />
+        <CustomTextInput label="Minimum Units for Bulk Price" value={form.bulkMinimumUnits} onChangeText={(v) => handleChange("bulkMinimumUnits", v)} keyboardType="numeric" />
+
+        <Text style={styles.sectionTitle}>Large Quantity Pricing (Optional)</Text>
+        <CustomTextInput label="Large Qty Price (₹)" value={form.largeQuantityPrice} onChangeText={(v) => handleChange("largeQuantityPrice", v)} keyboardType="numeric" />
+        <CustomTextInput label="Minimum Units for Large Qty" value={form.largeQuantityMinimumUnits} onChangeText={(v) => handleChange("largeQuantityMinimumUnits", v)} keyboardType="numeric" />
+
         <View style={styles.switchContainer}>
           <Text style={styles.label}>Is Available</Text>
           <Switch
             value={form.isAvailable}
             onValueChange={(v) => handleChange("isAvailable", v)}
-            trackColor={{
-              false: "#767577",
-              true: "#C5E1A5",
-            }}
+            trackColor={{ false: "#767577", true: "#C5E1A5" }}
             thumbColor={form.isAvailable ? "#005612" : "#f4f3f4"}
           />
         </View>
+
         <TouchableOpacity style={styles.button} onPress={handlePickImages}>
           <FontAwesome name="image" size={18} color="#fff" />
           <Text style={styles.buttonText}>Select Images</Text>
         </TouchableOpacity>
+
         <View style={styles.imagePreviewContainer}>
           {currentProductImageUrls.map((url, index) => (
             <View key={`current-${index}`} style={styles.imageWrapper}>
               <Image source={{ uri: url }} style={styles.image} />
-              <TouchableOpacity
-                onPress={() => handleRemoveCurrentImage(url)}
-                style={styles.removeImageButton}
-              >
+              <TouchableOpacity onPress={() => handleRemoveCurrentImage(url)} style={styles.removeImageButton}>
                 <Ionicons name="close-circle" size={24} color="#D32F2F" />
               </TouchableOpacity>
             </View>
@@ -616,26 +532,18 @@ export default function VendorProductCRUDScreen() {
           {newImageFiles.map((file, index) => (
             <View key={`new-${index}`} style={styles.imageWrapper}>
               <Image source={{ uri: file.uri }} style={styles.image} />
-              <TouchableOpacity
-                onPress={() => handleRemoveNewImage(index)}
-                style={styles.removeImageButton}
-              >
+              <TouchableOpacity onPress={() => handleRemoveNewImage(index)} style={styles.removeImageButton}>
                 <Ionicons name="close-circle" size={24} color="#D32F2F" />
               </TouchableOpacity>
             </View>
           ))}
         </View>
-        <TouchableOpacity
-          style={styles.submitButton}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
+
+        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={loading}>
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>
-              {editingId ? "Update Product" : "Add Product"}
-            </Text>
+            <Text style={styles.buttonText}>{editingId ? "Update Product" : "Add Product"}</Text>
           )}
         </TouchableOpacity>
         {editingId && (
@@ -644,16 +552,8 @@ export default function VendorProductCRUDScreen() {
           </TouchableOpacity>
         )}
       </View>
-      <Text
-        style={[
-          styles.title,
-          {
-            marginTop: 20,
-          },
-        ]}
-      >
-        My Products
-      </Text>
+
+      <Text style={[styles.title, { marginTop: 20 }]}>My Products</Text>
       {loading && products.length === 0 ? (
         <ActivityIndicator size="large" color="#005612" />
       ) : (
@@ -661,68 +561,46 @@ export default function VendorProductCRUDScreen() {
           <View key={p._id} style={styles.productCard}>
             <Image
               source={{
-                uri:
-                  p.images && p.images.length > 0
-                    ? p.images[0]
-                    : "https://placehold.co/100x100/eee/ccc?text=No+Img",
+                uri: p.images && p.images.length > 0 ? p.images[0] : "https://placehold.co/100x100/eee/ccc?text=No+Img",
               }}
               style={styles.productImage}
             />
             <View style={styles.productInfo}>
-              <Text style={styles.productName} numberOfLines={2}>
-                {p.name}
-              </Text>
+              <Text style={styles.productName} numberOfLines={2}>{p.name}</Text>
               <Text style={styles.productBrand}>{p.brandName}</Text>
               <View style={styles.priceContainer}>
                 {p.discountedPrice ? (
                   <>
-                    <Text style={styles.productPrice}>
-                      ₹{Number(p.discountedPrice).toFixed(2)}
-                    </Text>
-                    <Text style={styles.productDiscountedPrice}>
-                      ₹{Number(p.price).toFixed(2)}
-                    </Text>
+                    <Text style={styles.productPrice}>₹{Number(p.discountedPrice).toFixed(2)}</Text>
+                    <Text style={styles.productDiscountedPrice}>₹{Number(p.price).toFixed(2)}</Text>
                   </>
                 ) : (
-                  <Text style={styles.productPrice}>
-                    ₹{Number(p.price).toFixed(2)}
-                  </Text>
+                  <Text style={styles.productPrice}>₹{Number(p.price).toFixed(2)}</Text>
                 )}
               </View>
               <Text style={styles.productStock}>Stock: {p.stock}</Text>
               <Text style={styles.productCategory} numberOfLines={1}>
                 {p.category.replace(/_/g, " ")}
               </Text>
-              {/* NEW: Display available sizes */}
               {p.sizes && p.sizes.length > 0 && (
-                <Text style={styles.productSizes}>
-                  Sizes: **{p.sizes.join(", ")}**
-                </Text>
+                <Text style={styles.productSizes}>Sizes: {p.sizes.join(", ")}</Text>
               )}
               {p.bulkPrice && p.bulkMinimumUnits && (
                 <Text style={styles.productTierPrice}>
-                  Bulk: {p.bulkMinimumUnits}+ @ ₹
-                  {Number(p.bulkPrice).toFixed(2)}/unit
+                  Bulk: {p.bulkMinimumUnits}+ @ ₹{Number(p.bulkPrice).toFixed(2)}/unit
                 </Text>
               )}
               {p.largeQuantityPrice && p.largeQuantityMinimumUnits && (
                 <Text style={styles.productTierPrice}>
-                  Large Qty: {p.largeQuantityMinimumUnits}+ @ ₹
-                  {Number(p.largeQuantityPrice).toFixed(2)}/unit
+                  Large Qty: {p.largeQuantityMinimumUnits}+ @ ₹{Number(p.largeQuantityPrice).toFixed(2)}/unit
                 </Text>
               )}
             </View>
             <View style={styles.buttonColumn}>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={() => handleEdit(p)}
-              >
+              <TouchableOpacity style={styles.iconButton} onPress={() => handleEdit(p)}>
                 <FontAwesome name="pencil" size={20} color="#BFA440" />
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={() => handleDelete(p._id)}
-              >
+              <TouchableOpacity style={styles.iconButton} onPress={() => handleDelete(p._id)}>
                 <FontAwesome name="trash" size={20} color="#D32F2F" />
               </TouchableOpacity>
             </View>
@@ -730,39 +608,25 @@ export default function VendorProductCRUDScreen() {
         ))
       )}
 
-      {/* Category Selection Modal (Unchanged) */}
+      {/* Category Modal */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={isModalVisible}
-        onRequestClose={() => {
-          setIsModalVisible(!isModalVisible);
-        }}
+        onRequestClose={() => setIsModalVisible(!isModalVisible)}
       >
         <View style={styles.centeredView}>
           <View style={styles.modalView}>
             <Text style={styles.modalTitle}>Select {getCategoryLabel()}</Text>
-            <TextInput
-              style={styles.modalTextInput}
-              placeholder="Search..."
-              value={filterQuery}
-              onChangeText={setFilterQuery}
-            />
+            <TextInput style={styles.modalTextInput} placeholder="Search..." value={filterQuery} onChangeText={setFilterQuery} />
             <ScrollView style={styles.modalList}>
               {getCategoryOptions().map((option, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={styles.modalOption}
-                  onPress={() => handleSelectCategory(option)}
-                >
+                <TouchableOpacity key={index} style={styles.modalOption} onPress={() => handleSelectCategory(option)}>
                   <Text style={styles.modalOptionText}>{option}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity
-              style={[styles.button, styles.modalCloseButton]}
-              onPress={() => setIsModalVisible(!isModalVisible)}
-            >
+            <TouchableOpacity style={[styles.button, styles.modalCloseButton]} onPress={() => setIsModalVisible(!isModalVisible)}>
               <Text style={styles.buttonText}>Close</Text>
             </TouchableOpacity>
           </View>
@@ -772,349 +636,67 @@ export default function VendorProductCRUDScreen() {
   );
 }
 
-const CustomTextInput = ({
-  label,
-  ...props
-}: {
-  label: string;
-  [key: string]: any;
-}) => (
+// -------- Custom Input Component --------
+const CustomTextInput = ({ label, ...props }: { label: string; [key: string]: any }) => (
   <View style={styles.inputContainer}>
     <Text style={styles.label}>{label}</Text>
     <TextInput style={styles.input} placeholderTextColor="#999" {...props} />
   </View>
 );
 
+// -------- Styles --------
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F0F4F8",
-  },
-  contentContainer: {
-    padding: 15,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-    position: "relative",
-    width: "100%",
-  },
-  backButton: {
-    position: "absolute",
-    left: 0,
-    padding: 5,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: "bold",
-    color: "#1C1C1C",
-    textAlign: "center",
-    flex: 1,
-    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
-  },
-  form: {
-    backgroundColor: "#FFFFFF",
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 20,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  inputContainer: {
-    marginBottom: 15,
-  },
-  label: {
-    fontSize: 16,
-    color: "#6c757d",
-    marginBottom: 8,
-    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    fontSize: 16,
-    backgroundColor: "#F8F9FA",
-  },
-  button: {
-    flexDirection: "row",
-    backgroundColor: "#BFA440",
-    padding: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-    gap: 10,
-  },
-  submitButton: {
-    backgroundColor: "#005612",
-    padding: 15,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 15,
-  },
-  cancelButton: {
-    backgroundColor: "#6c757d",
-    padding: 15,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 10,
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  imagePreviewContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: 10,
-  },
-  imageWrapper: {
-    position: "relative",
-    margin: 5,
-  },
-  image: {
-    width: 70,
-    height: 70,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#BFA440",
-  },
-  removeImageButton: {
-    position: "absolute",
-    top: -5,
-    right: -5,
-    backgroundColor: "white",
-    borderRadius: 12,
-  },
-  productCard: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.08,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  productImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-  },
-  productInfo: {
-    flex: 1,
-    marginLeft: 15,
-    justifyContent: "center",
-  },
-  productName: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#1C1C1C",
-  },
-  productBrand: {
-    fontSize: 14,
-    color: "#6c757d",
-    marginBottom: 4,
-  },
-  priceContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 4,
-  },
-  productPrice: {
-    fontSize: 16,
-    color: "#005612",
-    fontWeight: "bold",
-  },
-  productDiscountedPrice: {
-    fontSize: 14,
-    color: "#D32F2F",
-    textDecorationLine: "line-through",
-    marginLeft: 8,
-  },
-  productStock: {
-    fontSize: 14,
-    color: "#6c757d",
-  },
-  productCategory: {
-    fontSize: 12,
-    color: "#BFA440",
-    marginTop: 4,
-    fontStyle: "italic",
-  },
-  productTierPrice: {
-    fontSize: 12,
-    color: "#888",
-    marginTop: 4,
-  },
-  // NEW STYLE: For displaying sizes in the product card
-  productSizes: {
-    fontSize: 14,
-    color: "#6c757d",
-    marginTop: 4,
-  },
-  buttonColumn: {
-    justifyContent: "space-around",
-    marginLeft: 10,
-  },
-  iconButton: {
-    padding: 8,
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    marginBottom: 15,
-    backgroundColor: "#F8F9FA",
-  },
-  switchContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 10,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#005612",
-    marginTop: 20,
-    marginBottom: 10,
-    borderTopColor: "#e0e0e0",
-    borderTopWidth: 1,
-    paddingTop: 15,
-    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
-  },
-  // NEW STYLES for Size Selection UI
-  sizeSelectionContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 15,
-    gap: 10,
-  },
-  sizePill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#BFA440",
-    backgroundColor: "#F8F9FA",
-  },
-  selectedSizePill: {
-    backgroundColor: "#005612",
-    borderColor: "#005612",
-  },
-  sizePillText: {
-    color: "#BFA440",
-    fontWeight: "bold",
-    fontSize: 14,
-  },
-  selectedSizePillText: {
-    color: "#fff",
-  },
-  // Existing Modal Styles (unchanged)
-  categoryInput: {
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    backgroundColor: "#F8F9FA",
-    marginBottom: 15,
-  },
-  categoryInputText: {
-    fontSize: 16,
-    color: "#1C1C1C",
-  },
-  disabledInput: {
-    backgroundColor: "#e9ecef",
-    color: "#6c757d",
-  },
-  centeredView: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 22,
-    backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  modalView: {
-    margin: 20,
-    backgroundColor: "white",
-    borderRadius: 20,
-    padding: 35,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-    width: "90%",
-    maxHeight: "80%",
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 15,
-    color: "#1C1C1C",
-  },
-  modalTextInput: {
-    width: "100%",
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 15,
-    fontSize: 16,
-  },
-  modalList: {
-    width: "100%",
-    marginBottom: 15,
-  },
-  modalOption: {
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  modalOptionText: {
-    fontSize: 16,
-  },
-  modalCloseButton: {
-    backgroundColor: "#D32F2F",
-    marginTop: 10,
-  },
-  currentCategoryContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 15,
-    marginTop: -5,
-    flexWrap: "wrap",
-  },
-  editingCategoryText: {
-    fontSize: 16,
-    color: "#6c757d",
-    marginRight: 5,
-  },
-  editingCategoryValue: {
-    fontWeight: "bold",
-    color: "#1C1C1C",
-  },
+  container: { flex: 1, backgroundColor: "#F0F4F8" },
+  contentContainer: { padding: 15 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginBottom: 20, position: "relative", width: "100%" },
+  backButton: { position: "absolute", left: 0, padding: 5 },
+  title: { fontSize: 26, fontWeight: "bold", color: "#1C1C1C", textAlign: "center", flex: 1, fontFamily: Platform.OS === "ios" ? "Georgia" : "serif" },
+  form: { backgroundColor: "#FFFFFF", padding: 20, borderRadius: 16, marginBottom: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 5 },
+  inputContainer: { marginBottom: 15 },
+  label: { fontSize: 16, color: "#6c757d", marginBottom: 8, fontFamily: Platform.OS === "ios" ? "Georgia" : "serif" },
+  input: { borderWidth: 1, borderColor: "#e0e0e0", paddingVertical: 12, paddingHorizontal: 15, borderRadius: 8, fontSize: 16, backgroundColor: "#F8F9FA" },
+  button: { flexDirection: "row", backgroundColor: "#BFA440", padding: 12, borderRadius: 8, alignItems: "center", justifyContent: "center", marginBottom: 10, gap: 10 },
+  submitButton: { backgroundColor: "#005612", padding: 15, borderRadius: 8, alignItems: "center", marginTop: 15 },
+  cancelButton: { backgroundColor: "#6c757d", padding: 15, borderRadius: 8, alignItems: "center", marginTop: 10 },
+  buttonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
+  imagePreviewContainer: { flexDirection: "row", flexWrap: "wrap", marginTop: 10 },
+  imageWrapper: { position: "relative", margin: 5 },
+  image: { width: 70, height: 70, borderRadius: 8, borderWidth: 2, borderColor: "#BFA440" },
+  removeImageButton: { position: "absolute", top: -5, right: -5, backgroundColor: "white", borderRadius: 12 },
+  productCard: { flexDirection: "row", backgroundColor: "#fff", padding: 15, borderRadius: 12, marginBottom: 12, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 5, elevation: 3 },
+  productImage: { width: 80, height: 80, borderRadius: 8 },
+  productInfo: { flex: 1, marginLeft: 15, justifyContent: "center" },
+  productName: { fontSize: 18, fontWeight: "bold", color: "#1C1C1C" },
+  productBrand: { fontSize: 14, color: "#6c757d", marginBottom: 4 },
+  priceContainer: { flexDirection: "row", alignItems: "center", marginVertical: 4 },
+  productPrice: { fontSize: 16, color: "#005612", fontWeight: "bold" },
+  productDiscountedPrice: { fontSize: 14, color: "#D32F2F", textDecorationLine: "line-through", marginLeft: 8 },
+  productStock: { fontSize: 14, color: "#6c757d" },
+  productCategory: { fontSize: 12, color: "#BFA440", marginTop: 4, fontStyle: "italic" },
+  productTierPrice: { fontSize: 12, color: "#888", marginTop: 4 },
+  productSizes: { fontSize: 14, color: "#6c757d", marginTop: 4 },
+  buttonColumn: { justifyContent: "space-around", marginLeft: 10 },
+  iconButton: { padding: 8 },
+  pickerContainer: { borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 8, marginBottom: 15, backgroundColor: "#F8F9FA" },
+  switchContainer: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10 },
+  sectionTitle: { fontSize: 20, fontWeight: "bold", color: "#005612", marginTop: 20, marginBottom: 10, borderTopColor: "#e0e0e0", borderTopWidth: 1, paddingTop: 15, fontFamily: Platform.OS === "ios" ? "Georgia" : "serif" },
+  sizeSelectionContainer: { flexDirection: "row", flexWrap: "wrap", marginBottom: 15, gap: 10 },
+  sizePill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: "#BFA440", backgroundColor: "#F8F9FA" },
+  selectedSizePill: { backgroundColor: "#005612", borderColor: "#005612" },
+  sizePillText: { color: "#BFA440", fontWeight: "bold", fontSize: 14 },
+  selectedSizePillText: { color: "#fff" },
+  categoryInput: { borderWidth: 1, borderColor: "#e0e0e0", paddingVertical: 12, paddingHorizontal: 15, borderRadius: 8, backgroundColor: "#F8F9FA", marginBottom: 15 },
+  categoryInputText: { fontSize: 16, color: "#1C1C1C" },
+  disabledInput: { backgroundColor: "#e9ecef", color: "#6c757d" },
+  centeredView: { flex: 1, justifyContent: "center", alignItems: "center", marginTop: 22, backgroundColor: "rgba(0,0,0,0.5)" },
+  modalView: { margin: 20, backgroundColor: "white", borderRadius: 20, padding: 35, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, width: "90%", maxHeight: "80%" },
+  modalTitle: { fontSize: 20, fontWeight: "bold", marginBottom: 15, color: "#1C1C1C" },
+  modalTextInput: { width: "100%", borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, marginBottom: 15, fontSize: 16 },
+  modalList: { width: "100%", marginBottom: 15 },
+  modalOption: { padding: 15, borderBottomWidth: 1, borderBottomColor: "#eee" },
+  modalOptionText: { fontSize: 16 },
+  modalCloseButton: { backgroundColor: "#D32F2F", marginTop: 10 },
+  currentCategoryContainer: { flexDirection: "row", alignItems: "center", marginBottom: 15, marginTop: -5, flexWrap: "wrap" },
+  editingCategoryText: { fontSize: 16, color: "#6c757d", marginRight: 5 },
+  editingCategoryValue: { fontWeight: "bold", color: "#1C1C1C" },
 });

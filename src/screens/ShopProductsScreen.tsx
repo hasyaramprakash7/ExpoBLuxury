@@ -140,12 +140,12 @@ const ShopProductsScreen = () => {
                 {vendorData?.shopName || "Shop Details"}
               </Text>
               <Text style={styles.shopSubtitle}>
-                20-25 mins | {vendorData?.address?.district || "Local Area"}
+                 {vendorData?.address?.district || "Local Area"}
               </Text>
             </View>
             <View style={styles.ratingBox}>
               <Text style={styles.ratingText}>
-                4.3 <Ionicons name="star" size={10} />
+                4.8 <Ionicons name="star" size={10} />
               </Text>
               <Text style={styles.ratingSub}>1K+ ratings</Text>
             </View>
@@ -195,12 +195,12 @@ const ShopProductsScreen = () => {
           </View>
         }
       />
-      {Object.keys(cartItems).length > 0 && (
+      {/* {Object.keys(cartItems).length > 0 && (
         <FloatingCartBar
           cartItems={Object.values(cartItems)}
           navigation={navigation}
         />
-      )}
+      )} */}
     </View>
   );
 };

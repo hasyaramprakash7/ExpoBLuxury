@@ -16,10 +16,10 @@ import { RootState } from "../app/store";
 // Screen Imports
 import ChatScreen from "../screens/ChatScreen";
 import HomeScreen from "../screens/HomeScreen";
-import InsuranceProductsAndDetails from "../screens/InsuranceProductsAndDetails";
+import InsuranceProductsAndDetails from "../navigation/BrowserScreen";
 import UserOrderScreen from "../userScreens/UserOrderScreen";
 import ProductSearchScreen from "../screens/UserPropertyListScreen";
-import Search from "../screens/NewArrivals";
+import Search from "../screens/UserRentalListScreen";
 
 const { width } = Dimensions.get("window");
 
@@ -29,8 +29,8 @@ const INACTIVE_COLOR = "#8E8E93";
 const CART_ZONE_WIDTH = 80;
 
 const SCROLL_ZONE_WIDTH = width - CART_ZONE_WIDTH;
-// Keeps tabs at a readable size; the 6th tab (Search) will just be scrollable!
-const ITEM_WIDTH = SCROLL_ZONE_WIDTH / 5;
+// Total 6 scrollable tabs to fit perfectly
+const ITEM_WIDTH = SCROLL_ZONE_WIDTH / 6;
 
 // --- Shadows ---
 const heavyDropShadow = {
@@ -46,8 +46,6 @@ const activeGlow = {
 };
 
 // --- THE FIX FOR CLIPPING ---
-// This forces the bounding box of the text/icon to expand
-// so the shadow doesn't get sliced off at the edges.
 const unclipShadow = {
   paddingBottom: 15,
   marginBottom: -15,
@@ -175,24 +173,24 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
 
 const getIcon = (name, focused) => {
   const icons = {
-    Home: focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline",
     Order: focused ? "storefront" : "storefront-outline",
     RealEstate: focused ? "home" : "home-outline",
-    Ram: focused ? "shield-checkmark" : "shield-outline",
+    Rental: focused ? "key" : "key-outline",
+    Home: focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline",
+    POS: focused ? "calculator" : "calculator-outline",
     Pay: focused ? "wallet" : "wallet-outline",
-    Search: focused ? "search" : "search-outline",
   };
   return icons[name] || "apps-outline";
 };
 
 const getLabel = (name) => {
   const labels = {
-    Home: "Chat",
     Order: "Shop",
     RealEstate: "Property",
-    Ram: "Insurance",
+    Rental: "Rental",
+    Home: "Chat",
+    POS: "POS",
     Pay: "Pay",
-    Search: "Search",
   };
   return labels[name] || name;
 };
@@ -204,13 +202,12 @@ const UserTabNavigator = () => {
         tabBar={(props) => <ScrollableUnderCartTabBar {...props} />}
         screenOptions={{ headerShown: false }}
       >
-
         <Tab.Screen name="Order" component={HomeScreen} />
         <Tab.Screen name="RealEstate" component={ProductSearchScreen} />
-                        <Tab.Screen name="Ai" component={Search} />
+        <Tab.Screen name="Rental" component={Search} />
+                <Tab.Screen name="POS" component={InsuranceProductsAndDetails} />
 
-        <Tab.Screen name="Home" component={ChatScreen} />
-        <Tab.Screen name="Ram" component={InsuranceProductsAndDetails} />
+        {/* <Tab.Screen name="Home" component={ChatScreen} /> */}
         <Tab.Screen name="Pay" component={UserOrderScreen} />
       </Tab.Navigator>
     </View>
@@ -295,7 +292,7 @@ const tabStyles = StyleSheet.create({
     overflow: "visible",
   },
   scrollContent: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 4,
     alignItems: "center",
     overflow: "visible",
   },
@@ -306,10 +303,10 @@ const tabStyles = StyleSheet.create({
     backgroundColor: "transparent",
     paddingTop: 6,
     paddingBottom: 10,
-    marginHorizontal: 4,
+    marginHorizontal: 8,
     overflow: "visible",
   },
-  tabLabel: {
+    tabLabel: {
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 0.3,

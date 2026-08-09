@@ -14,6 +14,8 @@ import locationReducer from "../features/locationSlice";
 import insuranceReducer from "../features/insuranceSlice"; 
 import appointmentReducer from '../features/appointmentSlice';
 import propertyReducer from '../features/propertySlice'; 
+import rentalReducer from '../features/rentalSlice';
+import productViewReducer from '../features/productViewSlice';
 
 // --- NEW IMPORT ---
 // import browserReducer from "../features/browserSlice"; 
@@ -32,6 +34,9 @@ const rootReducer = combineReducers({
   appointments: appointmentReducer,
   property: propertyReducer,
   deliveryBoyAuth: deliveryBoyAuthReducer,
+  rental: rentalReducer,
+    productViews: productViewReducer,
+
   // browser: browserReducer, 
 });
 
@@ -48,12 +53,15 @@ const persistConfig = {
     'vendorOrders',
     'order',
     'property',
+    "rental",
     // 'browser',
     // 🔥 ADDED THE MISSING REDUCERS TO SAVE EVERYTHING OFFLINE 🔥
     'location', // 🔥 ADD LOCATION BACK HERE SO IT SAVES OFFLINE!
     'insurance',
     'appointments',
-    'deliveryBoyAuth'
+    'deliveryBoyAuth',
+    "productViews"
+
   ], 
 };
 

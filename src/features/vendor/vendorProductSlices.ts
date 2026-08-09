@@ -17,7 +17,7 @@ interface Product {
   category: string;
   stock: number;
   isAvailable: boolean;
-  images: { url: string }[];
+  images: string[]; 
   bulkPrice?: number;
   bulkMinimumUnits?: number;
   largeQuantityPrice?: number;

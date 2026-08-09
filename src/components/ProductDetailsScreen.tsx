@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -10,10 +10,11 @@ import {
   ScrollView,
   Animated,
   Dimensions,
-  KeyboardAvoidingView, // <-- Added
-  Platform, // <-- Added
-  Keyboard, // <-- Added
-  TouchableWithoutFeedback, // <-- Added
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
+  FlatList,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -22,7 +23,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import Toast from "react-native-toast-message";
 
-// Actions from your slice
 import { addOrUpdateItem, removeItem } from "../features/cart/cartSlice";
 
 // --- TYPE DEFINITIONS ---
@@ -47,6 +47,7 @@ interface Product {
   bulkMinimumUnits?: number;
   largeQuantityPrice?: number;
   largeQuantityMinimumUnits?: number;
+  unit?: string;          // NEW: e.g., "kg", "g", "units", "piece"
 }
 
 type RootStackParamList = {
@@ -71,7 +72,7 @@ const Colors = {
   goldPrimary: "#FFFFFF",
 };
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const FloatingProductDetailScreen = () => {
   const dispatch = useDispatch();
@@ -83,6 +84,7 @@ const FloatingProductDetailScreen = () => {
     isVendorOutOfRange = false,
   } = route.params;
 
+  // --- VEG/NON-VEG ---
   const isNonVeg = useMemo(() => {
     const nonVegKeywords = /chicken|mutton|fish|egg|meat|prawn|crab|beef|pork/i;
     return (
@@ -91,13 +93,51 @@ const FloatingProductDetailScreen = () => {
     );
   }, [product.name, product.category]);
 
+  // --- DYNAMIC UNIT (inferred from product.unit, category, name, sizes) ---
+  const unitLabel = useMemo(() => {
+    if (product.unit) return product.unit;
+
+    const cat = (product.category || "").toLowerCase();
+    const name = product.name.toLowerCase();
+
+    if (
+      cat.includes("grocery") ||
+      cat.includes("vegetable") ||
+      cat.includes("fruit") ||
+      cat.includes("meat") ||
+      cat.includes("fish") ||
+      cat.includes("dairy") ||
+      cat.includes("bakery") ||
+      cat.includes("spice") ||
+      cat.includes("oil") ||
+      cat.includes("flour") ||
+      name.includes("kg") ||
+      name.includes("gram") ||
+      name.includes("gm") ||
+      name.includes("litre") ||
+      name.includes("ml")
+    ) {
+      if (product.sizes?.some((s) => s.includes("g") || s.includes("kg"))) {
+        return "kg";
+      }
+      return "kg";
+    }
+
+    if (product.sizes?.some((s) => /^[A-Z]+$/.test(s) || /^\d+$/.test(s))) {
+      return "units";
+    }
+
+    return "units";
+  }, [product.unit, product.category, product.name, product.sizes]);
+
+  // --- SIZE SELECTION ---
   const requiresSizeSelection = product.sizes && product.sizes.length > 0;
   const [selectedSize, setSelectedSize] = useState<string | null>(
     requiresSizeSelection ? product.sizes![0] : null,
   );
 
+  // --- CART ---
   const cartItems = useSelector((state: any) => state.cart.items);
-
   const cartItem = useMemo(() => {
     if (!cartItems || !Array.isArray(cartItems)) return null;
     return cartItems.find((item: any) => {
@@ -124,10 +164,14 @@ const FloatingProductDetailScreen = () => {
   );
   const [displayStock, setDisplayStock] = useState<number>(product.stock);
   const [isAddingToCart, setIsAddingToCart] = useState<boolean>(false);
-
-  // NEW: State to track if keyboard/input is currently active
   const [isEditingQty, setIsEditingQty] = useState<boolean>(false);
 
+  // --- IMAGE CAROUSEL STATE ---
+  const [activeImageIndex, setActiveImageIndex] = useState<number>(0);
+  const flatListRef = useRef<FlatList>(null);
+  const images = product.images || [];
+
+  // --- ANIMATION FOR QUANTITY CONTROLS ---
   const controlOpacity = useMemo(
     () => new Animated.Value(showQuantityInput ? 1 : 0),
     [],
@@ -168,6 +212,7 @@ const FloatingProductDetailScreen = () => {
     return 0;
   }, [product.price, product.discountedPrice]);
 
+  // --- PRICE TIERS WITH DYNAMIC UNIT ---
   const priceTiers = useMemo(() => {
     const tiers: any[] = [];
     const bulkMin = product.bulkMinimumUnits || Infinity;
@@ -178,31 +223,47 @@ const FloatingProductDetailScreen = () => {
     );
 
     const defaultMax = Math.min(bulkMin - 1, largeQtyMin - 1);
-    const defaultLabel = `1 - ${defaultMax === Infinity ? "max" : defaultMax} Kg`;
+    const unit = unitLabel;
 
+    // Default tier
     if (defaultMax >= 1 || (!hasBulkTier && !hasLargeQtyTier)) {
+      const label =
+        defaultMax === Infinity
+          ? `1+ ${unit}`
+          : defaultMax === 1
+          ? `1 ${unit}`
+          : `1 - ${defaultMax} ${unit}`;
       tiers.push({
         minQty: 1,
         maxQty: defaultMax,
         price: product.discountedPrice || product.price,
-        label: defaultLabel,
+        label: label,
       });
     }
+
+    // Bulk tier
     if (hasBulkTier) {
       const bulkMax = largeQtyMin - 1;
+      const label =
+        bulkMax === Infinity
+          ? `${product.bulkMinimumUnits}+ ${unit}`
+          : `${product.bulkMinimumUnits} - ${bulkMax} ${unit}`;
       tiers.push({
-        minQty: product.bulkMinimumUnits,
+        minQty: product.bulkMinimumUnits!,
         maxQty: bulkMax,
         price: product.bulkPrice!,
-        label: `${product.bulkMinimumUnits} - ${bulkMax === Infinity ? "max" : bulkMax} Kg`,
+        label: label,
       });
     }
+
+    // Large quantity tier
     if (hasLargeQtyTier) {
+      const label = `≥ ${product.largeQuantityMinimumUnits} ${unit}`;
       tiers.push({
         minQty: product.largeQuantityMinimumUnits!,
         maxQty: Infinity,
         price: product.largeQuantityPrice!,
-        label: `>= ${product.largeQuantityMinimumUnits} Kg`,
+        label: label,
       });
     }
 
@@ -215,7 +276,11 @@ const FloatingProductDetailScreen = () => {
           currentNumericalQuantity >= tier.minQty &&
           (tier.maxQty === Infinity || currentNumericalQuantity <= tier.maxQty),
       }));
-  }, [currentNumericalQuantity, product]);
+  }, [
+    currentNumericalQuantity,
+    product,
+    unitLabel,
+  ]);
 
   useEffect(() => {
     let currentPrice = basePrice;
@@ -238,6 +303,7 @@ const FloatingProductDetailScreen = () => {
     setShowQuantityInput(currentCartQty > 0);
   }, [cartItem]);
 
+  // --- TOAST ---
   const showToast = useCallback(
     (msg: string, type: "success" | "error" | "info" | "warn") => {
       Toast.show({
@@ -251,6 +317,7 @@ const FloatingProductDetailScreen = () => {
     [],
   );
 
+  // --- CART ACTIONS ---
   const handleCartAction = async (qtyToDispatch: number) => {
     if (isVendorOffline)
       return showToast("Vendor is currently offline.", "error");
@@ -304,7 +371,7 @@ const FloatingProductDetailScreen = () => {
   };
 
   const handleQuantityBlur = async () => {
-    setIsEditingQty(false); // Hide the update button when done
+    setIsEditingQty(false);
     let numericalQuantity = currentNumericalQuantity;
     if (numericalQuantity === 0 && (cartItem?.quantity || 0) > 0) {
       await handleCartAction(0);
@@ -367,14 +434,22 @@ const FloatingProductDetailScreen = () => {
     return "   Order Now   ";
   };
 
+  // --- IMAGE CAROUSEL RENDER ---
+  const renderImageItem = ({ item }: { item: string }) => (
+    <Image source={{ uri: item }} style={styles.carouselImage} />
+  );
+
+  const onScroll = (event: any) => {
+    const index = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+    setActiveImageIndex(index);
+  };
+
   return (
-    // KeyboardAvoidingView will push the bottom sheet up when keyboard opens
     <KeyboardAvoidingView
       style={styles.overlayContainer}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0} // Try changing 0 to something like -20 or 20 if needed
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
     >
-      {/* Background Dim layer. Closes keyboard if typing, closes sheet if not */}
       <TouchableWithoutFeedback
         onPress={() => {
           if (isEditingQty) {
@@ -387,27 +462,52 @@ const FloatingProductDetailScreen = () => {
         <View style={StyleSheet.absoluteFillObject} />
       </TouchableWithoutFeedback>
 
-      {/* Floating Modal mimicking the Card UI */}
       <View style={styles.sheetContainer}>
-        {product.images && product.images.length > 0 ? (
-          <Image
-            source={{ uri: product.images[0] }}
-            style={styles.backgroundImage}
-          />
+        {/* --- IMAGE CAROUSEL (replaces single background image) --- */}
+        {images.length > 0 ? (
+          <>
+            <FlatList
+              ref={flatListRef}
+              data={images}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              renderItem={renderImageItem}
+              keyExtractor={(item, index) => index.toString()}
+              onScroll={onScroll}
+              scrollEventThrottle={16}
+              style={styles.carousel}
+            />
+            {/* Dot indicators */}
+            {images.length > 1 && (
+              <View style={styles.dotContainer}>
+                {images.map((_, idx) => (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.dot,
+                      activeImageIndex === idx && styles.dotActive,
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
+          </>
         ) : (
-          <View style={[styles.backgroundImage, styles.noImageBg]}>
+          <View style={[styles.carouselImage, styles.noImageBg]}>
             <Ionicons name="image-outline" size={50} color={Colors.textGray} />
           </View>
         )}
 
-        {/* Deep Bottom Gradient */}
+        {/* Gradient Overlay */}
         <LinearGradient
           colors={["transparent", "rgba(0,0,0,0.8)", "#000000"]}
           locations={[0.2, 0.65, 1]}
           style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
         />
 
-        {/* Top Header Row: Badges & Share/Close */}
+        {/* Top Header Row */}
         <View style={styles.topRow}>
           <View>
             {!!amountSaved && (
@@ -417,7 +517,7 @@ const FloatingProductDetailScreen = () => {
             )}
           </View>
           <View style={styles.topRightControls}>
-            <TouchableOpacity
+            {/* <TouchableOpacity
               onPress={() =>
                 navigation.navigate("ChatScreen" as any, {
                   forwardProduct: product,
@@ -430,23 +530,22 @@ const FloatingProductDetailScreen = () => {
                 size={20}
                 color={Colors.white}
               />
-            </TouchableOpacity>
+            </TouchableOpacity> */}
             <TouchableOpacity
               onPress={() => navigation.goBack()}
               style={[styles.iconButton, { marginLeft: 10 }]}
             >
-              <Ionicons name="close" size={22} style={{ color: "black" }} />
+              <Ionicons name="close" size={22} color={Colors.white} />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Scrollable Bottom Content Area */}
+        {/* Scrollable Content */}
         <ScrollView
           contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled" // Ensures buttons work when keyboard is open
+          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.mainInfoRow}>
-            {/* LEFT SIDE: Name, Prices, Tiers */}
             <View style={styles.leftInfoSide}>
               <View style={styles.titleRow}>
                 <View
@@ -476,6 +575,38 @@ const FloatingProductDetailScreen = () => {
                   )}
               </View>
 
+              {/* --- SIZE PILLS (NOW ACTIVE) --- */}
+              {requiresSizeSelection && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.sizeScrollView}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {product.sizes?.map((size) => (
+                    <TouchableOpacity
+                      key={size}
+                      style={[
+                        styles.sizePill,
+                        selectedSize === size && styles.sizePillActive,
+                      ]}
+                      onPress={() => setSelectedSize(size)}
+                      disabled={isDisabled}
+                    >
+                      <Text
+                        style={[
+                          styles.sizePillText,
+                          selectedSize === size && styles.sizePillTextActive,
+                        ]}
+                      >
+                        {size}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              {/* Price Tiers with dynamic unit */}
               {priceTiers.length > 0 && (
                 <View style={styles.priceTiersContainer}>
                   {priceTiers.map((tier, index) => (
@@ -502,7 +633,7 @@ const FloatingProductDetailScreen = () => {
               )}
             </View>
 
-            {/* RIGHT SIDE: Add To Cart Button / Controls */}
+            {/* Right side: Add/Quantity controls */}
             <View style={styles.rightActionSide}>
               {isDisabled || displayStock === 0 ? (
                 <View style={[styles.controlBtnStyle, styles.addBtnDisabled]}>
@@ -545,7 +676,7 @@ const FloatingProductDetailScreen = () => {
                       keyboardType="numeric"
                       value={quantity}
                       onChangeText={handleQuantityChange}
-                      onFocus={() => setIsEditingQty(true)} // TRACK FOCUS
+                      onFocus={() => setIsEditingQty(true)}
                       onEndEditing={handleQuantityBlur}
                       style={styles.qtyInput}
                       maxLength={4}
@@ -566,7 +697,6 @@ const FloatingProductDetailScreen = () => {
                     </TouchableOpacity>
                   </View>
 
-                  {/* Explicit Update Button Appears when Editing */}
                   {isEditingQty && (
                     <TouchableOpacity
                       style={styles.updateConfirmBtn}
@@ -611,36 +741,6 @@ const FloatingProductDetailScreen = () => {
             </View>
           </View>
 
-          {/* {requiresSizeSelection && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.sizeScrollView}
-              keyboardShouldPersistTaps="handled"
-            >
-              {product.sizes?.map((size) => (
-                <TouchableOpacity
-                  key={size}
-                  style={[
-                    styles.sizePill,
-                    selectedSize === size && styles.sizePillActive,
-                  ]}
-                  onPress={() => setSelectedSize(size)}
-                  disabled={isDisabled}
-                >
-                  <Text
-                    style={[
-                      styles.sizePillText,
-                      selectedSize === size && styles.sizePillTextActive,
-                    ]}
-                  >
-                    {size}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )} */}
-
           {product.description && (
             <Text style={styles.descriptionText}>{product.description}</Text>
           )}
@@ -650,8 +750,8 @@ const FloatingProductDetailScreen = () => {
   );
 };
 
+// --- STYLES (updated/extended) ---
 const styles = StyleSheet.create({
-  // ... Keep all your existing styles exactly the same ...
   overlayContainer: {
     flex: 1,
     backgroundColor: Colors.bgOverlay,
@@ -664,9 +764,16 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     overflow: "hidden",
   },
-  backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
+  // Carousel
+  carousel: {
+    position: "absolute",
+    top: 0,
+    left: 0,
     width: "100%",
+    height: "100%",
+  },
+  carouselImage: {
+    width: SCREEN_WIDTH,
     height: "100%",
     resizeMode: "cover",
   },
@@ -674,6 +781,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#2C2C2E",
     justifyContent: "center",
     alignItems: "center",
+  },
+  dotContainer: {
+    position: "absolute",
+    bottom: 20,
+    alignSelf: "center",
+    flexDirection: "row",
+    zIndex: 20,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.4)",
+    marginHorizontal: 4,
+  },
+  dotActive: {
+    backgroundColor: Colors.white,
+    width: 20,
   },
   topRow: {
     flexDirection: "row",
@@ -769,6 +894,33 @@ const styles = StyleSheet.create({
     textDecorationLine: "line-through",
     marginLeft: 10,
   },
+  // Size pills
+  sizeScrollView: {
+    marginVertical: 8,
+  },
+  sizePill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    marginRight: 8,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  sizePillActive: {
+    backgroundColor: Colors.white,
+    borderColor: Colors.white,
+  },
+  sizePillText: {
+    fontSize: 13,
+    color: Colors.white,
+    fontWeight: "600",
+  },
+  sizePillTextActive: {
+    color: Colors.textDark,
+    fontWeight: "bold",
+  },
+  // Price tiers
   priceTiersContainer: {
     marginTop: 4,
   },
@@ -781,6 +933,7 @@ const styles = StyleSheet.create({
   priceTierLabel: { fontSize: 13, color: Colors.textGray },
   priceTierPrice: { fontSize: 13, color: Colors.textGray },
   priceTierActiveText: { color: Colors.white, fontWeight: "bold" },
+  // Controls
   controlBtnStyle: {
     width: "100%",
     backgroundColor: Colors.goldPrimary,
@@ -828,8 +981,6 @@ const styles = StyleSheet.create({
     width: 35,
     color: Colors.textDark,
   },
-
-  // --- NEW STYLES FOR THE UPDATE BUTTON ---
   updateConfirmBtn: {
     backgroundColor: Colors.accentGreen,
     width: "100%",
@@ -843,7 +994,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 13,
   },
-
   stockAlertText: {
     fontSize: 11,
     color: Colors.white,
@@ -852,20 +1002,6 @@ const styles = StyleSheet.create({
     textAlign: "right",
     width: "100%",
   },
-  // sizeScrollView: { marginVertical: 11 },
-  // sizePill: {
-  //   height: "10%",
-  //   paddingHorizontal: 1,
-  //   paddingVertical: 1,
-  //   borderRadius: 16,
-  //   borderWidth: 1,
-  //   borderColor: "rgba(255,255,255,0.3)",
-  //   marginRight: 8,
-  //   backgroundColor: "rgba(0,0,0,0.4)",
-  // },
-  // sizePillActive: { backgroundColor: Colors.white, borderColor: Colors.white },
-  // sizePillText: { fontSize: 12, color: Colors.white, fontWeight: "600" },
-  // sizePillTextActive: { color: Colors.textDark, fontWeight: "bold" },
   descriptionText: {
     fontSize: 14,
     color: Colors.textLightGray,

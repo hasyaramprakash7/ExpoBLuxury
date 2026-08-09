@@ -39,13 +39,11 @@ import { StackNavigationProp } from "@react-navigation/stack";
 import Toast from "react-native-toast-message";
 import WhatsappInvoiceSender from "./WhatsappInvoiceSender";
 import { ShoppingCart, Truck } from "lucide-react-native";
-// 🔥 UPDATED: Imported the new expo-audio hook
 import { useAudioPlayer } from "expo-audio";
 
-// --- DayJS Configuration (Unchanged) ---
+// --- DayJS Configuration ---
 dayjs.extend(relativeTime);
 dayjs.extend(updateLocale);
-
 dayjs.updateLocale("en", {
   relativeTime: {
     future: "in %s",
@@ -73,7 +71,7 @@ const statusOptions = [
   "cancelled",
 ];
 
-// --- Type Definitions (Unchanged) ---
+// --- Type Definitions ---
 type RootStackParamList = {
   AuthStack: undefined;
   UserMainStack: undefined;
@@ -149,12 +147,39 @@ const PADDING = 15;
 const INITIAL_X = SCREEN_WIDTH - BUTTON_SIZE - PADDING;
 const INITIAL_Y = Platform.OS === "android" ? 65 : 40;
 
-// --- Floating Logistics Buttons Component (Unchanged) ---
+// --- Helper: Infer product unit (same as in CartItem) ---
+const getProductUnit = (product: any): string => {
+  if (product?.unit) return product.unit;
+  const name = product?.name?.toLowerCase() || "";
+  const category = product?.category?.toLowerCase() || "";
+  if (
+    name.includes("kg") ||
+    name.includes("gram") ||
+    name.includes("gm") ||
+    category.includes("grocery") ||
+    category.includes("vegetable") ||
+    category.includes("fruit") ||
+    category.includes("meat") ||
+    category.includes("fish") ||
+    category.includes("dairy") ||
+    category.includes("bakery") ||
+    category.includes("spice") ||
+    category.includes("oil") ||
+    category.includes("flour")
+  ) {
+    return "kg";
+  }
+  if (product?.sizes?.some((s: string) => /^[A-Z]+$/.test(s) || /^\d+$/.test(s))) {
+    return "units";
+  }
+  return "units";
+};
+
+// --- Floating Logistics Buttons Component ---
 const FloatingLogisticsButtons = () => {
   const pan = useRef(
     new Animated.ValueXY({ x: INITIAL_X, y: INITIAL_Y }),
   ).current;
-
   const positionRef = useRef({ x: INITIAL_X, y: INITIAL_Y });
   pan.addListener((value) => (positionRef.current = value));
 
@@ -173,15 +198,12 @@ const FloatingLogisticsButtons = () => {
 
   const snapToEdge = () => {
     const currentX = positionRef.current.x;
-
     let targetX;
-
     if (currentX + BUTTON_SIZE / 2 < SCREEN_WIDTH / 2) {
-      targetX = PADDING; // Snap to left
+      targetX = PADDING;
     } else {
-      targetX = SCREEN_WIDTH - BUTTON_SIZE - PADDING; // Snap to right
+      targetX = SCREEN_WIDTH - BUTTON_SIZE - PADDING;
     }
-
     Animated.spring(pan, {
       toValue: { x: targetX, y: positionRef.current.y },
       useNativeDriver: false,
@@ -236,7 +258,6 @@ const FloatingLogisticsButtons = () => {
           style={floatingStyles.image}
         />
       </TouchableOpacity>
-
       <TouchableOpacity
         style={[floatingStyles.buttonBase, { backgroundColor: "#FFC72C" }]}
         onPress={() => handleOpenLink("https://www.rapido.bike/Home")}
@@ -275,19 +296,17 @@ const VendorOrderList = () => {
   const [isNewOrderAlertActive, setIsNewOrderAlertActive] = useState(false);
   const [unseenOrderCount, setUnseenOrderCount] = useState(0);
 
-  // --- PAGINATION STATE ---
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // 🔥 UPDATED: Initialize the audio player hook
   const newOrderSound = useAudioPlayer(
     require("../../assets/ttsMP3.com_VoiceText_2025-8-18_11-48-44.mp3"),
   );
 
-  // --- AsyncStorage Caching Functions ---
+  // --- AsyncStorage Caching ---
   const saveOrdersToCache = async (orders: Order[]) => {
     try {
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(orders));
@@ -310,7 +329,7 @@ const VendorOrderList = () => {
     return false;
   }, [dispatch]);
 
-  // 🔥 UPDATED: Audio Functions using the new player instance
+  // --- Audio ---
   const playNewOrderSound = () => {
     try {
       if (newOrderSound) {
@@ -326,7 +345,7 @@ const VendorOrderList = () => {
     try {
       if (newOrderSound) {
         newOrderSound.pause();
-        newOrderSound.seekTo(0); // Reset to start
+        newOrderSound.seekTo(0);
       }
     } catch (e) {
       console.error("Failed to stop new order sound:", e);
@@ -339,7 +358,7 @@ const VendorOrderList = () => {
     setUnseenOrderCount(0);
   };
 
-  // --- OPTIMIZED FETCH FUNCTION ---
+  // --- Fetch Orders ---
   const fetchOrders = useCallback(
     async (
       pageToFetch: number,
@@ -348,12 +367,9 @@ const VendorOrderList = () => {
       isRefresh: boolean = false,
     ) => {
       if (!vendorId) {
-        console.warn(
-          "VendorOrderList: Vendor ID not available, not fetching orders.",
-        );
+        console.warn("VendorOrderList: Vendor ID not available.");
         return;
       }
-
       if (!isInitialLoad) setIsLoadingMore(true);
       if (isRefresh) setIsRefreshing(true);
 
@@ -379,7 +395,7 @@ const VendorOrderList = () => {
           playNewOrderSound();
         }
       } catch (e) {
-        console.error("Failed to fetch orders with pagination:", e);
+        console.error("Failed to fetch orders:", e);
         Toast.show({
           type: "error",
           text1: "Fetch Error",
@@ -390,17 +406,15 @@ const VendorOrderList = () => {
         setIsRefreshing(false);
       }
     },
-    [vendorId, dispatch, newOrderSound], // newOrderSound added to dependencies
+    [vendorId, dispatch, newOrderSound],
   );
 
-  // --- PULL TO REFRESH HANDLER ---
   const onRefresh = useCallback(() => {
     setPage(1);
     setHasMore(true);
     fetchOrders(1, PAGE_SIZE, true, true);
   }, [fetchOrders]);
 
-  // --- Effect to load the first page only on mount/focus ---
   useEffect(() => {
     if (vendorId && isFocused) {
       const initialLoad = async () => {
@@ -409,7 +423,6 @@ const VendorOrderList = () => {
         setHasMore(true);
         fetchOrders(1, PAGE_SIZE, !loadedFromCache);
       };
-
       initialLoad();
     }
     return () => {
@@ -418,26 +431,23 @@ const VendorOrderList = () => {
     };
   }, [vendorId, dispatch, isFocused, fetchOrders, loadOrdersFromCache]);
 
-  // --- New Order Alert Effect ---
   useEffect(() => {
     if (isNewOrderAlertActive) {
       const message =
         unseenOrderCount > 0
           ? `You have ${unseenOrderCount} new orders that were placed while you were away.`
           : "A new order has been placed. Please review it now.";
-
       Alert.alert("New Order Received! 🔔", message, [
         { text: "OK", onPress: handleNewOrderAcknowledgment },
       ]);
     }
   }, [isNewOrderAlertActive, unseenOrderCount]);
 
-  // --- SCROLL HANDLING LOGIC ---
+  // --- Scroll ---
   const handleScroll = (event: any) => {
     const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
     const isCloseToBottom =
       layoutMeasurement.height + contentOffset.y >= contentSize.height - 200;
-
     if (isCloseToBottom && !loading && !isLoadingMore && hasMore) {
       setPage((prevPage) => {
         const nextPage = prevPage + 1;
@@ -447,22 +457,18 @@ const VendorOrderList = () => {
     }
   };
 
-  // --- Helper Functions ---
+  // --- Helpers ---
   const handleStatusChange = (
     orderId: string,
     currentOrderStatus: string,
     newStatus: string,
   ) => {
     if (currentOrderStatus === newStatus) return;
-
     Alert.alert(
       "Confirm Status Change",
       `Are you sure you want to change this order's status to "${newStatus}"?`,
       [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Yes",
           onPress: () => {
@@ -474,9 +480,7 @@ const VendorOrderList = () => {
               .then(() => {
                 Toast.show({
                   type: "success",
-                  text1: `Order ${orderId.slice(
-                    -8,
-                  )} status updated to ${newStatus}.`,
+                  text1: `Order ${orderId.slice(-8)} status updated to ${newStatus}.`,
                 });
               })
               .catch((err) => {
@@ -496,16 +500,14 @@ const VendorOrderList = () => {
       Toast.show({ type: "error", text1: "Order data is missing." });
       return;
     }
-
     if (!vendor || !vendor._id) {
       Toast.show({ type: "error", text1: "Vendor data is missing." });
       return;
     }
-
     try {
       navigation.navigate("ActiveDeliveryBoys", { orderId: order._id });
     } catch (e) {
-      console.error("VendorOrderList: Navigation failed with error:", e);
+      console.error("VendorOrderList: Navigation failed:", e);
       Toast.show({
         type: "error",
         text1: "Navigation Error",
@@ -567,17 +569,13 @@ const VendorOrderList = () => {
 
   const getOrderFinancials = (order: Order) => {
     const vendorItemsTotal = getVendorItemsTotal(order);
-
     const orderTotalFromApi = order.total;
     const otherVendorItemsTotal = order.items
       .filter((item) => item.vendorId?.toString() !== vendorId?.toString())
       .reduce((sum: number, item: any) => sum + item.quantity * item.price, 0);
-
     const totalFeesCollected =
       orderTotalFromApi - (vendorItemsTotal + otherVendorItemsTotal);
-
     const netPayout = order.total - totalFeesCollected;
-
     return {
       vendorItemsTotal,
       totalFeesCollected,
@@ -616,14 +614,10 @@ const VendorOrderList = () => {
     }
 
     if (!origin || !destination) {
-      console.warn(
-        "VendorOrderList: Missing origin or destination for Google Maps URL.",
-      );
+      console.warn("Missing origin or destination for Google Maps URL.");
       return `https://www.google.com/maps/search/?api=1&query=${destination}`;
     }
-
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
-    return url;
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
   };
 
   const renderStatusUpdateButtons = (order: Order) => {
@@ -645,17 +639,13 @@ const VendorOrderList = () => {
       default:
         return null;
     }
-
     return (
       <View style={{ width: "100%", alignItems: "flex-end", marginTop: 12 }}>
         <TouchableOpacity
           onPress={() =>
             handleStatusChange(order._id, order.status, nextStatus)
           }
-          style={[
-            styles.actionButton,
-            { width: "auto", paddingHorizontal: 20 },
-          ]}
+          style={[styles.actionButton, { width: "auto", paddingHorizontal: 20 }]}
           disabled={loading}
         >
           <Text style={[styles.actionButtonText, { fontSize: 14 }]}>
@@ -666,7 +656,7 @@ const VendorOrderList = () => {
     );
   };
 
-  // --- Memos for Financial Summary and Filtering ---
+  // --- Memos ---
   const filteredOrders = useMemo(() => {
     return orders.filter((order: Order) => {
       const matchesStatus =
@@ -697,7 +687,7 @@ const VendorOrderList = () => {
   const totalCollectedAllOrders =
     totalGrossRevenueAllOrders + totalDeductionsAllOrders;
 
-  // --- Render Function ---
+  // --- Render ---
   return (
     <View style={styles.container}>
       <FloatingLogisticsButtons />
@@ -720,7 +710,7 @@ const VendorOrderList = () => {
           <Text style={{ color: rolexGold }}>History</Text>
         </Text>
 
-        {/* Financial Summary Card */}
+        {/* Financial Summary */}
         <View style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>Financial Summary</Text>
           <View style={styles.summaryRow}>
@@ -745,7 +735,7 @@ const VendorOrderList = () => {
           </View>
         </View>
 
-        {/* Filter Buttons */}
+        {/* Filters */}
         <View style={styles.filterContainer}>
           {statusOptions.map((status) => (
             <TouchableOpacity
@@ -754,10 +744,7 @@ const VendorOrderList = () => {
               style={[
                 styles.filterButton,
                 filterStatus === status
-                  ? {
-                      backgroundColor: rolexGreen,
-                      transform: [{ scale: 1.05 }],
-                    }
+                  ? { backgroundColor: rolexGreen, transform: [{ scale: 1.05 }] }
                   : { backgroundColor: "#E5E7EB" },
               ]}
             >
@@ -775,7 +762,7 @@ const VendorOrderList = () => {
           ))}
         </View>
 
-        {/* Search Input */}
+        {/* Search */}
         <TextInput
           style={styles.searchInput}
           placeholder="Search by Order ID or Customer Name"
@@ -784,7 +771,7 @@ const VendorOrderList = () => {
           onChangeText={setSearchTerm}
         />
 
-        {/* Loading/Error/Empty States */}
+        {/* States */}
         {loading && page === 1 && orders.length === 0 && (
           <ActivityIndicator
             size="large"
@@ -794,8 +781,7 @@ const VendorOrderList = () => {
         )}
         {error && (
           <Text style={styles.errorText}>
-            ❌ Error retrieving orders:{" "}
-            {error || "An unexpected error occurred."}
+            ❌ Error retrieving orders: {error || "An unexpected error occurred."}
           </Text>
         )}
         {!loading && orders.length === 0 && (
@@ -870,42 +856,51 @@ const VendorOrderList = () => {
                       </Text>
                     ) : (
                       <View style={styles.itemsGrid}>
-                        {vendorItems.map((item: any, idx: number) => (
-                          <View
-                            key={item._id || item.productId || idx}
-                            style={styles.itemCardContent}
-                          >
-                            <Image
-                              source={{
-                                uri:
-                                  item.productImage ||
-                                  "https://via.placeholder.com/80?text=No+Image",
-                              }}
-                              style={styles.itemImage}
-                            />
-                            <View style={styles.itemDetails}>
-                              <Text style={styles.itemName} selectable={true}>
-                                {item.name}
-                              </Text>
-                              <Text style={styles.itemQuantityPrice}>
-                                {item.quantity}Kg × ₹{item.price.toFixed(2)}
-                              </Text>
-                              {item.status && (
-                                <Text
-                                  style={[
-                                    styles.itemStatusBadge,
-                                    getStatusStyles(item.status),
-                                  ]}
-                                >
-                                  {item.status}
+                        {vendorItems.map((item: any, idx: number) => {
+                          const unit = getProductUnit(item);
+                          return (
+                            <View
+                              key={item._id || item.productId || idx}
+                              style={styles.itemCardContent}
+                            >
+                              <Image
+                                source={{
+                                  uri:
+                                    item.productImage ||
+                                    "https://via.placeholder.com/80?text=No+Image",
+                                }}
+                                style={styles.itemImage}
+                              />
+                              <View style={styles.itemDetails}>
+                                <Text style={styles.itemName} selectable={true}>
+                                  {item.name}
                                 </Text>
-                              )}
+                                {item.size && (
+                                  <Text style={styles.itemSizeText}>
+                                    Size: {item.size}
+                                  </Text>
+                                )}
+                                <Text style={styles.itemQuantityPrice}>
+                                  {item.quantity} {unit} × ₹
+                                  {item.price.toFixed(2)}
+                                </Text>
+                                {item.status && (
+                                  <Text
+                                    style={[
+                                      styles.itemStatusBadge,
+                                      getStatusStyles(item.status),
+                                    ]}
+                                  >
+                                    {item.status}
+                                  </Text>
+                                )}
+                              </View>
+                              <Text style={styles.itemTotalPrice}>
+                                ₹{(item.quantity * item.price).toFixed(2)}
+                              </Text>
                             </View>
-                            <Text style={styles.itemTotalPrice}>
-                              ₹{(item.quantity * item.price).toFixed(2)}
-                            </Text>
-                          </View>
-                        ))}
+                          );
+                        })}
                       </View>
                     )}
                   </View>
@@ -1130,7 +1125,7 @@ const VendorOrderList = () => {
   );
 };
 
-// --- Floating Buttons Styles (Unchanged) ---
+// --- Styles ---
 const floatingStyles = StyleSheet.create({
   buttonBase: {
     width: BUTTON_SIZE,
@@ -1152,7 +1147,6 @@ const floatingStyles = StyleSheet.create({
   },
 });
 
-// --- Main Component Styles (Unchanged) ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1395,6 +1389,12 @@ const styles = StyleSheet.create({
   itemName: {
     fontWeight: "600",
     color: headingGray,
+  },
+  itemSizeText: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+    fontWeight: "500",
   },
   itemQuantityPrice: {
     fontSize: 12,

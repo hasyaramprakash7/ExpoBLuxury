@@ -85,15 +85,16 @@ import InsuranceProductsAndDetails from "./src/screens/InsuranceProductsAndDetai
 import ProductDetailScreen from "./src/components/ProductDetailScreen";
 import ProductDetailScreen10 from "./src/components/ProductDetailScreen10";
 import FloatingCartButton from "./src/userScreens/utils/FloatingCartButton";
-
+import VendorProductViewsScreen from './src/vendorScreens/VendorProductViewsScreen';
+import UserRentalListScreen from './src/screens/UserRentalListScreen';
+import RentalDetailScreen from './src/screens/RentalDetailScreen';
 import PropertyCRUDScreen from "./src/vendorScreens/PropertyCRUDScreen";
 import PropertyDetailScreen from "./src/screens/PropertyDetailScreen";
 import VendorChatScreen from "./src/vendorScreens/VendorChatScreen";
 import NotificationBell from "./src/components/NotificationBell";
 import UserPropertyListScreen from "./src/screens/UserPropertyListScreen";
 import AddressScreen from "./src/userScreens/AddressScreen";
-
-// 🔥 Import Navigation Ref & Types
+import RentalCRUDScreen from './src/screens/RentalCRUDScreen';
 import { navigationRef, RootStackParamList } from "./src/userScreens/utils/navigationRef";
 
 SplashScreenExpo.preventAutoHideAsync();
@@ -164,7 +165,6 @@ const AppUpdateOverlay = () => {
         Platform.OS === "ios"
           ? appConfig.latestIOSVersion
           : appConfig.latestAndroidVersion;
-      // 🔥 FIX: Safety check for version existence before mapping/comparing
       if (
         latestVersion &&
         compareVersions(latestVersion, CURRENT_APP_VERSION) > 0
@@ -323,9 +323,27 @@ const AppNavigator = () => {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
 
   useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const data = response.notification.request.content.data;
+        console.log('🔔 Notification tapped:', data);
+        if (data.type === 'product' && data.id) {
+          navigationRef.current?.navigate('ProductDetails', { productId: data.id });
+        } else if (data.type === 'property' && data.id) {
+          navigationRef.current?.navigate('PropertyDetailScreen', { propertyId: data.id });
+        } else if (data.type === 'rental' && data.id) {
+          navigationRef.current?.navigate('RentalDetail', { rentalId: data.id });
+        } else {
+          navigationRef.current?.navigate('UserTabs');
+        }
+      }
+    );
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
     const currentUserId = vendor?._id || user?._id || deliveryBoy?._id;
     if (currentUserId) {
-      // 🔥 FIX: Added Optional Chaining and fallback array to prevent .map() of undefined crash
       const myGroupIds = groups?.map((g) => g._id) || [];
       connectUserToSocket(currentUserId, myGroupIds);
     }
@@ -342,24 +360,57 @@ const AppNavigator = () => {
         const permStatus = await AsyncStorage.getItem("permissionsGranted");
         if (permStatus === "true") setPermissionsDone(true);
         await setupNotifications();
-        registerForPushNotificationsAsync();
         dispatch(fetchAppConfig() as any);
         const [userToken, vendorToken, deliveryBoyToken] = await Promise.all([
           AsyncStorage.getItem("token"),
           AsyncStorage.getItem("vendorToken"),
           SecureStore.getItemAsync("deliveryBoyToken"),
         ]);
-        if (deliveryBoyToken)
-          dispatch(fetchDeliveryBoyProfile() as any)
+        
+        if (deliveryBoyToken) {
+          console.log('🔐 DeliveryBoy token found');
+          await dispatch(fetchDeliveryBoyProfile() as any)
             .unwrap()
+            .then((deliveryBoyData) => {
+              console.log('✅ DeliveryBoy profile fetched:', deliveryBoyData);
+              if (deliveryBoyData?._id) {
+                registerForPushNotificationsAsync(deliveryBoyData._id);
+              }
+            })
             .catch(() => dispatch(logoutDeliveryBoy()));
+        }
+        
         if (userToken) {
-          dispatch(fetchUserProfile() as any);
+          console.log('🔐 User token found');
+          await dispatch(fetchUserProfile() as any)
+            .unwrap()
+            .then((userData) => {
+              console.log('✅ User profile fetched:', userData);
+              if (userData?._id) {
+                registerForPushNotificationsAsync(userData._id);
+              }
+            })
+            .catch(() => {});
           dispatch(fetchCart() as any);
         }
-        if (vendorToken) dispatch(fetchVendorProfile() as any);
+        
+        if (vendorToken) {
+          console.log('🔐 Vendor token found, fetching profile...');
+          try {
+            const vendorData = await dispatch(fetchVendorProfile() as any).unwrap();
+            console.log('✅ Vendor profile fetched:', vendorData);
+            if (vendorData?._id) {
+              console.log('📱 Registering push token for vendor:', vendorData._id);
+              await registerForPushNotificationsAsync(vendorData._id);
+            } else {
+              console.warn('⚠️ Vendor _id missing from profile data');
+            }
+          } catch (error) {
+            console.error('❌ Failed to fetch vendor profile:', error);
+          }
+        }
       } catch (e) {
-        console.error(e);
+        console.error('❌ Error in loadResourcesAndAuth:', e);
       } finally {
         setIsInitializing(false);
       }
@@ -392,46 +443,24 @@ const AppNavigator = () => {
   if (vendorAuthToken) {
     MainNavigator = (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen
-          name="VendorDashboard"
-          component={VendorDashboardScreen}
-        />
-        <Stack.Screen
-          name="VendorProductCRUD"
-          component={VendorProductCRUDScreen}
-        />
+        <Stack.Screen name="VendorDashboard" component={VendorDashboardScreen} />
+        <Stack.Screen name="RentalCRUD" component={RentalCRUDScreen} />
+        <Stack.Screen name="VendorProductViews" component={VendorProductViewsScreen} />
+        <Stack.Screen name="VendorProductCRUD" component={VendorProductCRUDScreen} />
         <Stack.Screen name="VendorChatScreen" component={VendorChatScreen} />
         <Stack.Screen name="VendorOrderList" component={VendorOrderList} />
         <Stack.Screen name="ActiveDeliveryBoys" component={AllDeliveryBoys} />
-        <Stack.Screen
-          name="VendorGenerateInvoice"
-          component={WhatsappInvoiceSender}
-        />
-        <Stack.Screen
-          name="InsuranceProductCRUD"
-          component={InsuranceProductCRUDScreen}
-        />
-        <Stack.Screen
-          name="PropertyCRUDScreen"
-          component={PropertyCRUDScreen}
-        />
-        <Stack.Screen
-          name="VendorAppointmentsList"
-          component={VendorAppointmentsList}
-        />
+        <Stack.Screen name="VendorGenerateInvoice" component={WhatsappInvoiceSender} />
+        <Stack.Screen name="InsuranceProductCRUD" component={InsuranceProductCRUDScreen} />
+        <Stack.Screen name="PropertyCRUDScreen" component={PropertyCRUDScreen} />
+        <Stack.Screen name="VendorAppointmentsList" component={VendorAppointmentsList} />
       </Stack.Navigator>
     );
   } else if (deliveryBoy?._id) {
     MainNavigator = (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen
-          name="DeliveryBoyDashboard"
-          component={DeliveryBoyDashboardScreen}
-        />
-        <Stack.Screen
-          name="DeliveryBoyOrders"
-          component={DeliveryBoyOrdersPage}
-        />
+        <Stack.Screen name="DeliveryBoyDashboard" component={DeliveryBoyDashboardScreen} />
+        <Stack.Screen name="DeliveryBoyOrders" component={DeliveryBoyOrdersPage} />
       </Stack.Navigator>
     );
   } else if (user?.token) {
@@ -447,41 +476,18 @@ const AppNavigator = () => {
         <Stack.Screen name="UserOrderScreen" component={UserOrderScreen} />
         <Stack.Screen name="ShopListings" component={ShopListings} />
         <Stack.Screen name="ShopDetails" component={ShopDetails} />
-        <Stack.Screen
-          name="CategoryProducts"
-          component={CategoryProductsScreen}
-        />
+        <Stack.Screen name="CategoryProducts" component={CategoryProductsScreen} />
         <Stack.Screen name="ShopProducts" component={ShopProductsScreen} />
         <Stack.Screen name="BrandProducts" component={BrandProductsScreen} />
-        <Stack.Screen
-          name="ProductSearchScreen"
-          component={ProductSearchScreen}
-        />
-        <Stack.Screen
-          name="MyCategoriesScreen"
-          component={MyCategoriesScreen}
-        />
-        <Stack.Screen
-          name="InsuranceProductsAndDetails"
-          component={InsuranceProductsAndDetails}
-        />
-        <Stack.Screen
-          name="ProductDetailScreen"
-          component={ProductDetailScreen}
-          options={{ presentation: "transparentModal" }}
-        />
-        <Stack.Screen
-          name="ProductDetailScreen10"
-          component={ProductDetailScreen10}
-        />
-        <Stack.Screen
-          name="PropertyDetailScreen"
-          component={PropertyDetailScreen}
-        />
-        <Stack.Screen
-          name="UserPropertyListScreen"
-          component={UserPropertyListScreen}
-        />
+        <Stack.Screen name="ProductSearchScreen" component={ProductSearchScreen} />
+        <Stack.Screen name="MyCategoriesScreen" component={MyCategoriesScreen} />
+        <Stack.Screen name="InsuranceProductsAndDetails" component={InsuranceProductsAndDetails} />
+        <Stack.Screen name="ProductDetailScreen" component={ProductDetailScreen} options={{ presentation: "transparentModal" }} />
+        <Stack.Screen name="ProductDetailScreen10" component={ProductDetailScreen10} />
+        <Stack.Screen name="PropertyDetailScreen" component={PropertyDetailScreen} />
+        <Stack.Screen name="UserPropertyListScreen" component={UserPropertyListScreen} />
+        <Stack.Screen name="RentalList" component={UserRentalListScreen} />
+        <Stack.Screen name="RentalDetail" component={RentalDetailScreen} />
       </Stack.Navigator>
     );
   } else {
@@ -491,14 +497,8 @@ const AppNavigator = () => {
         <Stack.Screen name="Signup" component={SignupScreen} />
         <Stack.Screen name="VendorLogin" component={VendorLoginScreen} />
         <Stack.Screen name="SignupVendor" component={SignupVendorScreen} />
-        <Stack.Screen
-          name="DeliveryBoyLogin"
-          component={DeliveryBoyLoginScreen}
-        />
-        <Stack.Screen
-          name="DeliveryBoySignup"
-          component={DeliveryBoySignupScreen}
-        />
+        <Stack.Screen name="DeliveryBoyLogin" component={DeliveryBoyLoginScreen} />
+        <Stack.Screen name="DeliveryBoySignup" component={DeliveryBoySignupScreen} />
       </Stack.Navigator>
     );
   }
@@ -506,12 +506,7 @@ const AppNavigator = () => {
   return (
     <NavigationContainer ref={navigationRef} onReady={onLayoutRootView}>
       {MainNavigator}
-      {(vendorAuthToken || user?.token || deliveryBoy?._id) && (
-        <NotificationBell />
-      )}
-      {user?.token && !vendorAuthToken && !deliveryBoy?._id && (
-        <FloatingCartButton />
-      )}
+      {user?.token && !vendorAuthToken && !deliveryBoy?._id && <FloatingCartButton />}
       <AppUpdateOverlay />
     </NavigationContainer>
   );

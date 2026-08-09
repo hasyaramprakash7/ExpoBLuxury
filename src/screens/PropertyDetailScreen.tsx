@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   Linking,
   Platform,
+  Share,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { useRoute, useNavigation } from "@react-navigation/native";
@@ -17,6 +18,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as WebBrowser from "expo-web-browser";
 import { fetchPropertyById } from "../features/propertySlice";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
+import { recordProductView } from "../features/productViewSlice";
 import { RootState } from "../app/store";
 
 const { width } = Dimensions.get("window");
@@ -30,11 +32,41 @@ const Colors = {
   slate: "#64748B",
   lightBorder: "#EAEAEA",
   whatsapp: "#25D366",
+  gradientStart: "#0B1021",
+  gradientEnd: "#1A1F3A",
+  success: "#10B981",
+  warning: "#F59E0B",
+  info: "#3B82F6",
 };
 
 interface RouteParams {
   propertyId: string;
 }
+
+// Helper to safely parse arrays
+const safeParseArray = (data: any): string[] => {
+  if (!data) return [];
+  if (Array.isArray(data)) {
+    if (data.length === 1 && typeof data[0] === 'string' && data[0].startsWith('[') && data[0].endsWith(']')) {
+      try {
+        const parsed = JSON.parse(data[0]);
+        return Array.isArray(parsed) ? parsed : data;
+      } catch {
+        return data;
+      }
+    }
+    return data;
+  }
+  if (typeof data === 'string' && data.startsWith('[') && data.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
 
 const PropertyDetailScreen: React.FC = () => {
   const route = useRoute();
@@ -43,9 +75,7 @@ const PropertyDetailScreen: React.FC = () => {
   if (!route.params || !("propertyId" in route.params)) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>
-          Navigation Error: Property ID missing.
-        </Text>
+        <Text style={styles.errorText}>Navigation Error: Property ID missing.</Text>
       </View>
     );
   }
@@ -59,7 +89,12 @@ const PropertyDetailScreen: React.FC = () => {
     error,
   } = useSelector((state: RootState) => state.property);
   const { allVendors } = useSelector((state: RootState) => state.vendorAuth);
+  const { user } = useSelector((state: RootState) => state.auth);
 
+  // Prevent duplicate recordings
+  const viewRecorded = useRef(false);
+
+  // Fetch property details
   useEffect(() => {
     if (propertyId) {
       dispatch(fetchPropertyById(propertyId) as any);
@@ -68,6 +103,53 @@ const PropertyDetailScreen: React.FC = () => {
       dispatch(fetchAllVendors() as any);
     }
   }, [dispatch, propertyId, allVendors.length]);
+
+  // Record view when property and user are available
+  useEffect(() => {
+    if (currentProperty && user?._id && currentProperty.vendor?.vendorId && !viewRecorded.current) {
+      viewRecorded.current = true;
+
+      const userName = user.name || user.username || user.email?.split('@')[0] || 'User';
+      const userPhone = user.phone || user.mobile || 'N/A';
+
+      dispatch(
+        recordProductView({
+          productId: currentProperty._id,
+          productType: 'Property',
+          viewerUserId: user._id,
+          viewerName: userName,
+          viewerPhone: userPhone,
+          vendorId: currentProperty.vendor.vendorId,
+        })
+      );
+    }
+  }, [currentProperty, user, dispatch]);
+
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: `Check out this property: ${currentProperty?.title}\nPrice: ${displayPrice}\nLocation: ${fullPropertyAddress}`,
+      });
+    } catch (error) {
+      console.error('Error sharing:', error);
+    }
+  };
+
+  // Manual test button
+  const handleTestRecord = () => {
+    if (currentProperty && user?._id && currentProperty.vendor?.vendorId) {
+      const payload = {
+        productId: currentProperty._id,
+        productType: 'Property' as const,
+        viewerUserId: user._id,
+        viewerName: user.name || 'TestUser',
+        viewerPhone: user.phone || '9999999999',
+        vendorId: currentProperty.vendor.vendorId,
+      };
+      console.log('🧪 Manual test record (Property):', payload);
+      dispatch(recordProductView(payload));
+    }
+  };
 
   if (propertyLoading || !currentProperty) {
     return (
@@ -85,6 +167,11 @@ const PropertyDetailScreen: React.FC = () => {
       </View>
     );
   }
+
+  // Parse arrays safely
+  const tags = safeParseArray(currentProperty.tags);
+  const amenities = safeParseArray(currentProperty.amenities);
+  const projectHighlights = safeParseArray(currentProperty.projectHighlights);
 
   // DYNAMIC PRICING LOGIC (Lakhs & Crores)
   const unitLabel = currentProperty.priceUnit === "Lakhs" ? "Lakhs" : "Cr";
@@ -114,7 +201,7 @@ const PropertyDetailScreen: React.FC = () => {
     loc?.locality,
     loc?.city,
     loc?.state,
-    loc?.zipCode,
+    loc?.pincode || loc?.zipCode,
     loc?.country,
   ]
     .filter(Boolean)
@@ -214,13 +301,9 @@ const PropertyDetailScreen: React.FC = () => {
     }
   };
 
-  const hasTags = Boolean(
-    currentProperty.tags && currentProperty.tags.length > 0,
-  );
-  const hasAmenitiesOrHighlights = Boolean(
-    currentProperty.projectHighlights?.length > 0 ||
-    currentProperty.amenities?.length > 0,
-  );
+  const hasTags = Boolean(tags.length > 0);
+  const hasAmenities = Boolean(amenities.length > 0);
+  const hasHighlights = Boolean(projectHighlights.length > 0);
   const hasExternalLinks = Boolean(
     currentProperty.websiteUrl || currentProperty.virtualTourUrl,
   );
@@ -232,6 +315,7 @@ const PropertyDetailScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
+        {/* Image Carousel */}
         <View style={styles.imageWrapper}>
           <ScrollView
             horizontal
@@ -261,6 +345,14 @@ const PropertyDetailScreen: React.FC = () => {
           >
             <Ionicons name="chevron-back" size={26} color={Colors.pureWhite} />
           </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={styles.shareBtn}
+            onPress={handleShare}
+          >
+            <Ionicons name="share-outline" size={22} color={Colors.pureWhite} />
+          </TouchableOpacity>
+
           <View style={styles.imageIndicatorContainer}>
             <Ionicons
               name="camera-outline"
@@ -269,18 +361,28 @@ const PropertyDetailScreen: React.FC = () => {
               style={{ marginRight: 6 }}
             />
             <Text style={styles.imageIndicatorText}>
-              1 / {currentProperty.images?.length || 1}
+              {currentProperty.images?.length || 0} Photos
             </Text>
           </View>
         </View>
 
         <View style={styles.content}>
+          {/* Header Info */}
           <View style={styles.headerInfo}>
             <View style={styles.tagRow}>
-              <Text style={styles.propertyTypeTag}>
-                {currentProperty.propertyType}
-              </Text>
-              <Text style={styles.statusTag}>{currentProperty.status}</Text>
+              <View style={styles.propertyTypeBadge}>
+                <Text style={styles.propertyTypeTag}>
+                  {currentProperty.propertyType}
+                </Text>
+              </View>
+              <View style={[styles.statusBadge, 
+                currentProperty.status === 'Ready to Move' && styles.statusReady,
+                currentProperty.status === 'Under Construction' && styles.statusConstruction,
+                currentProperty.status === 'New Launch' && styles.statusNew,
+                currentProperty.status === 'Resale' && styles.statusResale,
+              ]}>
+                <Text style={styles.statusTagText}>{currentProperty.status}</Text>
+              </View>
             </View>
             <Text style={styles.title}>{currentProperty.title}</Text>
             <Text style={styles.locationSubText}>
@@ -289,30 +391,38 @@ const PropertyDetailScreen: React.FC = () => {
                 size={16}
                 color={Colors.champagneGold}
               />{" "}
-              {currentProperty.location.locality},{" "}
-              {currentProperty.location.city}
+              {currentProperty.location.locality}, {currentProperty.location.city}
             </Text>
           </View>
 
-          <View style={styles.priceRow}>
-            <Text style={styles.priceTag}>{displayPrice}</Text>
-            <Text style={styles.rateText}>₹{ratePerSqFt} per sq.ft</Text>
+          {/* Price Section */}
+          <View style={styles.priceSection}>
+            <View style={styles.priceRow}>
+              <Text style={styles.priceTag}>{displayPrice}</Text>
+              <Text style={styles.rateText}>₹{ratePerSqFt}/sq.ft</Text>
+            </View>
+            <View style={styles.areaTag}>
+              <Text style={styles.areaTagText}>{areaSqFt} Sq.Ft Super Area</Text>
+            </View>
           </View>
 
           <View style={styles.divider} />
 
-          <Text style={styles.sectionHeader}>Estate Overview</Text>
+          {/* Estate Overview - Enhanced Grid */}
+          <Text style={styles.sectionHeader}>
+            <Ionicons name="apps-outline" size={22} color={Colors.champagneGold} /> Estate Overview
+          </Text>
           <View style={styles.detailsGrid}>
             <DetailBox
               icon="bed-outline"
-              label={config?.bhk}
+              label={config?.bhk || "N/A"}
               subtitle="Configuration"
             />
 
             {config?.bathrooms ? (
               <DetailBox
                 icon="water-outline"
-                label={`${config.bathrooms} Baths`}
+                label={`${config.bathrooms}`}
                 subtitle="Bathrooms"
               />
             ) : null}
@@ -320,7 +430,7 @@ const PropertyDetailScreen: React.FC = () => {
             {config?.balconies ? (
               <DetailBox
                 icon="albums-outline"
-                label={`${config.balconies} Balconies`}
+                label={`${config.balconies}`}
                 subtitle="Balconies"
               />
             ) : null}
@@ -362,9 +472,65 @@ const PropertyDetailScreen: React.FC = () => {
             />
           </View>
 
-          {/* LOCATION */}
+          {/* Tags Section - Enhanced */}
+          {hasTags && (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.sectionHeader}>
+                <Ionicons name="pricetags-outline" size={22} color={Colors.champagneGold} /> Tags
+              </Text>
+              <View style={styles.tagsContainer}>
+                {tags.map((tag, index) => (
+                  <View key={index} style={styles.tagPill}>
+                    <Ionicons name="pricetag-outline" size={12} color={Colors.champagneGold} />
+                    <Text style={styles.tagText}>{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Amenities Section */}
+          {hasAmenities && (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.sectionHeader}>
+                <Ionicons name="grid-outline" size={22} color={Colors.champagneGold} /> Premium Amenities
+              </Text>
+              <View style={styles.amenitiesGrid}>
+                {amenities.map((amenity, index) => (
+                  <View key={`am_${index}`} style={styles.amenityItem}>
+                    <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
+                    <Text style={styles.amenityText}>{amenity}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Project Highlights Section */}
+          {hasHighlights && (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.sectionHeader}>
+                <Ionicons name="star-outline" size={22} color={Colors.champagneGold} /> Project Highlights
+              </Text>
+              <View style={styles.highlightsContainer}>
+                {projectHighlights.map((highlight, index) => (
+                  <View key={`hl_${index}`} style={styles.highlightItem}>
+                    <View style={styles.goldDot} />
+                    <Text style={styles.highlightText}>{highlight}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Location */}
           <View style={styles.divider} />
-          <Text style={styles.sectionHeader}>Location & Map</Text>
+          <Text style={styles.sectionHeader}>
+            <Ionicons name="location-outline" size={22} color={Colors.champagneGold} /> Location & Map
+          </Text>
           <View style={styles.locationBox}>
             <View style={styles.locationTextContainer}>
               <Ionicons
@@ -381,40 +547,11 @@ const PropertyDetailScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-          {hasTags ? (
-            <View style={styles.tagsContainer}>
-              {currentProperty.tags?.map((tag, index) => (
-                <View key={index} style={styles.tagPill}>
-                  <Text style={styles.tagText}>{tag}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-
-          {hasAmenitiesOrHighlights ? (
-            <>
-              <Text style={[styles.sectionHeader, { marginTop: 16 }]}>
-                Premium Amenities
-              </Text>
-              <View style={styles.highlightsContainer}>
-                {currentProperty.amenities?.map((amenity, index) => (
-                  <View key={`am_${index}`} style={styles.highlightItem}>
-                    <View style={styles.goldDot} />
-                    <Text style={styles.highlightText}>{amenity}</Text>
-                  </View>
-                ))}
-                {currentProperty.projectHighlights?.map((highlight, index) => (
-                  <View key={`hl_${index}`} style={styles.highlightItem}>
-                    <View style={styles.goldDot} />
-                    <Text style={styles.highlightText}>{highlight}</Text>
-                  </View>
-                ))}
-              </View>
-            </>
-          ) : null}
-
+          {/* Legal & Financials */}
           <View style={styles.divider} />
-          <Text style={styles.sectionHeader}>Legal & Financials</Text>
+          <Text style={styles.sectionHeader}>
+            <Ionicons name="document-text-outline" size={22} color={Colors.champagneGold} /> Legal & Financials
+          </Text>
           <View style={styles.legalBox}>
             <View style={styles.legalRow}>
               <Text style={styles.legalLabel}>Registration / RERA ID</Text>
@@ -437,11 +574,15 @@ const PropertyDetailScreen: React.FC = () => {
             </View>
           </View>
 
-          {hasExternalLinks ? (
-            <View style={{ marginTop: 24 }}>
-              <Text style={styles.sectionHeader}>Media & Links</Text>
-              <View style={{ flexDirection: "row", gap: 12 }}>
-                {currentProperty.virtualTourUrl ? (
+          {/* External Links */}
+          {hasExternalLinks && (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.sectionHeader}>
+                <Ionicons name="link-outline" size={22} color={Colors.champagneGold} /> Media & Links
+              </Text>
+              <View style={styles.linksContainer}>
+                {currentProperty.virtualTourUrl && (
                   <TouchableOpacity
                     style={styles.linkButton}
                     onPress={() => openUrl(currentProperty.virtualTourUrl)}
@@ -453,9 +594,9 @@ const PropertyDetailScreen: React.FC = () => {
                     />
                     <Text style={styles.linkButtonText}>3D Virtual Tour</Text>
                   </TouchableOpacity>
-                ) : null}
+                )}
 
-                {currentProperty.websiteUrl ? (
+                {currentProperty.websiteUrl && (
                   <TouchableOpacity
                     style={styles.linkButton}
                     onPress={() => openUrl(currentProperty.websiteUrl)}
@@ -467,14 +608,16 @@ const PropertyDetailScreen: React.FC = () => {
                     />
                     <Text style={styles.linkButtonText}>Project Website</Text>
                   </TouchableOpacity>
-                ) : null}
+                )}
               </View>
-            </View>
-          ) : null}
+            </>
+          )}
 
+          {/* Seller Section */}
           <View style={styles.divider} />
-
-          <Text style={styles.sectionHeader}>Exclusive Seller</Text>
+          <Text style={styles.sectionHeader}>
+            <Ionicons name="person-outline" size={22} color={Colors.champagneGold} /> Exclusive Seller
+          </Text>
           <View style={styles.sellerCard}>
             <View style={styles.sellerHeaderRow}>
               <Image
@@ -489,11 +632,13 @@ const PropertyDetailScreen: React.FC = () => {
               </View>
               {fullVendorDetails?.isApproved ||
               currentProperty.vendor?.isApproved ? (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={24}
-                  color={Colors.champagneGold}
-                />
+                <View style={styles.verifiedBadge}>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={24}
+                    color={Colors.champagneGold}
+                  />
+                </View>
               ) : null}
             </View>
 
@@ -532,10 +677,19 @@ const PropertyDetailScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* DEBUG: Manual test button – remove after verifying */}
+          {/* <TouchableOpacity
+            style={{ backgroundColor: 'red', padding: 10, margin: 20, borderRadius: 8 }}
+            onPress={handleTestRecord}
+          >
+            <Text style={{ color: 'white', textAlign: 'center' }}>🧪 Test Record View (Property)</Text>
+          </TouchableOpacity> */}
         </View>
         <View style={{ height: 120 }} />
       </ScrollView>
 
+      {/* Bottom Bar */}
       <View style={styles.bottomBar}>
         <View style={styles.vendorProfileSmall}>
           <Image
@@ -549,7 +703,7 @@ const PropertyDetailScreen: React.FC = () => {
             </Text>
           </View>
         </View>
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={styles.contactButton}
           activeOpacity={0.8}
           onPress={() =>
@@ -560,13 +714,13 @@ const PropertyDetailScreen: React.FC = () => {
           }
         >
           <Text style={styles.contactButtonText}>Chat in App</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
     </View>
   );
 };
 
-// Minimalist Luxury Detail Box
+// Enhanced Detail Box Component
 const DetailBox = ({
   icon,
   label,
@@ -577,12 +731,13 @@ const DetailBox = ({
   subtitle: string;
 }) => (
   <View style={detailStyles.box}>
-    <Ionicons
-      name={icon}
-      size={24}
-      color={Colors.champagneGold}
-      style={detailStyles.icon}
-    />
+    <View style={detailStyles.iconContainer}>
+      <Ionicons
+        name={icon}
+        size={22}
+        color={Colors.champagneGold}
+      />
+    </View>
     <View style={{ flex: 1 }}>
       <Text style={detailStyles.label} numberOfLines={1}>
         {label}
@@ -598,22 +753,34 @@ const detailStyles = StyleSheet.create({
   box: {
     width: "48%",
     flexDirection: "row",
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 12,
     backgroundColor: Colors.pureWhite,
     borderRadius: 12,
-    marginBottom: 16,
+    marginBottom: 12,
     alignItems: "center",
     borderWidth: 1,
     borderColor: Colors.lightBorder,
     shadowColor: Colors.royalNavy,
-    shadowOpacity: 0.03,
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
-    elevation: 1,
+    elevation: 2,
   },
-  icon: { marginRight: 12 },
-  label: { fontSize: 14, fontWeight: "600", color: Colors.royalNavy },
+  iconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: `${Colors.champagneGold}15`,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  label: { 
+    fontSize: 15, 
+    fontWeight: "700", 
+    color: Colors.royalNavy,
+  },
   subtitle: {
     fontSize: 10,
     color: Colors.slate,
@@ -624,7 +791,6 @@ const detailStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  // ... (Keep your exact same styles here, no changes needed to the stylesheet) ...
   mainWrapper: { flex: 1, backgroundColor: Colors.pureWhite },
   container: { flex: 1, backgroundColor: Colors.pureWhite },
   center: {
@@ -657,7 +823,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: "100%",
     height: 100,
-    backgroundColor: "rgba(0,0,0,0.1)",
+    backgroundColor: "rgba(0,0,0,0.3)",
   },
   backBtn: {
     position: "absolute",
@@ -669,6 +835,21 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  shareBtn: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 30,
+    right: 20,
+    backgroundColor: "rgba(11, 16, 33, 0.5)",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
   },
   imageIndicatorContainer: {
     position: "absolute",
@@ -680,6 +861,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     flexDirection: "row",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
   },
   imageIndicatorText: {
     color: Colors.pureWhite,
@@ -695,27 +878,64 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
   },
   headerInfo: { marginBottom: 20 },
-  tagRow: { flexDirection: "row", marginBottom: 12 },
+  tagRow: { 
+    flexDirection: "row", 
+    marginBottom: 12,
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  propertyTypeBadge: {
+    backgroundColor: `${Colors.champagneGold}15`,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.champagneGold,
+  },
   propertyTypeTag: {
     color: Colors.champagneGold,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 1,
     textTransform: "uppercase",
-    marginRight: 16,
   },
-  statusTag: {
-    color: Colors.slate,
+  statusBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  statusReady: {
+    backgroundColor: `${Colors.success}15`,
+    borderWidth: 1,
+    borderColor: Colors.success,
+  },
+  statusConstruction: {
+    backgroundColor: `${Colors.warning}15`,
+    borderWidth: 1,
+    borderColor: Colors.warning,
+  },
+  statusNew: {
+    backgroundColor: `${Colors.info}15`,
+    borderWidth: 1,
+    borderColor: Colors.info,
+  },
+  statusResale: {
+    backgroundColor: `${Colors.slate}15`,
+    borderWidth: 1,
+    borderColor: Colors.slate,
+  },
+  statusTagText: {
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 1,
     textTransform: "uppercase",
+    color: Colors.royalNavy,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "300",
+    fontSize: 26,
+    fontWeight: "700",
     color: Colors.royalNavy,
-    lineHeight: 36,
+    lineHeight: 34,
     letterSpacing: 0.5,
   },
   locationSubText: {
@@ -724,22 +944,50 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontWeight: "400",
   },
+  priceSection: {
+    marginBottom: 20,
+    backgroundColor: `${Colors.champagneGold}08`,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${Colors.champagneGold}30`,
+  },
   priceRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 24,
   },
-  priceTag: { fontSize: 28, fontWeight: "600", color: Colors.royalNavy },
-  rateText: { fontSize: 14, color: Colors.slate, fontWeight: "500" },
+  priceTag: { 
+    fontSize: 28, 
+    fontWeight: "700", 
+    color: Colors.royalNavy,
+  },
+  rateText: { 
+    fontSize: 14, 
+    color: Colors.slate, 
+    fontWeight: "600",
+  },
+  areaTag: {
+    marginTop: 8,
+    alignSelf: "flex-start",
+    backgroundColor: `${Colors.champagneGold}10`,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  areaTagText: {
+    fontSize: 12,
+    color: Colors.champagneGold,
+    fontWeight: "600",
+  },
   divider: {
     height: 1,
     backgroundColor: Colors.lightBorder,
     marginVertical: 24,
   },
   sectionHeader: {
-    fontSize: 20,
-    fontWeight: "300",
+    fontSize: 18,
+    fontWeight: "600",
     color: Colors.royalNavy,
     marginBottom: 20,
     letterSpacing: 0.5,
@@ -799,6 +1047,11 @@ const styles = StyleSheet.create({
   },
   legalLabel: { fontSize: 14, color: Colors.slate, fontWeight: "500" },
   legalValue: { fontSize: 14, color: Colors.royalNavy, fontWeight: "600" },
+  linksContainer: { 
+    flexDirection: "row", 
+    gap: 12,
+    flexWrap: "wrap",
+  },
   linkButton: {
     flex: 1,
     flexDirection: "row",
@@ -809,6 +1062,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.offWhite,
     borderWidth: 1,
     borderColor: Colors.lightBorder,
+    minWidth: "45%",
   },
   linkButtonText: {
     fontSize: 14,
@@ -819,40 +1073,71 @@ const styles = StyleSheet.create({
   tagsContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginVertical: 8,
     gap: 10,
   },
   tagPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: `${Colors.champagneGold}10`,
     borderWidth: 1,
-    borderColor: Colors.champagneGold,
-    paddingHorizontal: 16,
+    borderColor: `${Colors.champagneGold}30`,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
+    gap: 6,
   },
   tagText: {
-    color: Colors.champagneGold,
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
+    color: Colors.royalNavy,
+    fontSize: 13,
+    fontWeight: "500",
   },
-  highlightsContainer: { marginTop: 8 },
+  amenitiesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  amenityItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.offWhite,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.lightBorder,
+    gap: 8,
+    minWidth: "45%",
+  },
+  amenityText: {
+    fontSize: 14,
+    color: Colors.charcoal,
+    fontWeight: "500",
+  },
+  highlightsContainer: { 
+    marginTop: 4,
+    gap: 12,
+  },
   highlightItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: `${Colors.champagneGold}05`,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: `${Colors.champagneGold}15`,
   },
   goldDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: Colors.champagneGold,
-    marginRight: 16,
+    marginRight: 14,
   },
   highlightText: {
-    fontSize: 16,
+    fontSize: 15,
     color: Colors.charcoal,
-    fontWeight: "400",
+    fontWeight: "500",
     flex: 1,
   },
   sellerCard: {
@@ -883,6 +1168,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   sellerPersonName: { fontSize: 14, color: Colors.slate, fontWeight: "500" },
+  verifiedBadge: {
+    marginLeft: 8,
+  },
   sellerInfoRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -895,7 +1183,11 @@ const styles = StyleSheet.create({
     flex: 1,
     lineHeight: 20,
   },
-  sellerActions: { flexDirection: "row", marginTop: 16, gap: 12 },
+  sellerActions: { 
+    flexDirection: "row", 
+    marginTop: 16, 
+    gap: 12,
+  },
   actionBtn: {
     flex: 1,
     flexDirection: "row",
@@ -904,8 +1196,22 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
   },
-  callBtn: { backgroundColor: Colors.royalNavy },
-  waBtn: { backgroundColor: Colors.whatsapp },
+  callBtn: { 
+    backgroundColor: Colors.royalNavy,
+    shadowColor: Colors.royalNavy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  waBtn: { 
+    backgroundColor: Colors.whatsapp,
+    shadowColor: Colors.whatsapp,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
   actionBtnText: {
     color: Colors.pureWhite,
     fontWeight: "600",
@@ -918,8 +1224,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: Colors.royalNavy,
-    padding: 20,
-    paddingBottom: 30,
+    padding: 16,
+    paddingBottom: Platform.OS === "ios" ? 34 : 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -935,31 +1241,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flex: 1,
-    marginRight: 16,
+    marginRight: 12,
   },
   bottomVendorImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     marginRight: 12,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: Colors.champagneGold,
   },
   bottomVendorSub: {
-    fontSize: 10,
+    fontSize: 9,
     color: Colors.champagneGold,
     fontWeight: "700",
     letterSpacing: 1,
     marginBottom: 2,
   },
   bottomVendorName: {
-    fontSize: 16,
-    fontWeight: "400",
+    fontSize: 14,
+    fontWeight: "600",
     color: Colors.pureWhite,
   },
   contactButton: {
     backgroundColor: Colors.champagneGold,
-    paddingVertical: 14,
+    paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 30,
     alignItems: "center",
@@ -972,7 +1278,7 @@ const styles = StyleSheet.create({
   contactButtonText: {
     color: Colors.royalNavy,
     fontWeight: "700",
-    fontSize: 15,
+    fontSize: 14,
     letterSpacing: 0.5,
   },
 });

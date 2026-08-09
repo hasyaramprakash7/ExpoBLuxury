@@ -34,7 +34,7 @@ interface Vendor {
 }
 
 // --- NewProductCard Component ---
-import NewProductCard from "../components/NewProductCard";
+import NewProductCard from "../components/NewProductCard11";
 
 // --- Color Palette and Constants ---
 const Colors = {

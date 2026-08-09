@@ -18,7 +18,6 @@ import { useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import Toast from "react-native-toast-message";
 
-// 🔥 Added removeItem to the imports
 import { addOrUpdateItem, removeItem } from "../features/cart/cartSlice";
 
 // --- TYPE DEFINITIONS ---
@@ -49,6 +48,7 @@ interface Product {
   category?: string;
   sizes?: string[];
   description?: string;
+  unit?: string;          // NEW: e.g., "kg", "g", "units", "piece"
 }
 
 interface NewProductCardProps {
@@ -88,6 +88,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   const dispatch = useDispatch();
   const navigation = useNavigation<ProductCardNavigationProp>();
 
+  // --- VEG/NON-VEG DETECTION ---
   const isNonVeg = useMemo(() => {
     const nonVegKeywords = /chicken|mutton|fish|egg|meat|prawn|crab|beef|pork/i;
     return (
@@ -96,19 +97,56 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     );
   }, [product.name, product.category]);
 
+  // --- DYNAMIC UNIT DETECTION (copied from first component) ---
+  const unitLabel = useMemo(() => {
+    if (product.unit) return product.unit;
+
+    const cat = (product.category || "").toLowerCase();
+    const name = product.name.toLowerCase();
+
+    if (
+      cat.includes("grocery") ||
+      cat.includes("vegetable") ||
+      cat.includes("fruit") ||
+      cat.includes("meat") ||
+      cat.includes("fish") ||
+      cat.includes("dairy") ||
+      cat.includes("bakery") ||
+      cat.includes("spice") ||
+      cat.includes("oil") ||
+      cat.includes("flour") ||
+      name.includes("kg") ||
+      name.includes("gram") ||
+      name.includes("gm") ||
+      name.includes("litre") ||
+      name.includes("ml")
+    ) {
+      if (product.sizes?.some((s) => s.includes("g") || s.includes("kg"))) {
+        return "kg";
+      }
+      return "kg";
+    }
+
+    if (product.sizes?.some((s) => /^[A-Z]+$/.test(s) || /^\d+$/.test(s))) {
+      return "units";
+    }
+
+    return "units";
+  }, [product.unit, product.category, product.name, product.sizes]);
+
+  // --- SIZE SELECTION ---
   const requiresSizeSelection = product.sizes && product.sizes.length > 0;
   const [selectedSize, setSelectedSize] = useState<string | null>(
     requiresSizeSelection ? product.sizes![0] : null,
   );
 
-  // 🔥 FIX 1: Read cart items as an array and find the specific item
+  // --- CART ITEMS (array) ---
   const cartItems = useSelector((state: any) => state.cart.items);
 
   const cartItem = useMemo(() => {
     if (!cartItems || !Array.isArray(cartItems)) return null;
 
     return cartItems.find((item: any) => {
-      // Safely check both productId as string or populated object
       const isMatchingProduct =
         item.productId === product._id || item.product?._id === product._id;
       const isMatchingSize = requiresSizeSelection
@@ -173,6 +211,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     return 0;
   }, [product.price, product.discountedPrice]);
 
+  // --- PRICE TIERS WITH DYNAMIC UNIT ---
   const priceTiers = useMemo(() => {
     const tiers: any[] = [];
     const bulkMin = product.bulkMinimumUnits || Infinity;
@@ -183,32 +222,47 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     );
 
     const defaultMax = Math.min(bulkMin - 1, largeQtyMin - 1);
-    const defaultLabel = `1 - ${defaultMax === Infinity ? "max" : defaultMax} Kg`;
+    const unit = unitLabel;
 
+    // Default tier
     if (defaultMax >= 1 || (!hasBulkTier && !hasLargeQtyTier)) {
+      const label =
+        defaultMax === Infinity
+          ? `1+ ${unit}`
+          : defaultMax === 1
+          ? `1 ${unit}`
+          : `1 - ${defaultMax} ${unit}`;
       tiers.push({
         minQty: 1,
         maxQty: defaultMax,
         price: product.discountedPrice || product.price,
-        label: defaultLabel,
+        label: label,
       });
     }
+
+    // Bulk tier
     if (hasBulkTier) {
       const bulkMax = largeQtyMin - 1;
-      const bulkLabel = `${product.bulkMinimumUnits} - ${bulkMax === Infinity ? "max" : bulkMax} Kg`;
+      const label =
+        bulkMax === Infinity
+          ? `${product.bulkMinimumUnits}+ ${unit}`
+          : `${product.bulkMinimumUnits} - ${bulkMax} ${unit}`;
       tiers.push({
-        minQty: product.bulkMinimumUnits,
+        minQty: product.bulkMinimumUnits!,
         maxQty: bulkMax,
         price: product.bulkPrice!,
-        label: bulkLabel,
+        label: label,
       });
     }
+
+    // Large quantity tier
     if (hasLargeQtyTier) {
+      const label = `≥ ${product.largeQuantityMinimumUnits} ${unit}`;
       tiers.push({
         minQty: product.largeQuantityMinimumUnits!,
         maxQty: Infinity,
         price: product.largeQuantityPrice!,
-        label: `>= ${product.largeQuantityMinimumUnits} Kg`,
+        label: label,
       });
     }
 
@@ -231,6 +285,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     product.bulkMinimumUnits,
     product.largeQuantityPrice,
     product.largeQuantityMinimumUnits,
+    unitLabel,
   ]);
 
   useEffect(() => {
@@ -254,6 +309,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     setShowQuantityInput(currentCartQty > 0);
   }, [cartItem]);
 
+  // --- TOAST & CART HANDLERS ---
   const showToast = useCallback(
     (msg: string, type: "success" | "error" | "info" | "warn") => {
       let toastType: "success" | "error" | "info" | "warning" = "info";
@@ -299,7 +355,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
 
     setIsAddingToCart(true);
     try {
-      // 🔥 FIX 2: Correctly route to removeItem if quantity is 0
       if (qtyToDispatch === 0) {
         await dispatch(
           removeItem({
@@ -420,9 +475,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       style={[styles.cardContainer, isDisabled && styles.cardDisabled]}
       activeOpacity={0.9}
     >
-      {/* ============================== */}
-      {/* CLEAR BACKGROUND IMAGE         */}
-      {/* ============================== */}
+      {/* Background Image */}
       {product.images && product.images.length > 0 ? (
         <Image
           source={{ uri: product.images[0] }}
@@ -438,7 +491,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
         </View>
       )}
 
-      {/* 🔥 GRADIENT */}
       <LinearGradient
         colors={["transparent", "rgba(0,0,0,0.6)", "rgba(0,0,0,0.95)"]}
         locations={[0.3, 0.7, 1]}
@@ -453,9 +505,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
         </View>
       )}
 
-      {/* ============================== */}
-      {/* TOP ROW: BADGES & SHARE        */}
-      {/* ============================== */}
+      {/* Top Row: Badges & Share */}
       <View style={styles.topRow}>
         <View>
           {!!amountSaved && (
@@ -464,19 +514,17 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
             </View>
           )}
         </View>
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={styles.shareButton}
           onPress={handleShareToChat}
         >
           <Ionicons name="arrow-redo-outline" size={18} color={Colors.white} />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
 
-      {/* ============================== */}
-      {/* BOTTOM CONTENT AREA            */}
-      {/* ============================== */}
+      {/* Bottom Content Area */}
       <View style={styles.bottomContent}>
-        {/* LEFT COLUMN: INFO & TEXT */}
+        {/* Left Column: Info & Text */}
         <View style={styles.leftInfoSide}>
           <View style={styles.titleRow}>
             <View
@@ -523,7 +571,8 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
             </View>
           )}
 
-          {/* {requiresSizeSelection && (
+          {/* --- SIZE PILLS (NOW ACTIVE) --- */}
+          {requiresSizeSelection && (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -550,8 +599,9 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          )} */}
+          )}
 
+          {/* Price Tiers with dynamic unit */}
           {priceTiers.length > 0 && (
             <View style={styles.priceTiersContainer}>
               {priceTiers.map((tier, index) => (
@@ -584,7 +634,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
           )}
         </View>
 
-        {/* RIGHT COLUMN: CONTROLS */}
+        {/* Right Column: Controls */}
         <View style={styles.rightActionSide}>
           {isDisabled || displayStock === 0 ? (
             <View style={[styles.controlBtnStyle, styles.addBtnDisabled]}>
@@ -832,7 +882,8 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   metaText: { fontSize: 11, color: Colors.textGray, fontWeight: "500" },
-  sizeScrollView: { marginVertical: 4 },
+  sizeScrollView: { marginVertical: 4,height: 30,               // <-- fixed height
+  flexGrow: 0,  },
   sizePill: {
     paddingHorizontal: 10,
     paddingVertical: 4,

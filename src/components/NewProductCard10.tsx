@@ -47,6 +47,7 @@ interface Product {
   category?: string;
   sizes?: string[];
   description?: string;
+  unit?: string;          // NEW: e.g., "kg", "g", "units", "piece"
 }
 
 interface NewProductCardProps {
@@ -61,14 +62,14 @@ type ProductCardNavigationProp = StackNavigationProp<
   "ProductDetails"
 >;
 
-// --- COLORS MATCHING THE NEW UI ---
+// --- COLORS ---
 const Colors = {
   white: "#FFFFFF",
   textDark: "#1C1C1E",
   textGray: "#6B7280",
   textLightGray: "#9CA3AF",
-  accentGreen: "#1B8C40", // Veg Green
-  redAlert: "#DC2626", // Non-Veg Red
+  accentGreen: "#1B8C40",
+  redAlert: "#DC2626",
   divider: "#F3F4F6",
   bgLight: "#F8F9FA",
   yellowStar: "#F59E0B",
@@ -87,7 +88,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   const dispatch = useDispatch();
   const navigation = useNavigation<ProductCardNavigationProp>();
 
-  // 🔥 DYNAMIC VEG/NON-VEG DETECTOR
+  // --- VEG/NON-VEG DETECTION ---
   const isNonVeg = useMemo(() => {
     const nonVegKeywords = /chicken|mutton|fish|egg|meat|prawn|crab|beef|pork/i;
     return (
@@ -95,6 +96,51 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       nonVegKeywords.test(product.category || "")
     );
   }, [product.name, product.category]);
+
+  // --- DYNAMIC UNIT DETECTION ---
+  const unitLabel = useMemo(() => {
+    // 1. If product has a unit field, use it directly
+    if (product.unit) return product.unit;
+
+    // 2. Infer from category and name
+    const cat = (product.category || "").toLowerCase();
+    const name = product.name.toLowerCase();
+
+    // Weight-based categories
+    if (
+      cat.includes("grocery") ||
+      cat.includes("vegetable") ||
+      cat.includes("fruit") ||
+      cat.includes("meat") ||
+      cat.includes("fish") ||
+      cat.includes("dairy") ||
+      cat.includes("bakery") ||
+      cat.includes("spice") ||
+      cat.includes("oil") ||
+      cat.includes("flour") ||
+      name.includes("kg") ||
+      name.includes("gram") ||
+      name.includes("gm") ||
+      name.includes("litre") ||
+      name.includes("ml")
+    ) {
+      // If sizes contain "g" or "kg", assume grams/kilograms
+      if (product.sizes?.some((s) => s.includes("g") || s.includes("kg"))) {
+        return "kg"; // or could be "g" – we'll default to kg
+      }
+      return "kg";
+    }
+
+    // If the product has size labels like "S", "M", "L" → likely units/pieces
+    if (product.sizes?.some((s) => /^[A-Z]+$/.test(s) || /^\d+$/.test(s))) {
+      return "units";
+    }
+
+    // Default
+    return "units";
+  }, [product.unit, product.category, product.name, product.sizes]);
+
+  // ---- REST OF THE HOOKS & LOGIC (unchanged) ----
 
   const requiresSizeSelection = product.sizes && product.sizes.length > 0;
   const [selectedSize, setSelectedSize] = useState<string | null>(
@@ -164,6 +210,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     return 0;
   }, [product.price, product.discountedPrice]);
 
+  // ---- PRICE TIERS WITH DYNAMIC UNIT ----
   const priceTiers = useMemo(() => {
     const tiers: any[] = [];
     const bulkMin = product.bulkMinimumUnits || Infinity;
@@ -174,32 +221,47 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     );
 
     const defaultMax = Math.min(bulkMin - 1, largeQtyMin - 1);
-    const defaultLabel = `1 - ${defaultMax === Infinity ? "max" : defaultMax} Kg`;
+    const unit = unitLabel; // dynamic unit
 
+    // Default tier (1 to before bulk)
     if (defaultMax >= 1 || (!hasBulkTier && !hasLargeQtyTier)) {
+      const label =
+        defaultMax === Infinity
+          ? `1+ ${unit}`
+          : defaultMax === 1
+          ? `1 ${unit}`
+          : `1 - ${defaultMax} ${unit}`;
       tiers.push({
         minQty: 1,
         maxQty: defaultMax,
         price: product.discountedPrice || product.price,
-        label: defaultLabel,
+        label: label,
       });
     }
+
+    // Bulk tier
     if (hasBulkTier) {
       const bulkMax = largeQtyMin - 1;
-      const bulkLabel = `${product.bulkMinimumUnits} - ${bulkMax === Infinity ? "max" : bulkMax} Kg`;
+      const label =
+        bulkMax === Infinity
+          ? `${product.bulkMinimumUnits}+ ${unit}`
+          : `${product.bulkMinimumUnits} - ${bulkMax} ${unit}`;
       tiers.push({
-        minQty: product.bulkMinimumUnits,
+        minQty: product.bulkMinimumUnits!,
         maxQty: bulkMax,
         price: product.bulkPrice!,
-        label: bulkLabel,
+        label: label,
       });
     }
+
+    // Large quantity tier
     if (hasLargeQtyTier) {
+      const label = `≥ ${product.largeQuantityMinimumUnits} ${unit}`;
       tiers.push({
         minQty: product.largeQuantityMinimumUnits!,
         maxQty: Infinity,
         price: product.largeQuantityPrice!,
-        label: `>= ${product.largeQuantityMinimumUnits} Kg`,
+        label: label,
       });
     }
 
@@ -222,8 +284,10 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     product.bulkMinimumUnits,
     product.largeQuantityPrice,
     product.largeQuantityMinimumUnits,
+    unitLabel,
   ]);
 
+  // ---- EFFECTS ----
   useEffect(() => {
     let currentPrice = basePrice;
     const activeTier = priceTiers.find(
@@ -245,6 +309,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     setShowQuantityInput(currentCartQty > 0);
   }, [cartItem]);
 
+  // ---- TOAST & CART HANDLERS ----
   const showToast = useCallback(
     (msg: string, type: "success" | "error" | "info" | "warn") => {
       let toastType: "success" | "error" | "info" | "warning" = "info";
@@ -372,7 +437,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
 
   const handleCardPress = () => {
     if (!isDisabled)
-      // FIX: Changed from ProductDetailScreen10 to ProductDetails to match your stack params
       navigation.navigate("ProductDetails", { product: product });
   };
 
@@ -397,6 +461,9 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     return "ADD";
   };
 
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <TouchableOpacity
       onPress={handleCardPress}
@@ -404,9 +471,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       style={[styles.cardContainer, isDisabled && styles.cardDisabled]}
       activeOpacity={0.9}
     >
-      {/* ============================== */}
-      {/* LEFT COLUMN: INFO & TEXT       */}
-      {/* ============================== */}
+      {/* LEFT COLUMN: INFO */}
       <View style={styles.leftInfoSide}>
         <View
           style={[
@@ -463,7 +528,8 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
           </View>
         )}
 
-        {/* {requiresSizeSelection && (
+        {/* --- SIZE PILLS (UNCOMMENTED) --- */}
+        {requiresSizeSelection && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -490,7 +556,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
               </TouchableOpacity>
             ))}
           </ScrollView>
-        )} */}
+        )}
 
         {product.description && (
           <Text style={styles.descriptionText} numberOfLines={2}>
@@ -498,6 +564,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
           </Text>
         )}
 
+        {/* --- PRICE TIERS WITH DYNAMIC UNIT --- */}
         {priceTiers.length > 0 && (
           <View style={styles.priceTiersContainer}>
             {priceTiers.map((tier, index) => (
@@ -530,9 +597,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
         )}
       </View>
 
-      {/* ============================== */}
       {/* RIGHT COLUMN: IMAGE & CONTROLS */}
-      {/* ============================== */}
       <View style={styles.rightImageSide}>
         <View style={styles.imageBox}>
           {product.images && product.images.length > 0 ? (
@@ -559,7 +624,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
             style={styles.shareButton}
             onPress={handleShareToChat}
           >
-            <Ionicons name="arrow-redo-circle" size={26} color={Colors.white} />
+            {/* <Ionicons name="arrow-redo-circle" size={26} color={Colors.white} /> */}
           </TouchableOpacity>
 
           {isDisabled && (
@@ -571,23 +636,19 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
           )}
         </View>
 
-        {/* ============================== */}
-        {/* FLOATING ADD / QUANTITY BTN    */}
-        {/* ============================== */}
+        {/* --- FLOATING ADD / QUANTITY CONTROLS --- */}
         <View style={styles.addBtnContainer}>
           {isDisabled || displayStock === 0 ? (
             <View style={[styles.addBtn, styles.addBtnDisabled]}>
               <Text style={styles.disabledBtnText}>{getButtonText()}</Text>
             </View>
           ) : renderQuantityControls ? (
-            // 🔥 FLOATING WRAPPER FOR QUANTITY, UPDATE & ADDED MESSAGES
             <Animated.View
               style={[
                 styles.floatingStackContainer,
                 { opacity: controlOpacity },
               ]}
             >
-              {/* Floats at the very top of the stack */}
               {!!(cartItem?.quantity || 0) && (
                 <View style={styles.floatingAddedBadge}>
                   <Ionicons
@@ -602,7 +663,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
                 </View>
               )}
 
-              {/* Floats in the middle of the stack */}
               {((currentNumericalQuantity > 0 &&
                 cartItem?.quantity !== currentNumericalQuantity) ||
                 (currentNumericalQuantity === 0 &&
@@ -622,7 +682,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
                 </TouchableOpacity>
               )}
 
-              {/* The QTY Pill stays at the bottom */}
               <View style={styles.qtyControlBox}>
                 <TouchableOpacity
                   onPress={() => handleQuantityButtonClick(false)}
@@ -697,6 +756,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   );
 };
 
+// --- STYLES (unchanged, included for completeness) ---
 const styles = StyleSheet.create({
   cardContainer: {
     flexDirection: "row",
@@ -786,7 +846,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  sizeScrollView: { marginVertical: 6 },
+  sizeScrollView: { marginVertical: 6,height: 30,               // <-- fixed height
+  flexGrow: 0,  },
   sizePill: {
     paddingHorizontal: 10,
     paddingVertical: 4,

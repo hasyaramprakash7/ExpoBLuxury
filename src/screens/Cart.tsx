@@ -1,4 +1,4 @@
-// src/components/CartScreen.tsx (Final Corrected File with Input Error Highlighting)
+// src/components/CartScreen.tsx (Updated with +91 support)
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import {
@@ -46,29 +46,29 @@ const { width, height } = Dimensions.get("window");
 
 // --- 💎 LUXURY COLOR PALETTE ---
 const Colors = {
-  primaryGreen: "#00704A", // Used for primary buttons/accents
+  primaryGreen: "#00704A",
   darkGreen: "#00563F",
   gold: "#FFD700",
   white: "#FFFFFF",
   darkText: "#2C3E50",
   grayText: "#95A5A6",
   lightGray: "#ECF0F1",
-  redAlert: "#C0392B", // Used for errors and important alerts
+  redAlert: "#C0392B",
   yellowStar: "#F39C12",
   greenSuccess: "#2ECC71",
   blueHighlight: "#3498DB",
-  softGray: "#F4F7F9", // Used for main screen background
+  softGray: "#F4F7F9",
   mediumGray: "#BDC3C7",
   deepGreen: "#014421",
   shadow: "rgba(0, 0, 0, 0.15)",
   successBackground: "#E8F8F5",
   stepActive: "#007AFF",
   inputBackground: "#F5F5F5",
-  richBrown: "#6D4C3A", // For primary CTA buttons (View Order)
-  softBrown: "#F4EAE6", // For success background
+  richBrown: "#6D4C3A",
+  softBrown: "#F4EAE6",
 };
 
-// --- Type Definitions (Kept in CartScreen as they are widely used) ---
+// --- Type Definitions ---
 interface Address {
   fullName: string;
   phone: string;
@@ -82,7 +82,7 @@ interface Address {
   latitude: number | null;
   longitude: number | null;
 }
-type AddressKeys = keyof Address; // Utility type for validation
+type AddressKeys = keyof Address;
 
 interface ProductInCart {
   _id: string;
@@ -136,7 +136,6 @@ interface SuccessModalData {
   orderId: string;
 }
 
-// 📌 Toast State Interface
 interface ToastState {
   message: string;
   type: "success" | "error" | "info" | "loading";
@@ -144,7 +143,7 @@ interface ToastState {
 
 const PENDING_PAYMENT_KEY = "pendingPaymentData";
 
-// --- PAYMENT SUCCESS MODAL COMPONENT (Re-included for compilation) ---
+// --- PAYMENT SUCCESS MODAL COMPONENT ---
 const PaymentSuccessModal: React.FC<{
   isVisible: boolean;
   data: SuccessModalData;
@@ -202,9 +201,8 @@ const PaymentSuccessModal: React.FC<{
     </Modal>
   );
 };
-// --- END PAYMENT SUCCESS MODAL COMPONENT ---
 
-// 📌 Toast Component
+// --- TOAST COMPONENT ---
 const ToastMessage: React.FC<{ toast: ToastState | null }> = ({ toast }) => {
   if (!toast || toast.type === "loading") return null;
 
@@ -234,8 +232,8 @@ const ToastMessage: React.FC<{ toast: ToastState | null }> = ({ toast }) => {
     </View>
   );
 };
-// --- END TOAST COMPONENT ---
 
+// --- MAIN CART SCREEN ---
 const CartScreen: React.FC = () => {
   const dispatch = useDispatch<any>();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
@@ -279,10 +277,8 @@ const CartScreen: React.FC = () => {
     paymentId: string;
   } | null>(null);
 
-  // ✅ NEW STATE: Tracks which address fields failed validation
   const [validationErrors, setValidationErrors] = useState<AddressKeys[]>([]);
 
-  // ✨ Coupon State - Passed down to CouponSection
   const [couponCode, setCouponCode] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
   const [isCouponApplied, setIsCouponApplied] = useState(false);
@@ -306,7 +302,7 @@ const CartScreen: React.FC = () => {
   const PLATFORM_FEE_RATE = 0;
   const GST_RATE = 0;
 
-  // 📌 Toast Message Handler
+  // --- Toast Handler ---
   const showToastMessage = useCallback(
     (message: string, type: ToastState["type"] = "info") => {
       setToast({ message, type });
@@ -339,7 +335,7 @@ const CartScreen: React.FC = () => {
     [],
   );
 
-  // --- MEMO: Pricing & Order Data (Unchanged) ---
+  // --- Memo: Vendor Groups & Pricing ---
   const vendorOrderGroups = useMemo<VendorGroupProps[]>(() => {
     const vendorGroupsMap = items.reduce(
       (groups: { [key: string]: CartReduxItem[] }, item) => {
@@ -429,12 +425,12 @@ const CartScreen: React.FC = () => {
 
   const initialDiscountedSubtotal = pricingBreakdown?.discountedSubtotal || 0;
 
-  // Coupon Handlers (Unchanged)
+  // --- Coupon Handlers ---
   const handleClearCoupon = useCallback(() => {
     setCouponDiscount(0);
     setIsCouponApplied(false);
     setCouponCode("");
-  }, [setCouponDiscount, setIsCouponApplied, setCouponCode]);
+  }, []);
 
   const handleApplyCoupon = useCallback(
     (code: string, discountAmount: number) => {
@@ -442,10 +438,10 @@ const CartScreen: React.FC = () => {
       setIsCouponApplied(true);
       setCouponCode(code);
     },
-    [setCouponDiscount, setIsCouponApplied, setCouponCode],
+    [],
   );
 
-  // Pincode Blur Handler (Unchanged)
+  // --- Pincode Blur ---
   const handlePincodeBlur = useCallback(async () => {
     const zipCode = address.zipCode;
     if (!zipCode || zipCode.length !== 6 || isNaN(Number(zipCode))) {
@@ -497,7 +493,7 @@ const CartScreen: React.FC = () => {
     }
   }, [address.zipCode, showToastMessage]);
 
-  // Initial Load & Geolocation (Unchanged)
+  // --- Initial Load & Geolocation ---
   useEffect(() => {
     dispatch(fetchCart());
 
@@ -601,14 +597,13 @@ const CartScreen: React.FC = () => {
     }
   }, [dispatch, showToastMessage]);
 
-  // Final Success Handler (Unchanged)
+  // --- Final Success Handler ---
   const handleFinalSuccess = useCallback(
     async (confirmedOrderId: string) => {
       console.log(
         "CLIENT DEBUG: 🎯 Starting handleFinalSuccess (Cleanup and Modal trigger)",
       );
 
-      // 1. Clear local data
       await AsyncStorage.removeItem(PENDING_PAYMENT_KEY);
       setPendingPaymentData(null);
       handleClearCoupon();
@@ -619,18 +614,17 @@ const CartScreen: React.FC = () => {
         "CLIENT DEBUG: ✅ AsyncStorage cleared and Cart cleared in Redux. Showing success modal.",
       );
 
-      // 2. Show the new success modal
       setSuccessModalData({
         paymentType: "Online",
         orderId: confirmedOrderId,
       });
       setShowSuccessModal(true);
-      setToast(null); // Clear any floating toasts
+      setToast(null);
     },
     [dispatch, handleClearCoupon],
   );
 
-  // Secure Reconciliation Logic (Unchanged)
+  // --- Reconciliation Logic (unchanged) ---
   useFocusEffect(
     useCallback(() => {
       dispatch(fetchCart());
@@ -886,18 +880,16 @@ const CartScreen: React.FC = () => {
       );
       return;
     }
-    // Clear previous errors when opening the modal
     setValidationErrors([]);
     setShowAddressModal(true);
   };
 
   const handleAddressChange = (name: keyof Address, value: string) => {
     setAddress((prev) => ({ ...prev, [name]: value }));
-    // Remove error state as user starts typing
     setValidationErrors((prev) => prev.filter((err) => err !== name));
   };
 
-  // 🎯 Address Validation Logic (Modified to set error state)
+  // --- Address Validation (updated for phone) ---
   const handleConfirmAddress = () => {
     const requiredFields: AddressKeys[] = [
       "fullName",
@@ -913,37 +905,36 @@ const CartScreen: React.FC = () => {
     const newErrors: AddressKeys[] = [];
     let hasFormatError = false;
 
-    // 1. Check for empty fields
     requiredFields.forEach((field) => {
       if (field !== "country" && !address[field]?.trim()) {
         missingFields.push(
-          field.charAt(0).toUpperCase() + field.slice(1), // Capitalize for display
+          field.charAt(0).toUpperCase() + field.slice(1),
         );
         newErrors.push(field);
       }
-      // Special check for country if it's somehow missing, though it defaults
       if (field === "country" && !address[field]?.trim()) {
         missingFields.push("Country");
         newErrors.push(field);
       }
     });
 
-    // 2. Check for format issues
-    if (!/^\d{10}$/.test(address.phone.trim())) {
+    // ✅ Updated phone validation: allow optional '+' and 10-15 digits
+    const phoneRegex = /^\+?\d{10,15}$/;
+    if (!phoneRegex.test(address.phone.trim())) {
       showToastMessage(
-        "Phone number must be a valid 10-digit number.",
+        "Phone number must be a valid international format (e.g., +91 9876543210 or 9876543210).",
         "error",
       );
       newErrors.push("phone");
       hasFormatError = true;
     }
+
     if (!/^\d{6}$/.test(address.zipCode.trim())) {
       showToastMessage("ZIP Code must be a valid 6-digit number.", "error");
       newErrors.push("zipCode");
       hasFormatError = true;
     }
 
-    // Set all detected errors
     setValidationErrors(Array.from(new Set(newErrors)));
 
     if (missingFields.length > 0 || hasFormatError) {
@@ -958,14 +949,12 @@ const CartScreen: React.FC = () => {
       return;
     }
 
-    // If validation passes
     setShowAddressModal(false);
     setShowConfirmOrderModal(true);
   };
 
   const handleEditAddress = () => {
     setShowConfirmOrderModal(false);
-    // Show address modal again and clear current validation errors
     setValidationErrors([]);
     setShowAddressModal(true);
   };
@@ -980,7 +969,7 @@ const CartScreen: React.FC = () => {
     setSelectedOnlineOption("");
   };
 
-  // Order Placement (Unchanged)
+  // --- Order Placement (unchanged) ---
   const handlePlaceOrderConfirmed = async () => {
     const user = authUser;
     const token = authUser?.token;
@@ -1008,7 +997,6 @@ const CartScreen: React.FC = () => {
       return;
     }
 
-    // --- PREPARE CONSOLIDATED ORDER DATA ---
     const totalAmountToPay = pricingBreakdown.finalTotal;
     const consolidatedItems = vendorOrderGroups.flatMap((group) =>
       group.items.map((item) => ({
@@ -1021,7 +1009,7 @@ const CartScreen: React.FC = () => {
         ),
         productImage: (item.productId as ProductInCart).images?.[0],
         vendorId: (item.productId as ProductInCart).vendorId,
-        size: item.size, // Including the size property
+        size: item.size,
       })),
     );
 
@@ -1030,12 +1018,10 @@ const CartScreen: React.FC = () => {
       address: { ...address, latitude, longitude },
       items: consolidatedItems,
       total: totalAmountToPay,
-      // ✨ ADDED: Coupon Data
       couponCode: isCouponApplied ? couponCode : undefined,
       couponDiscount: isCouponApplied ? couponDiscount : undefined,
     };
 
-    // --- 2. ONLINE PAYMENT FLOW (Razorpay Link) ---
     if (paymentMethod === "Online Payment") {
       try {
         const pendingOrderResponse = await dispatch(
@@ -1094,10 +1080,7 @@ const CartScreen: React.FC = () => {
         setPendingPaymentData(null);
         return;
       }
-    }
-
-    // --- 3. COD FLOW (Order is placed immediately) ---
-    else if (paymentMethod === "COD") {
+    } else if (paymentMethod === "COD") {
       try {
         const finalOrderData = {
           ...baseOrderData,
@@ -1114,10 +1097,9 @@ const CartScreen: React.FC = () => {
 
         setShowConfirmOrderModal(false);
 
-        // Show success modal for COD
         setSuccessModalData({
           paymentType: "COD",
-          orderId: orderResponse._id, // Assuming response returns order ID
+          orderId: orderResponse._id,
         });
         setShowSuccessModal(true);
       } catch (err: any) {
@@ -1133,7 +1115,7 @@ const CartScreen: React.FC = () => {
     }
   };
 
-  // --- RENDER START ---
+  // --- RENDER ---
   return (
     <View style={cartStyles.container}>
       <ScrollView
@@ -1203,20 +1185,12 @@ const CartScreen: React.FC = () => {
                   key={group.vendorId}
                   {...group}
                   FREE_DELIVERY_THRESHOLD={FREE_DELIVERY_THRESHOLD}
-                  showToast={showToastMessage} // 🔑 Pass the toast function down
+                  showToast={showToastMessage}
                 />
               ))}
             </View>
 
-            {/* COUPON SECTION COMPONENT */}
-            {/* <CouponSection
-                            couponCode={couponCode}
-                            couponDiscount={couponDiscount}
-                            isCouponApplied={isCouponApplied}
-                            handleApplyCoupon={handleApplyCoupon}
-                            handleClearCoupon={handleClearCoupon}
-                            initialDiscountedSubtotal={initialDiscountedSubtotal}
-                        /> */}
+            {/* <CouponSection ... /> */}
 
             <OrderSummary
               items={items}
@@ -1237,7 +1211,7 @@ const CartScreen: React.FC = () => {
 
       <ToastMessage toast={toast} />
 
-      {/* Address Modal (START) */}
+      {/* Address Modal */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -1273,7 +1247,6 @@ const CartScreen: React.FC = () => {
               <Text style={{ color: Colors.redAlert }}>*</Text> are required.
             </Text>
             <ScrollView style={cartStyles.addressFormScrollView}>
-              {/* Form fields with CONDITIONAL STYLING for errors */}
               <View style={cartStyles.formRow}>
                 <View style={cartStyles.formGroupHalf}>
                   <Text style={cartStyles.label}>
@@ -1297,6 +1270,7 @@ const CartScreen: React.FC = () => {
                     Phone Number{" "}
                     <Text style={{ color: Colors.redAlert }}>*</Text>
                   </Text>
+                  {/* ✅ UPDATED Phone Input: Allows '+' and digits, auto-prepends +91 when 10 digits entered */}
                   <TextInput
                     style={[
                       cartStyles.textInput,
@@ -1304,10 +1278,24 @@ const CartScreen: React.FC = () => {
                         cartStyles.errorInput,
                     ]}
                     value={address.phone}
-                    onChangeText={(text) => handleAddressChange("phone", text)}
-                    placeholder="e.g., 9876543210"
+                    onChangeText={(text) => {
+                      // Allow only digits and a single leading '+'
+                      let cleaned = text.replace(/[^+\d]/g, '');
+                      // Ensure '+' only appears at the start
+                      if (cleaned.includes('+') && cleaned.indexOf('+') !== 0) {
+                        cleaned = cleaned.replace(/\+/g, '');
+                      }
+                      // Auto-prepend +91 if exactly 10 digits and no '+'
+                      if (/^\d{10}$/.test(cleaned) && !cleaned.startsWith('+')) {
+                        cleaned = '+91' + cleaned;
+                      }
+                      // Max length 15 (E.164)
+                      if (cleaned.length > 15) cleaned = cleaned.slice(0, 15);
+                      handleAddressChange("phone", cleaned);
+                    }}
+                    placeholder="e.g., +91 9876543210"
                     keyboardType="phone-pad"
-                    maxLength={10}
+                    maxLength={15}
                   />
                 </View>
               </View>
@@ -1438,9 +1426,8 @@ const CartScreen: React.FC = () => {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-      {/* Address Modal (END) */}
 
-      {/* Confirm Order Modal (Unchanged) */}
+      {/* Confirm Order Modal (unchanged) */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -1468,7 +1455,6 @@ const CartScreen: React.FC = () => {
             <ScrollView
               contentContainerStyle={cartStyles.confirmModalScrollViewContent}
             >
-              {/* Order Summary Section */}
               <View style={cartStyles.section}>
                 <View style={cartStyles.sectionHeaderConfirm}>
                   <Ionicons
@@ -1493,7 +1479,6 @@ const CartScreen: React.FC = () => {
                   </Text>
                 </View>
 
-                {/* Coupon Discount Row */}
                 {pricingBreakdown.couponDiscount > 0 && (
                   <View style={[cartStyles.summaryRow, { marginTop: 6 }]}>
                     <Text style={cartStyles.summaryLabel}>
@@ -1509,7 +1494,6 @@ const CartScreen: React.FC = () => {
                     </Text>
                   </View>
                 )}
-                {/* End Coupon Discount Row */}
 
                 <View style={cartStyles.summaryRow}>
                   <Text style={cartStyles.summaryLabel}>
@@ -1550,7 +1534,6 @@ const CartScreen: React.FC = () => {
                 )}
               </View>
 
-              {/* Delivery Address Section */}
               <View style={cartStyles.section}>
                 <View style={cartStyles.sectionHeaderConfirm}>
                   <Ionicons
@@ -1594,7 +1577,6 @@ const CartScreen: React.FC = () => {
                 </View>
               </View>
 
-              {/* PAYMENT METHOD SECTION */}
               <View style={cartStyles.section}>
                 <View style={cartStyles.sectionHeaderConfirm}>
                   <Ionicons
@@ -1607,7 +1589,6 @@ const CartScreen: React.FC = () => {
                   </Text>
                 </View>
 
-                {/* COD Option - Section 1 */}
                 <Text style={cartStyles.paymentCategoryTitle}>
                   Cash on Delivery
                 </Text>
@@ -1631,14 +1612,12 @@ const CartScreen: React.FC = () => {
                   </TouchableOpacity>
                 </View>
 
-                {/* Online Payment Options - Section 2 */}
                 <Text
                   style={[cartStyles.paymentCategoryTitle, { marginTop: 15 }]}
                 >
                   Online Payment Options (via Razorpay)
                 </Text>
                 <View style={cartStyles.onlinePaymentGroup}>
-                  {/* Option 1: Cards */}
                   <TouchableOpacity
                     style={[
                       cartStyles.paymentOptionRow,
@@ -1663,7 +1642,6 @@ const CartScreen: React.FC = () => {
                     </View>
                   </TouchableOpacity>
 
-                  {/* Option 2: UPI */}
                   <TouchableOpacity
                     style={[
                       cartStyles.paymentOptionRow,
@@ -1690,7 +1668,6 @@ const CartScreen: React.FC = () => {
                     </View>
                   </TouchableOpacity>
 
-                  {/* Option 3: Netbanking/Wallet */}
                   <TouchableOpacity
                     style={[
                       cartStyles.paymentOptionRow,
@@ -1721,7 +1698,6 @@ const CartScreen: React.FC = () => {
                     : "You will be redirected to the secure Razorpay gateway to complete the payment using your chosen method."}
                 </Text>
               </View>
-              {/* END PAYMENT METHOD SECTION */}
             </ScrollView>
 
             <View style={cartStyles.modalFooter}>
@@ -1768,21 +1744,19 @@ const CartScreen: React.FC = () => {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-      {/* Confirm Order Modal (END) */}
 
-      {/* Payment/Order Success Modal (START) */}
       <PaymentSuccessModal
         isVisible={showSuccessModal}
         data={successModalData}
         onClose={() => setShowSuccessModal(false)}
         navigation={navigation}
       />
-      {/* Payment/Order Success Modal (END) */}
     </View>
   );
 };
+
 // --------------------------------------------------------
-// STYLES (Includes styles for CouponCard, Toast, and Modals)
+// STYLES (unchanged)
 // --------------------------------------------------------
 const cartStyles = StyleSheet.create({
   container: {
@@ -2016,7 +1990,6 @@ const cartStyles = StyleSheet.create({
       },
     }),
   },
-  // ✅ NEW STYLE: Red border for invalid inputs
   errorInput: {
     borderColor: Colors.redAlert,
     borderWidth: 2,
@@ -2211,7 +2184,6 @@ const cartStyles = StyleSheet.create({
     marginLeft: 5,
     fontWeight: "600",
   },
-  // --- NEW PAYMENT UI STYLES (Unchanged) ---
   paymentCategoryTitle: {
     fontSize: width * 0.04,
     fontWeight: "bold",
@@ -2289,7 +2261,6 @@ const cartStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // 📌 General Floating Toast Style (Unchanged)
   floatingToast: {
     position: "absolute",
     bottom: height * 0.03,

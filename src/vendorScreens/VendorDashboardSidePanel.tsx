@@ -191,7 +191,7 @@ const VendorDashboardSidePanel = ({
           </TouchableOpacity>
         </View>
         <View style={styles.navigationGrid}>
-          <TouchableOpacity
+          {/* <TouchableOpacity
             onPress={() => navigation.navigate("VendorAppointmentsList")}
             style={styles.navButton}
             activeOpacity={0.7}
@@ -202,9 +202,9 @@ const VendorDashboardSidePanel = ({
             <Text style={styles.navTitle}>VendorAppointmentsList</Text>
             <Text style={styles.navSubtitle}>Manage Products</Text>
             <View style={styles.navAccent} />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
-          <TouchableOpacity
+          {/* <TouchableOpacity
             onPress={() => navigation.navigate("VendorChatScreen")}
             style={styles.navButton}
             activeOpacity={0.7}
@@ -215,7 +215,7 @@ const VendorDashboardSidePanel = ({
             <Text style={styles.navTitle}>VendorChatScreen</Text>
             <Text style={styles.navSubtitle}>Manage Products</Text>
             <View style={styles.navAccent} />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
           <TouchableOpacity
             onPress={() => navigation.navigate("PropertyCRUDScreen")}
             style={styles.navButton}
@@ -228,6 +228,31 @@ const VendorDashboardSidePanel = ({
             <Text style={styles.navSubtitle}>Manage Products</Text>
             <View style={styles.navAccent} />
           </TouchableOpacity>
+           <TouchableOpacity
+            onPress={() => navigation.navigate("RentalCRUD")}
+            style={styles.navButton}
+            activeOpacity={0.7}
+          >
+            <View style={styles.navIconRing}>
+              <Package size={28} color="#D35400" />
+            </View>
+            <Text style={styles.navTitle}>rentel</Text>
+            <Text style={styles.navSubtitle}>rentel Products</Text>
+            <View style={styles.navAccent} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => navigation.navigate("VendorProductViews")}
+            style={styles.navButton}
+            activeOpacity={0.7}
+          >
+            <View style={styles.navIconRing}>
+              <Package size={28} color="#D35400" />
+            </View>
+            <Text style={styles.navTitle}>VendorProductViews</Text>
+            <Text style={styles.navSubtitle}>VendorProductViews Products</Text>
+            <View style={styles.navAccent} />
+          </TouchableOpacity>
+          
         </View>
       </View>
 

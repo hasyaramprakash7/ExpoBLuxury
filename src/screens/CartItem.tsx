@@ -49,6 +49,8 @@ interface ProductInCart {
   bulkMinimumUnits?: number;
   largeQuantityPrice?: number;
   largeQuantityMinimumUnits?: number;
+  // 🆕 Add optional unit field
+  unit?: string; // e.g., "kg", "g", "units", "piece"
 }
 
 interface CartReduxItem {
@@ -69,6 +71,7 @@ interface CartItemProps {
   ) => void;
 }
 
+// --- Helper: Get effective price (bulk/large qty) ---
 const getEffectivePrice = (
   product: ProductInCart,
   quantity: number,
@@ -90,7 +93,45 @@ const getEffectivePrice = (
   return price;
 };
 
-// --- Confirmation Modal ---
+// --- Helper: Infer unit from product details ---
+const getProductUnit = (product: ProductInCart): string => {
+  // 1. If the product has an explicit unit, use it
+  if (product.unit) return product.unit;
+
+  // 2. Infer from category or name
+  const name = product.name?.toLowerCase() || "";
+  const category = (product as any).category?.toLowerCase() || "";
+
+  // Weight-based keywords
+  if (
+    name.includes("kg") ||
+    name.includes("gram") ||
+    name.includes("gm") ||
+    category.includes("grocery") ||
+    category.includes("vegetable") ||
+    category.includes("fruit") ||
+    category.includes("meat") ||
+    category.includes("fish") ||
+    category.includes("dairy") ||
+    category.includes("bakery") ||
+    category.includes("spice") ||
+    category.includes("oil") ||
+    category.includes("flour")
+  ) {
+    // Check if sizes contain "g" or "kg" – then use "kg" as default
+    return "kg";
+  }
+
+  // 3. If the product has sizes like "S", "M", "L" → likely units/pieces
+  if ((product as any).sizes?.some((s: string) => /^[A-Z]+$/.test(s) || /^\d+$/.test(s))) {
+    return "units";
+  }
+
+  // 4. Default to "units"
+  return "units";
+};
+
+// --- Confirmation Modal (unchanged) ---
 const RemoveConfirmationModal: React.FC<{
   isVisible: boolean;
   productName: string;
@@ -138,6 +179,7 @@ const RemoveConfirmationModal: React.FC<{
   </Modal>
 );
 
+// --- Main Component ---
 const CartItem: React.FC<CartItemProps> = ({ item, loading, showToast }) => {
   const dispatch = useDispatch<any>();
   const product = item.productId || ({} as ProductInCart);
@@ -149,6 +191,9 @@ const CartItem: React.FC<CartItemProps> = ({ item, loading, showToast }) => {
   const [tempQuantity, setTempQuantity] = useState(String(currentQuantity));
   const [isUpdatingQuantity, setIsUpdatingQuantity] = useState(false);
   const [showConfirmRemoveModal, setShowConfirmRemoveModal] = useState(false);
+
+  // Determine unit dynamically
+  const unitLabel = getProductUnit(product);
 
   useEffect(() => {
     setTempQuantity(String(currentQuantity));
@@ -189,7 +234,6 @@ const CartItem: React.FC<CartItemProps> = ({ item, loading, showToast }) => {
     showToast(`Removing...`, "loading");
 
     try {
-      // 🔑 CRITICAL FIX: Passing both productId AND size to match backend route
       await dispatch(
         removeItem({
           productId: product._id,
@@ -229,12 +273,16 @@ const CartItem: React.FC<CartItemProps> = ({ item, loading, showToast }) => {
 
       <View style={itemStyles.detailsContainer}>
         <View style={itemStyles.nameRow}>
-          <Text style={itemStyles.productName} numberOfLines={1}>
-            {product.name}{" "}
+          <View style={itemStyles.nameWrapper}>
+            <Text style={itemStyles.productName} numberOfLines={1}>
+              {product.name}
+            </Text>
             {selectedSize && (
-              <Text style={itemStyles.sizeText}></Text>
+              <View style={itemStyles.sizeBadge}>
+                <Text style={itemStyles.sizeText}>{selectedSize}</Text>
+              </View>
             )}
-          </Text>
+          </View>
           <TouchableOpacity
             onPress={() => setShowConfirmRemoveModal(true)}
             style={itemStyles.miniTrash}
@@ -274,7 +322,9 @@ const CartItem: React.FC<CartItemProps> = ({ item, loading, showToast }) => {
                 updateQuantityInCart(parseInt(tempQuantity) || 1)
               }
               onChangeText={setTempQuantity}
-            /><Text>Kg</Text>
+            />
+            {/* Dynamic unit label */}
+            <Text style={itemStyles.unitLabel}>{unitLabel}</Text>
             <TouchableOpacity
               onPress={() => updateQuantityInCart(currentQuantity + 1)}
               style={itemStyles.quantityButton}
@@ -325,13 +375,30 @@ const itemStyles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  nameWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    flexWrap: "wrap",
+  },
   productName: {
     fontSize: 15,
     fontWeight: "bold",
     color: Colors.darkText,
-    flex: 1,
+    marginRight: 6,
   },
-  sizeText: { fontSize: 13, fontWeight: "normal", color: Colors.primaryGreen },
+  sizeBadge: {
+    backgroundColor: Colors.primaryGreen,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    marginRight: 4,
+  },
+  sizeText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.white,
+  },
   miniTrash: { padding: 4 },
   vendorText: { fontSize: 12, color: Colors.grayText, marginVertical: 2 },
   priceRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
@@ -366,8 +433,14 @@ const itemStyles = StyleSheet.create({
     fontWeight: "bold",
     color: Colors.darkText,
   },
+  unitLabel: {
+    fontSize: 12,
+    color: Colors.grayText,
+    fontWeight: "500",
+    marginHorizontal: 2,
+  },
   itemTotalPrice: { fontSize: 16, fontWeight: "bold", color: Colors.darkText },
-  // Modal Styles
+  // Modal Styles (unchanged)
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

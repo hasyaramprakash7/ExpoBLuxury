@@ -48,6 +48,7 @@ import {
   setSelectedAddress,
   saveUserAddress,
   SavedAddress,
+  selectAllAddresses,   // 🔥 ADDED
 } from "../features/locationSlice";
 
 // Custom Components
@@ -58,7 +59,7 @@ import NewArrivals from "./NewArrivals";
 
 // Local Assets
 const image = require("../../assets/b4.jpg");
-const image1 = require("../../assets/WhatsApp Image 2026-01-19 at 2.30.39 AM.jpeg");
+const image1 = require("../../assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png");
 const image2 = require("../../assets/b13.jpg");
 const backgroundImage = require("../../assets/b1.jpg");
 
@@ -234,7 +235,7 @@ const ImageBanner: React.FC<ImageBannerProps> = ({ imageUrl, onPress }) => (
 );
 
 // ========================================================
-// 🔥 HOME SCREEN – FINAL FIXED VERSION (ALL ADDRESSES SHOWN)
+// 🔥 HOME SCREEN – FIXED WITH ADAPTER SELECTORS
 // ========================================================
 
 const HomeScreen: React.FC = () => {
@@ -247,11 +248,14 @@ const HomeScreen: React.FC = () => {
   const [numRecommendedProducts, setNumRecommendedProducts] = useState(10);
   const [reentryTrigger, setReentryTrigger] = useState(0);
 
-  // --- Address Form State ---
+  // --- Address Form State (now includes landmark, city, pincode) ---
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [addressForm, setAddressForm] = useState({
     type: "Home" as "Home" | "Work" | "Other",
     addressString: "",
+    landmark: "",
+    city: "",
+    pincode: "",
     latitude: 0,
     longitude: 0,
   });
@@ -259,13 +263,15 @@ const HomeScreen: React.FC = () => {
   // Redux State
   const {
     location: userLocation,
-    savedAddresses,
     selectedAddress,
     permissionGranted,
     loading: isLocationLoading,
     addressActionLoading,
     error: locationError,
   } = useSelector((state: RootState) => state.location);
+
+  // 🔥 FIX: Use the adapter selector to get the addresses array
+  const addresses = useSelector(selectAllAddresses);
 
   const { allProducts, loading: productsLoading } = useSelector(
     (state: RootState) => state.vendorProducts,
@@ -278,9 +284,6 @@ const HomeScreen: React.FC = () => {
   const token = useSelector((state: RootState) => state.auth.user?.token);
   const cartItems = useSelector((state: RootState) => state.cart.items);
   const isCartEmpty = Object.keys(cartItems).length === 0;
-
-  // 🔥 Fallback to empty array – prevents crash on first render
-  const addressList: SavedAddress[] = savedAddresses || [];
 
   // Caches & Shuffled State
   const productCache = useRef<Product[]>([]);
@@ -308,13 +311,15 @@ const HomeScreen: React.FC = () => {
       }
     }, [dispatch, token]),
   );
-
+useEffect(() => {
+  console.log('📦 nearbyVendors in Redux:', nearbyVendors);
+}, [nearbyVendors]);
   // 1. Auto‑request GPS if no saved addresses & no location
   useEffect(() => {
     if (
       token &&
       !initialLocationRequested.current &&
-      addressList.length === 0 &&
+      addresses.length === 0 &&
       !userLocation?.latitude &&
       !isLocationLoading
     ) {
@@ -322,27 +327,18 @@ const HomeScreen: React.FC = () => {
       initialLocationRequested.current = true;
       handleRequestLocation();
     }
-  }, [token, addressList.length, userLocation, isLocationLoading]);
+  }, [token, addresses.length, userLocation, isLocationLoading]);
 
   // 2. Fetch vendors & products when location changes
-  useEffect(() => {
-    if (userLocation?.latitude && userLocation?.longitude) {
-      const currentCoords = `${userLocation.latitude.toFixed(4)},${userLocation.longitude.toFixed(4)}`;
-
-      if (lastFetchedCoordsRef.current !== currentCoords) {
-        console.log(`[HomeScreen] New GPS detected. Fetching data for Lat: ${userLocation.latitude}`);
-        lastFetchedCoordsRef.current = currentCoords;
-
-        dispatch(
-          fetchNearbyVendors({
-            lat: userLocation.latitude,
-            lng: userLocation.longitude,
-          }),
-        );
-        dispatch(fetchAllVendorProducts());
-      }
-    }
-  }, [dispatch, userLocation?.latitude, userLocation?.longitude]);
+ useEffect(() => {
+  if (userLocation?.latitude && userLocation?.longitude) {
+    console.log('📍 Dispatching fetchNearbyVendors with:', userLocation);
+    dispatch(fetchNearbyVendors({
+      lat: userLocation.latitude,
+      lng: userLocation.longitude,
+    }));
+  }
+}, [userLocation]);
 
   // --- Open modal and refresh addresses every time ---
   const onOpenAddressModal = useCallback(() => {
@@ -527,10 +523,11 @@ const HomeScreen: React.FC = () => {
   }, [inRangeProducts, isRefreshing]);
 
   // --- Address selection ---
-  const handleSelectAddress = (address: SavedAddress) => {
-    dispatch(setSelectedAddress(address));
-    setAddressModalVisible(false);
-  };
+ const handleSelectAddress = (address: SavedAddress) => {
+  lastFetchedCoordsRef.current = null;
+  dispatch(setSelectedAddress(address));
+  setAddressModalVisible(false);
+};
 
   const handleInitiateAddAddress = async () => {
     if (!token) {
@@ -564,15 +561,19 @@ const HomeScreen: React.FC = () => {
         longitude: exactLng,
       });
       let generatedAddressString = "";
+      let generatedCity = "";
+      let generatedPincode = "";
 
       if (geocode.length > 0) {
         const g = geocode[0];
+        generatedCity = g.city || g.district || "";
+        generatedPincode = g.postalCode || "";
         generatedAddressString = [
           g.name,
           g.street,
-          g.city || g.district,
+          generatedCity,
           g.region,
-          g.postalCode,
+          generatedPincode,
         ]
           .filter(Boolean)
           .join(", ");
@@ -581,6 +582,9 @@ const HomeScreen: React.FC = () => {
       setAddressForm({
         type: "Home",
         addressString: generatedAddressString,
+        landmark: "",
+        city: generatedCity,
+        pincode: generatedPincode,
         latitude: exactLat,
         longitude: exactLng,
       });
@@ -603,11 +607,17 @@ const HomeScreen: React.FC = () => {
     }
 
     try {
+      // Optionally set first address as default
+      const isFirstAddress = addresses.length === 0;
+      const payload = {
+        ...addressForm,
+        isDefault: isFirstAddress,
+      };
       await dispatch(
-        saveUserAddress({ token, addressData: addressForm }),
+        saveUserAddress({ token, addressData: payload }),
       ).unwrap();
       setIsEditingAddress(false);
-      // 🔥 CRITICAL: Re‑fetch all addresses so old + new are visible
+      // Re-fetch to get updated list with new address
       if (token) {
         dispatch(fetchUserAddresses(token));
       }
@@ -626,7 +636,7 @@ const HomeScreen: React.FC = () => {
   const sortedAddressList = useMemo(() => {
     // Remove any duplicate IDs
     const uniqueMap = new Map<string, SavedAddress>();
-    addressList.forEach((addr) => uniqueMap.set(addr.id, addr));
+    addresses.forEach((addr) => uniqueMap.set(addr.id, addr));
     const uniqueAddresses = Array.from(uniqueMap.values());
 
     if (!selectedAddress) return uniqueAddresses;
@@ -637,9 +647,7 @@ const HomeScreen: React.FC = () => {
     }
     const others = uniqueAddresses.filter((a) => a.id !== selectedAddress.id);
     return [selected, ...others];
-      console.log('Address list:', addressList);
-
-  }, [addressList, selectedAddress]);
+  }, [addresses, selectedAddress]);
 
   // --- Navigation handlers ---
   const handleShopPress = (shop: ShopDisplay) =>
@@ -656,10 +664,10 @@ const HomeScreen: React.FC = () => {
       categoryName: category.name,
     });
   const handleAdPress1 = () =>
-    navigation.navigate("UserPropertyListScreen" as never);
+    navigation.navigate("ShopListings" as never);
   const handleFreeShippingBannerPress = () =>
     navigation.navigate("InsuranceProductsAndDetails" as never);
-  const handleSearchPress = () => navigation.navigate("Search" as never);
+  const handleSearchPress = () => navigation.navigate("ProductSearchScreen" as never);
   const handleProfilePress = () => navigation.navigate("Profile" as never);
   const handleSeeAllPress = (sectionTitle: string) => {
     if (sectionTitle === "Top Deals" && topDeals.length > 0)
@@ -713,7 +721,7 @@ const HomeScreen: React.FC = () => {
       animationType="slide"
       transparent={true}
       onRequestClose={() => {
-        if (addressList.length > 0) setAddressModalVisible(false);
+        if (addresses.length > 0) setAddressModalVisible(false);
       }}
     >
       <View style={allStyles.modalOverlay}>
@@ -721,7 +729,7 @@ const HomeScreen: React.FC = () => {
           style={StyleSheet.absoluteFillObject}
           activeOpacity={1}
           onPress={() => {
-            if (addressList.length > 0) {
+            if (addresses.length > 0) {
               setAddressModalVisible(false);
             } else {
               Alert.alert(
@@ -749,7 +757,7 @@ const HomeScreen: React.FC = () => {
               onPress={() => {
                 if (isEditingAddress) {
                   closeFormAndGoBack();
-                } else if (addressList.length > 0) {
+                } else if (addresses.length > 0) {
                   setAddressModalVisible(false);
                 } else {
                   Alert.alert("Required", "Please add a delivery location.");
@@ -778,6 +786,37 @@ const HomeScreen: React.FC = () => {
                 }
                 placeholder="House No, Building, Landmark..."
                 multiline
+              />
+
+              <Text style={allStyles.inputLabel}>Landmark (optional)</Text>
+              <TextInput
+                style={[allStyles.addressInput, { minHeight: 40 }]}
+                value={addressForm.landmark}
+                onChangeText={(text) =>
+                  setAddressForm({ ...addressForm, landmark: text })
+                }
+                placeholder="Nearby landmark"
+              />
+
+              <Text style={allStyles.inputLabel}>City</Text>
+              <TextInput
+                style={[allStyles.addressInput, { minHeight: 40 }]}
+                value={addressForm.city}
+                onChangeText={(text) =>
+                  setAddressForm({ ...addressForm, city: text })
+                }
+                placeholder="City"
+              />
+
+              <Text style={allStyles.inputLabel}>Pincode</Text>
+              <TextInput
+                style={[allStyles.addressInput, { minHeight: 40 }]}
+                value={addressForm.pincode}
+                onChangeText={(text) =>
+                  setAddressForm({ ...addressForm, pincode: text })
+                }
+                placeholder="Pincode"
+                keyboardType="numeric"
               />
 
               <Text style={allStyles.inputLabel}>Save As</Text>
@@ -890,7 +929,7 @@ const HomeScreen: React.FC = () => {
 
               <View style={allStyles.sectionDivider} />
 
-              {addressList.length > 0 && (
+              {addresses.length > 0 && (
                 <>
                   <Text style={allStyles.savedAddressesHeader}>
                     SAVED ADDRESSES
@@ -1028,9 +1067,9 @@ const HomeScreen: React.FC = () => {
 
     if (inRangeProducts.length === 0 && userLocation)
       return (
-        <View style={allStyles.messageContainer as ViewStyle}>
-          <Text style={allStyles.messageTitle as TextStyle}>No Prdts Nby!</Text>
-          <Text style={allStyles.messageText as TextStyle}>
+        <View style={allStyles.messageContainer}>
+          <Text style={allStyles.messageTitle}>No Prdts Nby!</Text>
+          <Text style={allStyles.messageText}>
             Looks like no products are currently available in your area.
           </Text>
           <TouchableOpacity
@@ -1067,7 +1106,7 @@ const HomeScreen: React.FC = () => {
 
         {/* <NewArrivals /> */}
 
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={allStyles.freeShippingBanner as ViewStyle}
           onPress={handleFreeShippingBannerPress}
         >
@@ -1086,7 +1125,7 @@ const HomeScreen: React.FC = () => {
             size={24}
             color={Colors.darkText}
           />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
 
         {topDeals.length > 0 && (
           <ImageBackground
@@ -1335,6 +1374,7 @@ const HomeScreen: React.FC = () => {
     </SafeAreaView>
   );
 };
+
 
 // --- Stylesheet (unchanged) ---
 const allStyles = StyleSheet.create({
@@ -1633,7 +1673,7 @@ const allStyles = StyleSheet.create({
 
   mainContentScrollView: { flex: 1, backgroundColor: "transparent" },
   contentContainer: { paddingBottom: 60 },
-  bannerWrapper: { position: "relative", marginBottom: 0, width: "100%" },
+  bannerWrapper: { position: "relative", marginBottom: 0, width: "100%",  },
   freeShippingBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1650,7 +1690,7 @@ const allStyles = StyleSheet.create({
   bannerTitle: { fontSize: 16, color: Colors.dark },
   bannerTitleBold: { fontWeight: "bold", color: Colors.orange },
   bannerSubtitle: { fontSize: 12, color: Colors.grayText },
-  imageBannerContainer: { width: "100%", height: 90, marginBottom: 0 },
+  imageBannerContainer: { width: "100%", height: 200, marginBottom: 0 },
   imageBanner: {
     width: "100%",
     height: "100%",
@@ -1715,7 +1755,7 @@ const allStyles = StyleSheet.create({
     paddingVertical: 10,
   },
   horizontalSectionBackground: {
-    marginTop: 10,
+    marginTop: 20,
     paddingVertical: 10,
     paddingBottom: 60,
     minHeight: 50,

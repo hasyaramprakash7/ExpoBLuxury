@@ -26,7 +26,7 @@ const { width } = Dimensions.get("window");
 
 // --- Colors updated for the Premium Dark Background UI ---
 const Colors = {
-  backgroundDark: "#0c2808", // The deep dark background outside the card
+  backgroundDark: "black", // The deep dark background outside the card
   cardWhite: "#FFFFFF",
   textDark: "#1C1C1E",
   textGray: "#6B7280",

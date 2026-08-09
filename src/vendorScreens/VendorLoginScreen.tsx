@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------- //
 // FILE: ../screens/VendorLoginScreen.tsx
 // ---------------------------------------------------------------- //
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -27,6 +27,7 @@ import {
   loginVendorWithOtp,
 } from "../features/vendor/vendorAuthSlice";
 import { RootState, AppDispatch } from "../app/store";
+import { registerForPushNotificationsAsync } from "../userScreens/utils/NotificationHelper";
 
 type AuthStackParamList = {
   Login: undefined;
@@ -41,7 +42,7 @@ type VendorLoginScreenNavigationProp = NativeStackNavigationProp<
 export default function VendorLoginScreen() {
   const navigation = useNavigation<VendorLoginScreenNavigationProp>();
   const dispatch = useDispatch<AppDispatch>();
-  const { loading, error } = useSelector(
+  const { loading, error, vendor } = useSelector(
     (state: RootState) => state.vendorAuth,
   );
 
@@ -56,13 +57,23 @@ export default function VendorLoginScreen() {
   const [otpCode, setOtpCode] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
 
+  // --- 🔥 LOG: Monitor vendor push token after login ---
+  useEffect(() => {
+    if (vendor) {
+      console.log('📱 [VendorLoginScreen] Vendor logged in:', vendor._id);
+      console.log('📱 [VendorLoginScreen] Vendor pushToken:', vendor.pushToken);
+    }
+  }, [vendor]);
+
   // --- HANDLERS ---
   const handlePasswordLogin = async () => {
     if (!identifier || !password) {
       Alert.alert("Validation Error", "Please enter your credentials.");
       return;
     }
+    console.log('🔑 [VendorLoginScreen] Dispatching loginVendor with identifier:', identifier);
     const result = await dispatch(loginVendor({ identifier, password }));
+    console.log('📦 [VendorLoginScreen] Login result:', result);
     if (loginVendor.rejected.match(result)) {
       const errorMessage =
         typeof result.payload === "string" ? result.payload : "Login failed.";
@@ -75,10 +86,12 @@ export default function VendorLoginScreen() {
       return Alert.alert("Error", "Please enter your phone number.");
     setSendingOtp(true);
     try {
+      console.log('📤 [VendorLoginScreen] Sending OTP to:', identifier);
       await axios.post(`${config.apiUrl}/auth/send-otp`, { phone: identifier });
       setOtpSent(true);
       Alert.alert("Success", "OTP Sent to your phone");
     } catch (err: any) {
+      console.error('❌ [VendorLoginScreen] OTP send error:', err.response?.data || err.message);
       Alert.alert("Error", err.response?.data?.message || "Failed to send OTP");
     } finally {
       setSendingOtp(false);
@@ -88,9 +101,11 @@ export default function VendorLoginScreen() {
   const handleOtpSubmit = async () => {
     if (!identifier || !otpCode)
       return Alert.alert("Error", "Please enter phone and OTP.");
+    console.log('🔑 [VendorLoginScreen] Dispatching loginVendorWithOtp for:', identifier);
     const result = await dispatch(
       loginVendorWithOtp({ phone: identifier, otp: otpCode }),
     );
+    console.log('📦 [VendorLoginScreen] OTP Login result:', result);
     if (loginVendorWithOtp.rejected.match(result)) {
       const errorMessage =
         typeof result.payload === "string" ? result.payload : "Invalid OTP.";
