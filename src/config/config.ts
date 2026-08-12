@@ -10,7 +10,7 @@ interface AppConfig {
 const apiUrlFromConfig = Constants.expoConfig?.extra?.API_URL as string | undefined;
 
 const dev: AppConfig = {
-    apiUrl: apiUrlFromConfig || "http://192.168.29.148:3000/api", // Fallback for dev
+    apiUrl: apiUrlFromConfig || "https://bluxurymainbackend.onrender.com/api", // Fallback for dev
     googleMapsApiKey: "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c", // Replace with your actual key
 };
 // https://bluxurybackend.onrender.com
@@ -18,7 +18,7 @@ const dev: AppConfig = {
 // https://bluxurybackend.onrender.com
 // https://bluxurybackend.onrender.com
 const prod: AppConfig = {
-    apiUrl: apiUrlFromConfig || "http://192.168.29.148:3000/api", // Replace with your production URL
+    apiUrl: apiUrlFromConfig || "https://bluxurymainbackend.onrender.com/api", // Replace with your production URL
     googleMapsApiKey: "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c", // Replace with your actual key
 };
 

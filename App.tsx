@@ -95,6 +95,11 @@ import NotificationBell from "./src/components/NotificationBell";
 import UserPropertyListScreen from "./src/screens/UserPropertyListScreen";
 import AddressScreen from "./src/userScreens/AddressScreen";
 import RentalCRUDScreen from './src/screens/RentalCRUDScreen';
+import SubscriptionChoiceScreen from './src/vendorScreens/SubscriptionChoiceScreen';
+import SubscriptionManagementScreen from './src/vendorScreens/SubscriptionManagementScreen';
+import SubscriptionPendingScreen from './src/vendorScreens/SubscriptionPendingScreen';
+
+
 import { navigationRef, RootStackParamList } from "./src/userScreens/utils/navigationRef";
 
 SplashScreenExpo.preventAutoHideAsync();
@@ -445,6 +450,10 @@ const AppNavigator = () => {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="VendorDashboard" component={VendorDashboardScreen} />
         <Stack.Screen name="RentalCRUD" component={RentalCRUDScreen} />
+        <Stack.Screen name="SubscriptionChoice" component={SubscriptionChoiceScreen} />
+        <Stack.Screen name="SubscriptionManagement" component={SubscriptionManagementScreen} />
+        <Stack.Screen name="SubscriptionPending" component={SubscriptionPendingScreen} />
+
         <Stack.Screen name="VendorProductViews" component={VendorProductViewsScreen} />
         <Stack.Screen name="VendorProductCRUD" component={VendorProductCRUDScreen} />
         <Stack.Screen name="VendorChatScreen" component={VendorChatScreen} />

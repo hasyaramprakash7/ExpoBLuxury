@@ -1,3 +1,4 @@
+// src/vendorScreens/VendorDashboard.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import {
@@ -5,6 +6,8 @@ import {
   updateVendorProfile,
   fetchVendorProfile,
   toggleVendorStatus,
+  fetchSubscriptionStatus,
+  verifySubscription, // 🔥 NEW
 } from "../features/vendor/vendorAuthSlice";
 import { fetchVendorOrders } from "../features/vendor/vendorOrderSlice";
 import { RootState, AppDispatch } from "../app/store";
@@ -16,8 +19,9 @@ import {
   Alert,
   ScrollView,
   SafeAreaView,
+  ActivityIndicator,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
 import VendorProfileCard from "./VendorProfileCard";
 import VendorDashboardSidePanel from "./VendorDashboardSidePanel";
@@ -44,6 +48,9 @@ type RootStackParamList = {
   VendorGenerateInvoice: { orderData: Order; vendorData: Vendor };
   VendorChatScreen: undefined;
   VendorProductCRUD: undefined;
+  SubscriptionChoice: undefined;
+  SubscriptionManagement: undefined;
+  SubscriptionPending: undefined;
 };
 
 type VendorDashboardNavigationProp = StackNavigationProp<
@@ -55,7 +62,7 @@ export default function VendorDashboard() {
   const dispatch: AppDispatch = useDispatch();
   const navigation = useNavigation<VendorDashboardNavigationProp>();
 
-  const { vendor, loading: vendorAuthLoading } = useSelector(
+  const { vendor, loading: vendorAuthLoading, subscriptionStatus } = useSelector(
     (state: RootState) => state.vendorAuth
   );
   const {
@@ -91,8 +98,42 @@ export default function VendorDashboard() {
     isApproved: false,
   });
 
+  console.log('📱 [VendorDashboard] Mounted, subscriptionStatus:', subscriptionStatus);
+
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🔄 [VendorDashboard] useFocusEffect triggered – fetching subscription status...');
+      const checkSubscription = async () => {
+        const result = await dispatch(fetchSubscriptionStatus());
+        console.log('📦 [VendorDashboard] fetchSubscriptionStatus result:', result);
+      };
+      checkSubscription();
+    }, [dispatch])
+  );
+
+  // ---- Redirect if inactive or expired ----
+  useEffect(() => {
+    console.log('🔍 [VendorDashboard] useEffect redirect check: vendorAuthLoading=', vendorAuthLoading, ', subscriptionStatus=', subscriptionStatus);
+    if (!vendorAuthLoading) {
+      const effectiveStatus = subscriptionStatus || 'inactive';
+      console.log('📊 [VendorDashboard] Effective status:', effectiveStatus);
+      if (effectiveStatus === 'inactive' || effectiveStatus === 'expired') {
+        console.log('🚀 [VendorDashboard] Redirecting to SubscriptionChoice');
+        navigation.replace('SubscriptionChoice');
+      } else {
+        console.log('✅ [VendorDashboard] Status is', effectiveStatus, '– no redirect needed');
+      }
+    }
+  }, [subscriptionStatus, vendorAuthLoading, navigation]);
+
   useEffect(() => {
     if (vendor) {
+      console.log('👤 [VendorDashboard] Vendor loaded:', vendor._id);
+      console.log('📋 [VendorDashboard] Vendor subscription fields:', {
+        subscriptionStatus: vendor.subscriptionStatus,
+        trialEndDate: vendor.trialEndDate,
+        razorpaySubscriptionId: vendor.razorpaySubscriptionId,
+      });
       setFormData({
         _id: vendor._id,
         name: vendor.name || "",
@@ -170,7 +211,6 @@ export default function VendorDashboard() {
     }
   }, []);
 
-  // ---------- FIXED: Fetch Current Location (uses Expo reverseGeocode) ----------
   const handleFetchLocation = useCallback(async () => {
     setLoadingAddress(true);
     setSignupError(null);
@@ -181,13 +221,10 @@ export default function VendorDashboard() {
         setLoadingAddress(false);
         return;
       }
-
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
       const { latitude, longitude } = location.coords;
-
-      // Store as strings
       setFormData((prev) => ({
         ...prev,
         address: {
@@ -196,8 +233,6 @@ export default function VendorDashboard() {
           longitude: longitude.toString(),
         },
       }));
-
-      // Reverse geocode using Expo (no API key, reliable)
       const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
       if (geocode.length > 0) {
         const geo = geocode[0];
@@ -223,7 +258,6 @@ export default function VendorDashboard() {
     }
   }, [showModal]);
 
-  // ---------- FIXED: Pincode auto-fill using PostPIN India API ----------
   const handlePincodeBlur = useCallback(async () => {
     const pincode = formData.address.pincode;
     if (!pincode || pincode.length !== 6 || isNaN(Number(pincode))) {
@@ -232,12 +266,9 @@ export default function VendorDashboard() {
     }
     setSignupError(null);
     setLoadingAddress(true);
-
     try {
-      // Use free PostPIN India API
       const response = await axios.get(`https://api.postalpincode.in/pincode/${pincode}`);
       const data = response.data;
-
       if (data && data[0]?.Status === "Success") {
         const postOffice = data[0].PostOffice[0];
         if (postOffice) {
@@ -267,13 +298,11 @@ export default function VendorDashboard() {
 
   const handleSave = useCallback(async () => {
     const dataToUpdate = new FormData();
-
     Object.entries(formData).forEach(([key, value]) => {
       if (key !== "address" && key !== "shopImage" && value !== undefined && value !== null) {
         dataToUpdate.append(key, String(value));
       }
     });
-
     if (formData.address) {
       Object.entries(formData.address).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
@@ -281,7 +310,6 @@ export default function VendorDashboard() {
         }
       });
     }
-
     if (shopImageFile) {
       const uriParts = shopImageFile.uri.split(".");
       const fileType = uriParts[uriParts.length - 1];
@@ -292,7 +320,6 @@ export default function VendorDashboard() {
         type: `image/${fileType}`,
       } as any);
     }
-
     if (!formData.name || !formData.email || !formData.shopName) {
       Alert.alert("Validation Error", "Please fill all required fields.");
       return;
@@ -304,7 +331,6 @@ export default function VendorDashboard() {
       );
       return;
     }
-
     const result = await dispatch(updateVendorProfile(dataToUpdate));
     if (result.meta.requestStatus === "fulfilled") {
       Alert.alert("Success", "Profile updated!");
@@ -370,6 +396,18 @@ export default function VendorDashboard() {
     []
   );
 
+  // ---- Loading state ----
+  if (vendorAuthLoading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#009632" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (!vendor) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -392,6 +430,65 @@ export default function VendorDashboard() {
     );
   }
 
+  // ---- 🔥 PENDING STATE HANDLER (UPDATED with Verify Payment) ----
+  if (subscriptionStatus === 'pending') {
+    const [verifying, setVerifying] = useState(false);
+
+    const handleVerifyPayment = async () => {
+      setVerifying(true);
+      try {
+        const result = await dispatch(verifySubscription()).unwrap();
+        Alert.alert(
+          'Verification Result',
+          `Status: ${result.subscriptionStatus}\nRazorpay: ${result.razorpayStatus}`
+        );
+        if (result.subscriptionStatus === 'active') {
+          navigation.replace('VendorDashboard');
+        }
+      } catch (error) {
+        Alert.alert('Error', error as string || 'Verification failed');
+      } finally {
+        setVerifying(false);
+      }
+    };
+
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.pendingContainer}>
+          <ActivityIndicator size="large" color="#009632" />
+          <Text style={styles.pendingTitle}>Payment Pending</Text>
+          <Text style={styles.pendingSubtitle}>Your subscription is being processed.</Text>
+          <Text style={styles.pendingSubtitle}>You will be notified once it's active.</Text>
+          <TouchableOpacity
+            style={styles.pendingButton}
+            onPress={() => {
+              dispatch(fetchSubscriptionStatus());
+              Alert.alert('Status Check', 'Checking subscription status...');
+            }}
+          >
+            <Text style={styles.pendingButtonText}>Check Status</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.pendingButton, styles.pendingVerifyButton]}
+            onPress={handleVerifyPayment}
+            disabled={verifying}
+          >
+            <Text style={styles.pendingButtonText}>
+              {verifying ? 'Verifying...' : 'Verify Payment'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.pendingButton, styles.pendingCancelButton]}
+            onPress={() => navigation.replace('SubscriptionChoice')}
+          >
+            <Text style={styles.pendingButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ---- Normal dashboard ----
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
@@ -435,6 +532,15 @@ export default function VendorDashboard() {
             navigation={navigation}
           />
         </View>
+
+        {/* --- Add "Manage Subscription" button --- */}
+        <TouchableOpacity
+          style={styles.subscriptionButton}
+          onPress={() => navigation.navigate('SubscriptionManagement')}
+        >
+          <Ionicons name="card-outline" size={20} color="#fff" />
+          <Text style={styles.subscriptionButtonText}>Manage Subscription</Text>
+        </TouchableOpacity>
       </ScrollView>
 
       <View style={styles.bottomNav}>
@@ -471,7 +577,7 @@ export default function VendorDashboard() {
   );
 }
 
-// ---------- STYLES (unchanged) ----------
+// ---------- STYLES ----------
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#f8fafc" },
   container: { flex: 1, backgroundColor: "#f8fafc" },
@@ -556,4 +662,66 @@ const styles = StyleSheet.create({
   },
   navItem: { alignItems: "center", justifyContent: "center", padding: 8 },
   navText: { fontSize: 12, fontWeight: "500", marginTop: 4 },
+  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { color: "#475569", marginTop: 10 },
+  subscriptionButton: {
+    flexDirection: "row",
+    backgroundColor: "#009632",
+    padding: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  subscriptionButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+  // ---- Pending styles ----
+  pendingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    padding: 20,
+  },
+  pendingTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1e293b',
+    marginTop: 20,
+  },
+  pendingSubtitle: {
+    fontSize: 16,
+    color: '#475569',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  pendingButton: {
+    backgroundColor: '#009632',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 8,
+    marginTop: 20,
+    minWidth: 200,
+    alignItems: 'center',
+  },
+  pendingVerifyButton: {
+    backgroundColor: '#2563eb',
+  },
+  pendingCancelButton: {
+    backgroundColor: '#64748b',
+  },
+  pendingButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });
+
+git add .
+git commit -m "first commit"
+git push -u origin main
