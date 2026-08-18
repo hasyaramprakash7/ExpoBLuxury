@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+// src/screens/ShopListings.tsx
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -9,286 +10,574 @@ import {
   Dimensions,
   Alert,
   Image,
-  TextInput,
   RefreshControl,
-  Platform,
+  BackHandler,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
-import { fetchNearbyVendors } from "../features/vendor/vendorAuthSlice";
+import { searchDirectoryVendors } from "../features/vendor/vendorAuthSlice";
 import { RootState, AppDispatch } from "../app/store";
-import { Vendor } from "../types";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
+import * as Location from "expo-location";
+import {
+  fetchLocationStart,
+  fetchLocationSuccess,
+  fetchLocationFailure,
+  fetchUserAddresses,
+  setSelectedAddress,
+  saveUserAddress,
+  selectAllAddresses,
+} from "../features/locationSlice";
+import { fetchCategories } from "../features/categorySlice";
+import { LinearGradient } from "expo-linear-gradient";
 
-const { width } = Dimensions.get("window");
+import { Colors, getFullAddress, calculateDistance, scale, verticalScale, moderateScale } from "../constants/colors";
+import { AddressModal } from "../components/AddressModal";
+import { ShopCard } from "../components/ShopCard";
+import AdCarousel from "../components/AdCarousel";
+import AddAddressScreen from "./AddAddressScreen";
 
-// --- Colors updated for the Premium Dark Background UI ---
-const Colors = {
-  backgroundDark: "black", // The deep dark background outside the card
-  cardWhite: "#FFFFFF",
-  textDark: "#1C1C1E",
-  textGray: "#6B7280",
-  textLightGray: "#9CA3AF",
-  accentGreen: "#1B8C40", // The rating pill green
-  accentPurple: "#0d3313", // The offer badge purple
-  accentBlue: "#2563EB", // Verified checkmark blue
-  dividerGray: "#F3F4F6",
-};
+const { width, height } = Dimensions.get("window");
+const CATEGORY_DISPLAY_LIMIT = 30;
 
-// --- Beautiful Swiggy/Zomato Style Shop Card ---
-const ShopCard: React.FC<{
-  shop: Vendor & {
-    distance?: number;
-    productsCount: number;
-    productImages: string[];
-    canInvite?: boolean;
-  };
+// ---------- Category Grid Item ----------
+const CategoryGridItem = ({
+  category,
+  onPress,
+}: {
+  category: { name: string; count: number; image?: string; _id?: string };
   onPress: () => void;
-}> = ({ shop, onPress }) => {
+}) => {
   return (
     <TouchableOpacity
-      style={shopCardStyles.cardContainer}
+      style={styles.categoryGridItem}
       onPress={onPress}
-      activeOpacity={0.95}
+      activeOpacity={0.8}
     >
-      {/* 1. Top Badges Row ("Best in Pizza" & "Swiggy Seal") */}
-      <View style={shopCardStyles.topBadgeRow}>
-        <View style={shopCardStyles.badgeLeft}>
-          <Text style={shopCardStyles.badgeIcon}>🏆</Text>
-          <Text style={shopCardStyles.badgeText}>
-            {shop.businessType || "Best Seller"}
-          </Text>
-        </View>
-        {shop.isApproved && (
-          <View style={shopCardStyles.badgeRight}>
-            <Ionicons
-              name="checkmark-circle"
-              size={14}
-              color={Colors.accentBlue}
-            />
-            <Text style={shopCardStyles.verifiedText}>Verified Partner</Text>
-          </View>
-        )}
-      </View>
-
-      {/* 2. Main Title & Rating Pill Row */}
-      <View style={shopCardStyles.titleRow}>
-        <Text style={shopCardStyles.shopName} numberOfLines={1}>
-          {shop.shopName}
+      <Image
+        source={{ uri: category.image || 'https://via.placeholder.com/200x200?text=Category' }}
+        style={styles.categoryGridImage}
+        resizeMode="cover"
+      />
+      <LinearGradient
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
+        style={styles.categoryGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+      />
+      <View style={styles.categoryTextContainer}>
+        <Text style={styles.categoryGridName} numberOfLines={1}>
+          {category.name}
         </Text>
-        <View style={shopCardStyles.ratingContainer}>
-          <View style={shopCardStyles.ratingPill}>
-            <Text style={shopCardStyles.ratingNumber}>4.5</Text>
-            <Ionicons
-              name="star"
-              size={10}
-              color="#FFF"
-              style={{ marginLeft: 2 }}
-            />
-          </View>
-          <Text style={shopCardStyles.ratingCount}>1K+ ratings</Text>
-        </View>
-      </View>
-
-      {/* 3. Subtitle Row (Distance & Location) */}
-      <View style={shopCardStyles.subtitleRow}>
-        <Text style={shopCardStyles.subtitleText}>
-          {shop.distance !== undefined && shop.distance !== null
-            ? `${shop.distance.toFixed(1)} km`
-            : "Nearby"}
-          <Text style={shopCardStyles.dotSeparator}> • </Text>
-          {shop.address?.formattedAddress || "Local Area"}
-        </Text>
-      </View>
-
-      {/* 4. Contact Row (Seamlessly injecting your data) */}
-      {(shop.phone || shop.email) && (
-        <View style={shopCardStyles.contactRow}>
-          {shop.phone && (
-            <Text style={shopCardStyles.contactText}>📞 {shop.phone}</Text>
-          )}
-          {shop.phone && shop.email && (
-            <Text style={shopCardStyles.dotSeparator}> • </Text>
-          )}
-          {shop.email && (
-            <Text style={shopCardStyles.contactText}>✉️ {shop.email}</Text>
-          )}
-        </View>
-      )}
-
-      {/* Divider Line */}
-      <View style={shopCardStyles.divider} />
-
-      {/* 5. Bottom Offer/Products Row */}
-      <View style={shopCardStyles.bottomRow}>
-        <View style={shopCardStyles.bottomLeft}>
-          <View style={shopCardStyles.offerIconBadge}>
-            <Ionicons name="flash" size={18} color="#FFF" />
-          </View>
-          <View>
-            <Text style={shopCardStyles.offerTitle}>
-              {shop.productsCount > 0
-                ? `${shop.productsCount} Products`
-                : "Explore Shop"}
-            </Text>
-            <Text style={shopCardStyles.offerSubtitle}>
-              AVAILABLE NOW | VIEW ALL
-            </Text>
-          </View>
-        </View>
-
-        {/* Product Image Previews elegantly stacked on the right */}
-        <View style={shopCardStyles.productImagesContainer}>
-          {shop.productImages && shop.productImages.length > 0 ? (
-            shop.productImages
-              .slice(0, 3)
-              .map((img, idx) => (
-                <Image
-                  key={idx}
-                  source={{ uri: img }}
-                  style={[
-                    shopCardStyles.miniProductImg,
-                    { marginLeft: idx > 0 ? -12 : 0, zIndex: 3 - idx },
-                  ]}
-                />
-              ))
-          ) : (
-            <Ionicons
-              name="arrow-forward-circle"
-              size={28}
-              color={Colors.accentGreen}
-            />
-          )}
-        </View>
+        <Text style={styles.categoryGridCount}>{category.count} shops</Text>
       </View>
     </TouchableOpacity>
   );
 };
 
-// --- Main Component ---
+// ---------- Category Section Header ----------
+const CategorySectionHeader = ({ title, count }: { title: string; count: number }) => (
+  <View style={styles.sectionHeader}>
+    <View style={styles.sectionHeaderLeft}>
+      <View style={styles.sectionHeaderLine} />
+      <Text style={styles.sectionHeaderTitle}>{title}</Text>
+    </View>
+    <Text style={styles.sectionHeaderCount}>{count} categories</Text>
+  </View>
+);
+
+// ---------- Main Component ----------
 const ShopListings = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-
   const targetVendorId = route.params?.vendorId;
 
-  const { location: userLocation } = useSelector(
+  // Redux state – SAFE selectors with fallback empty arrays
+  const { location: userLocation, selectedAddress, loading: isLocationLoading } = useSelector(
     (state: RootState) => state.location,
   );
-  const { nearbyVendors, loading: vendorsLoading } = useSelector(
+  const addresses = useSelector(selectAllAddresses);
+  const { directoryVendors, loading: vendorsLoading } = useSelector(
     (state: RootState) => state.vendorAuth,
   );
   const { allProducts, loading: productsLoading } = useSelector(
     (state: RootState) => state.vendorProducts,
   );
+  const token = useSelector((state: RootState) => state.auth.user?.token);
 
-  const [searchText, setSearchText] = useState<string>("");
+  const categories = useSelector((state: RootState) => state.categories?.categories || []);
+  const categoriesLoading = useSelector((state: RootState) => state.categories?.loading || false);
+
+  // Local state
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [showAddressModal, setShowAddressModal] = useState<boolean>(false);
+  const [showAddAddress, setShowAddAddress] = useState<boolean>(false);
+  const [isAddressLoading, setIsAddressLoading] = useState<boolean>(false);
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
 
-  const onRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    try {
-      const promises = [dispatch(fetchAllVendorProducts())];
-      if (userLocation?.latitude && userLocation?.longitude) {
-        promises.push(
-          dispatch(
-            fetchNearbyVendors({
-              lat: userLocation.latitude,
-              lng: userLocation.longitude,
-            }),
-          ),
-        );
+  const initialLocationRequested = useRef(false);
+  const isFetchingLocation = useRef(false);
+  const isInitialMount = useRef(true);
+  const fetchTimeout = useRef<NodeJS.Timeout | null>(null);
+  const isFetching = useRef(false);
+
+  // ---------- Back Handler for AddAddress modal ----------
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showAddAddress) {
+        setShowAddAddress(false);
+        return true; // Prevent default back behavior
       }
-      await Promise.all(promises);
+      if (showAddressModal) {
+        setShowAddressModal(false);
+        return true; // Prevent default back behavior
+      }
+      return false; // Let default back behavior work
+    });
+
+    return () => backHandler.remove();
+  }, [showAddAddress, showAddressModal]);
+
+  // ---------- Fetch categories on mount ----------
+  useEffect(() => {
+    if (categories.length === 0 && !categoriesLoading) {
+      dispatch(fetchCategories());
+    }
+  }, [dispatch, categories.length, categoriesLoading]);
+
+  // ---------- Location helpers ----------
+  const getCurrentLocation = useCallback(() => {
+    let lat = userLocation?.latitude;
+    let lng = userLocation?.longitude;
+    if (selectedAddress?.latitude && selectedAddress?.longitude) {
+      lat = selectedAddress.latitude;
+      lng = selectedAddress.longitude;
+    }
+    return { lat, lng };
+  }, [userLocation, selectedAddress]);
+
+  // ---------- Core fetch function ----------
+  const fetchDirectoryVendors = useCallback(async () => {
+    if (isFetching.current) {
+      console.log('⏭️ [ShopListings] Fetch already in progress, skipping');
+      return;
+    }
+    const { lat, lng } = getCurrentLocation();
+    isFetching.current = true;
+    console.log('🔄 [ShopListings] fetchDirectoryVendors called', { lat, lng });
+
+    try {
+      if (lat && lng) {
+        await dispatch(searchDirectoryVendors({ lat, lng }));
+      } else {
+        await dispatch(searchDirectoryVendors({}));
+      }
+      if (!allProducts || allProducts.length === 0) {
+        await dispatch(fetchAllVendorProducts());
+      }
+      if (categories.length === 0 && !categoriesLoading) {
+        await dispatch(fetchCategories());
+      }
+    } catch (error) {
+      console.error('❌ [ShopListings] Error fetching vendors:', error);
+    } finally {
+      isFetching.current = false;
+      setIsInitialLoading(false);
+    }
+  }, [dispatch, getCurrentLocation, allProducts, categories.length, categoriesLoading]);
+
+  const immediateFetch = useCallback(() => {
+    if (fetchTimeout.current) {
+      clearTimeout(fetchTimeout.current);
+      fetchTimeout.current = null;
+    }
+    fetchDirectoryVendors();
+  }, [fetchDirectoryVendors]);
+
+  const debouncedFetch = useCallback(() => {
+    if (fetchTimeout.current) {
+      clearTimeout(fetchTimeout.current);
+      fetchTimeout.current = null;
+    }
+    fetchTimeout.current = setTimeout(() => {
+      fetchDirectoryVendors();
+      fetchTimeout.current = null;
+    }, 300);
+  }, [fetchDirectoryVendors]);
+
+  // ---------- Location permission ----------
+  const handleRequestLocation = async () => {
+    if (isFetchingLocation.current) return;
+    isFetchingLocation.current = true;
+    dispatch(fetchLocationStart());
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        dispatch(fetchLocationFailure("Permission to access location was denied."));
+        Alert.alert("Permission Required", "This app needs location access to find nearby shops.");
+        isFetchingLocation.current = false;
+        return;
+      }
+      let locationData = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      const lat = locationData.coords.latitude;
+      const lng = locationData.coords.longitude;
+      dispatch(fetchLocationSuccess({ latitude: lat, longitude: lng }));
+      immediateFetch();
+    } catch (locError) {
+      console.error("Error fetching user location:", locError);
+      dispatch(fetchLocationFailure("Could not get your location."));
+    } finally {
+      isFetchingLocation.current = false;
+    }
+  };
+
+  // Auto-request location if no address selected
+  useEffect(() => {
+    if (
+      token &&
+      !initialLocationRequested.current &&
+      addresses.length === 0 &&
+      !userLocation?.latitude &&
+      !isLocationLoading
+    ) {
+      console.log("[ShopListings] No saved addresses & no location → auto‑requesting GPS");
+      initialLocationRequested.current = true;
+      handleRequestLocation();
+    }
+  }, [token, addresses.length, userLocation, isLocationLoading]);
+
+  // ---------- Map & Address handlers ----------
+  const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
+    if (fetchTimeout.current) {
+      clearTimeout(fetchTimeout.current);
+      fetchTimeout.current = null;
+    }
+    dispatch(fetchLocationSuccess({ latitude: lat, longitude: lng }));
+
+    const addressString = [
+      addressDetails.street,
+      addressDetails.colony,
+      addressDetails.city,
+      addressDetails.district,
+      addressDetails.state,
+      addressDetails.pincode,
+      addressDetails.country,
+    ].filter(Boolean).join(", ");
+
+    const addressData = {
+      type: "Home" as const,
+      addressString: addressString || "Selected location",
+      landmark: "",
+      city: addressDetails.city || "",
+      pincode: addressDetails.pincode || "",
+      latitude: lat,
+      longitude: lng,
+      isDefault: addresses.length === 0,
+    };
+
+    if (token) {
+      dispatch(saveUserAddress({ token, addressData }))
+        .unwrap()
+        .then(() => {
+          if (token) dispatch(fetchUserAddresses(token));
+        })
+        .catch(console.error);
+    }
+    dispatch(setSelectedAddress(addressData));
+    setShowAddAddress(false);
+    immediateFetch();
+  }, [dispatch, token, addresses.length, immediateFetch]);
+
+  const handleOpenAddressModal = () => {
+    if (token) dispatch(fetchUserAddresses(token));
+    setShowAddressModal(true);
+  };
+
+  const handleSelectAddress = (address: any) => {
+    if (
+      selectedAddress?.id === address.id ||
+      selectedAddress?.addressString === address.addressString
+    ) {
+      setShowAddressModal(false);
+      return;
+    }
+    if (fetchTimeout.current) {
+      clearTimeout(fetchTimeout.current);
+      fetchTimeout.current = null;
+    }
+    dispatch(setSelectedAddress(address));
+    setShowAddressModal(false);
+    immediateFetch();
+  };
+
+  const handleOpenAddAddress = () => {
+    setShowAddressModal(false);
+    setShowAddAddress(true);
+  };
+
+  const handleCloseAddAddress = () => {
+    setShowAddAddress(false);
+  };
+
+  const handleAddAddress = async () => {
+    if (!token) {
+      Alert.alert("Authentication Required", "Please login to add an address.");
+      return;
+    }
+    setIsAddressLoading(true);
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Required", "We need location access to fetch your address.");
+        setIsAddressLoading(false);
+        return;
+      }
+      let locationData = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Highest,
+      });
+      const exactLat = parseFloat(locationData.coords.latitude.toFixed(8));
+      const exactLng = parseFloat(locationData.coords.longitude.toFixed(8));
+
+      let geocode = await Location.reverseGeocodeAsync({
+        latitude: exactLat,
+        longitude: exactLng,
+      });
+      let generatedAddressString = "";
+      let generatedCity = "";
+      let generatedPincode = "";
+      if (geocode.length > 0) {
+        const g = geocode[0];
+        generatedCity = g.city || g.district || "";
+        generatedPincode = g.postalCode || "";
+        generatedAddressString = [g.name, g.street, generatedCity, g.region, generatedPincode]
+          .filter(Boolean)
+          .join(", ");
+      }
+      const addressData = {
+        type: "Home" as const,
+        addressString: generatedAddressString,
+        landmark: "",
+        city: generatedCity,
+        pincode: generatedPincode,
+        latitude: exactLat,
+        longitude: exactLng,
+        isDefault: addresses.length === 0,
+      };
+      await dispatch(saveUserAddress({ token, addressData })).unwrap();
+      if (token) dispatch(fetchUserAddresses(token));
+      setShowAddressModal(false);
+      Alert.alert("Success", "Address added successfully!");
+      immediateFetch();
+    } catch (error) {
+      Alert.alert("Error", "Could not save address. Please try again.");
+      console.error(error);
+    } finally {
+      setIsAddressLoading(false);
+    }
+  };
+
+  // ---------- Refresh ----------
+  const onRefresh = useCallback(async () => {
+    console.log('🔄 [ShopListings] Pull-to-refresh triggered');
+    setIsRefreshing(true);
+    if (fetchTimeout.current) {
+      clearTimeout(fetchTimeout.current);
+      fetchTimeout.current = null;
+    }
+    try {
+      await Promise.all([
+        fetchDirectoryVendors(),
+        dispatch(fetchAllVendorProducts()),
+        dispatch(fetchCategories()),
+      ]);
     } catch (error) {
       Alert.alert("Refresh Failed", "Could not refresh data.");
     } finally {
       setIsRefreshing(false);
     }
-  }, [dispatch, userLocation]);
+  }, [fetchDirectoryVendors, dispatch]);
+
+  // ---------- Initial load ----------
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      const loadInitialData = async () => {
+        if (!directoryVendors || directoryVendors.length === 0) {
+          await fetchDirectoryVendors();
+        }
+        if (!allProducts || allProducts.length === 0) {
+          await dispatch(fetchAllVendorProducts());
+        }
+        if (token) {
+          dispatch(fetchUserAddresses(token));
+        }
+        if (categories.length === 0 && !categoriesLoading) {
+          await dispatch(fetchCategories());
+        }
+        setIsInitialLoading(false);
+      };
+      loadInitialData();
+    }
+  }, []);
+
+  // ---------- Focus effect ----------
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 [ShopListings] Screen focused, refreshing data');
+      if (!isInitialMount.current) {
+        fetchDirectoryVendors();
+        if (categories.length === 0 && !categoriesLoading) {
+          dispatch(fetchCategories());
+        }
+      }
+      return () => {};
+    }, [fetchDirectoryVendors, categories.length, categoriesLoading, dispatch])
+  );
+
+  // ---------- Listen for location changes ----------
+  useEffect(() => {
+    if (isInitialMount.current) return;
+    const lat = userLocation?.latitude;
+    const lng = userLocation?.longitude;
+    if (lat && lng) debouncedFetch();
+  }, [userLocation?.latitude, userLocation?.longitude]);
 
   useEffect(() => {
-    if (!allProducts || allProducts.length === 0) {
-      dispatch(fetchAllVendorProducts());
+    if (isInitialMount.current) return;
+    const lat = selectedAddress?.latitude;
+    const lng = selectedAddress?.longitude;
+    if (lat && lng) debouncedFetch();
+  }, [selectedAddress?.latitude, selectedAddress?.longitude]);
+
+  useEffect(() => {
+    return () => {
+      if (fetchTimeout.current) {
+        clearTimeout(fetchTimeout.current);
+        fetchTimeout.current = null;
+      }
+    };
+  }, []);
+
+  // ---------- Memoized categories (with limit) ----------
+  const { displayCategories, hasMoreCategories } = useMemo(() => {
+    if (!categories || categories.length === 0) {
+      return { displayCategories: [], hasMoreCategories: false };
     }
-  }, [dispatch, allProducts.length]);
 
+    const shopCountMap = new Map<string, number>();
+    const categoryNameMap = new Map<string, string>();
+    (directoryVendors || []).forEach((vendor) => {
+      if (vendor.categories && Array.isArray(vendor.categories)) {
+        vendor.categories.forEach((cat: string) => {
+          const normalized = cat.toLowerCase();
+          shopCountMap.set(normalized, (shopCountMap.get(normalized) || 0) + 1);
+          if (!categoryNameMap.has(normalized)) {
+            categoryNameMap.set(normalized, cat);
+          }
+        });
+      }
+    });
+
+    const fullList = categories.map((category) => {
+      const normalizedName = category.name.toLowerCase();
+      const count = shopCountMap.get(normalizedName) || 0;
+      const displayName = categoryNameMap.get(normalizedName) || category.name;
+      return {
+        name: displayName,
+        count: count,
+        image: category.image || category.icon,
+        _id: category._id,
+      };
+    }).sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.name.localeCompare(b.name);
+    });
+
+    const display = fullList.slice(0, CATEGORY_DISPLAY_LIMIT);
+    const hasMore = fullList.length > CATEGORY_DISPLAY_LIMIT;
+    return { displayCategories: display, hasMoreCategories: hasMore };
+  }, [categories, directoryVendors]);
+
+  // ---------- Filter vendors ----------
+  const filteredVendors = useMemo(() => {
+    return directoryVendors || [];
+  }, [directoryVendors]);
+
+  // ---------- Enhance vendors with distance & range ----------
   const vendorsWithDetails = useMemo(() => {
-    const approvedVendors =
-      nearbyVendors?.filter((vendor) => vendor.isApproved) || [];
+    const vendors = filteredVendors || [];
+    const userLat = userLocation?.latitude;
+    const userLng = userLocation?.longitude;
 
-    return approvedVendors.map((vendor) => {
-      const vendorProducts = allProducts.filter(
-        (product) => product.vendorId === vendor._id,
-      );
-      const productImages = vendorProducts
-        .map((p) => p.images && p.images[0])
-        .filter(Boolean);
+    const result = vendors.map((vendor) => {
+      const vendorProducts = allProducts.filter((p) => p.vendorId === vendor._id);
+      const productImages = vendorProducts.map((p) => p.images && p.images[0]).filter(Boolean);
 
-      const formattedAddress =
-        vendor.address?.district || vendor.address?.state || "Local Seller";
+      let distance = vendor.distance;
+      let isInRange = true;
+      if (userLat && userLng && vendor.address?.latitude && vendor.address?.longitude) {
+        const calculatedDistance = calculateDistance(
+          userLat,
+          userLng,
+          vendor.address.latitude,
+          vendor.address.longitude
+        );
+        distance = calculatedDistance;
+        const deliveryRange = vendor.deliveryRange || 10;
+        isInRange = calculatedDistance <= deliveryRange;
+      }
+      if (!vendor.deliveryRange || vendor.deliveryRange === 0) {
+        isInRange = true;
+      }
 
       return {
         ...vendor,
-        address: { ...vendor.address, formattedAddress },
+        shopImage: vendor.shopImage || vendor.profileImage || vendor.coverImage,
         productsCount: vendorProducts.length,
         productImages,
-        canInvite: vendor.shopName === "Seva Sadan",
+        distance,
+        isInRange,
       };
     });
-  }, [nearbyVendors, allProducts]);
 
-  const localSellers = useMemo(() => {
-    if (targetVendorId)
-      return vendorsWithDetails.filter(
-        (v) => v._id === targetVendorId || (v as any).id === targetVendorId,
-      );
-    if (!searchText) return vendorsWithDetails;
-
-    const lowercasedSearchText = searchText.toLowerCase();
-    return vendorsWithDetails.filter(
-      (vendor) =>
-        vendor.shopName?.toLowerCase().includes(lowercasedSearchText) ||
-        vendor.address?.formattedAddress
-          ?.toLowerCase()
-          .includes(lowercasedSearchText) ||
-        vendor.phone?.includes(lowercasedSearchText) ||
-        vendor.businessType?.toLowerCase().includes(lowercasedSearchText),
-    );
-  }, [vendorsWithDetails, searchText, targetVendorId]);
+    return result.sort((a, b) => {
+      if (a.isInRange && b.isInRange) return (a.distance || Infinity) - (b.distance || Infinity);
+      if (a.isInRange && !b.isInRange) return -1;
+      if (!a.isInRange && b.isInRange) return 1;
+      return (a.distance || Infinity) - (b.distance || Infinity);
+    });
+  }, [filteredVendors, allProducts, userLocation]);
 
   const handleCardPress = (shop: any) => {
-    navigation.navigate("ShopProducts", {
-      vendorId: shop._id,
-      vendorName: shop.shopName,
-    });
+    navigation.navigate("ShopDetails", { vendor: shop });
   };
 
+  const isLoading = isInitialLoading || vendorsLoading || isLocationLoading || isAddressLoading || categoriesLoading;
+
+  // ---------- Render ----------
   const renderContent = () => {
-    if (vendorsLoading && !isRefreshing) {
+    if (isLoading && !isRefreshing) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.cardWhite} />
-          <Text style={styles.loadingText}>Finding nearby gems...</Text>
+          <ActivityIndicator size="large" color={Colors.accentGreen} />
+          <Text style={styles.loadingText}>Finding nearby shops...</Text>
         </View>
       );
     }
 
-    if (!userLocation && !targetVendorId) {
+    if (!userLocation && !targetVendorId && addresses.length === 0 && !isLoading) {
       return (
         <View style={styles.messageContainer}>
+          <Ionicons name="location-outline" size={scale(60)} color={Colors.textLightGray} />
           <Text style={styles.messageTitle}>Location Required</Text>
-          <Text style={styles.messageText}>
-            Set your location on the Home screen to see nearby sellers.
-          </Text>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={styles.retryButton}
-          >
-            <Text style={styles.retryButtonText}>Go Back</Text>
+          <Text style={styles.messageText}>Set your location to see nearby sellers.</Text>
+          <TouchableOpacity onPress={handleOpenAddressModal} style={styles.retryButton}>
+            <Text style={styles.retryButtonText}>Select Location</Text>
           </TouchableOpacity>
         </View>
       );
@@ -296,7 +585,7 @@ const ShopListings = () => {
 
     return (
       <FlatList
-        data={localSellers}
+        data={vendorsWithDetails}
         keyExtractor={(item) => item._id}
         renderItem={({ item }) => (
           <ShopCard shop={item} onPress={() => handleCardPress(item)} />
@@ -306,12 +595,64 @@ const ShopListings = () => {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.cardWhite}
+            tintColor={Colors.accentGreen}
+            colors={[Colors.accentGreen]}
           />
+        }
+        ListHeaderComponent={
+          !targetVendorId && displayCategories.length > 0 ? (
+            <>
+              <CategorySectionHeader
+                title="Browse Categories"
+                count={displayCategories.length + (hasMoreCategories ? '+' : '')}
+              />
+              <View style={styles.categoryGridContainer}>
+                <FlatList
+                  data={displayCategories}
+                  keyExtractor={(item) => item.name}
+                  numColumns={3}
+                  scrollEnabled={false}
+                  contentContainerStyle={styles.categoryGridContent}
+                  renderItem={({ item }) => (
+                    <CategoryGridItem
+                      category={item}
+                      onPress={() => {
+                        navigation.navigate('CategoryShopsScreen', {
+                          categoryName: item.name,
+                          categoryImage: item.image,
+                        });
+                      }}
+                    />
+                  )}
+                />
+              </View>
+              {hasMoreCategories && (
+                <TouchableOpacity
+                  style={styles.showMoreButton}
+                  onPress={() => navigation.navigate('AllCategoriesScreen')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.showMoreText}>Show More Categories</Text>
+                  <Ionicons name="arrow-forward" size={scale(16)} color={Colors.accentGreen} />
+                </TouchableOpacity>
+              )}
+              <AdCarousel limit={5} title="Sponsored" />
+            </>
+          ) : null
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No nearby local shops found.</Text>
+            <Ionicons name="storefront-outline" size={scale(60)} color={Colors.textLightGray} />
+            <Text style={styles.emptyText}>No shops found</Text>
+            <Text style={styles.emptySubText}>
+              Try changing your location or clear the filters.
+            </Text>
+            <TouchableOpacity
+              onPress={handleOpenAddressModal}
+              style={[styles.retryButton, { marginTop: verticalScale(10) }]}
+            >
+              <Text style={styles.retryButtonText}>Change Location</Text>
+            </TouchableOpacity>
           </View>
         }
       />
@@ -319,269 +660,262 @@ const ShopListings = () => {
   };
 
   return (
-    // 🔥 DARK MODE BACKGROUND TO MATCH SCREENSHOT
-    <View style={{ flex: 1, backgroundColor: Colors.backgroundDark }}>
+    <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-        {/* Header - Styled for Dark Mode */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={styles.backButton}
-          >
-            <Ionicons name="arrow-back" size={24} color={Colors.cardWhite} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>
-            {targetVendorId
-              ? "Shop Profile"
-              : `Local Sellers (${localSellers.length})`}
+        <TouchableOpacity
+          style={styles.locationBar}
+          onPress={handleOpenAddressModal}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="location-sharp" size={scale(20)} color={Colors.accentGreen} />
+          <Text style={styles.locationBarText} numberOfLines={1}>
+            {selectedAddress?.addressString ||
+             (userLocation ? "Using GPS location" : "Select a location")}
           </Text>
-        </View>
+          <Ionicons name="chevron-down" size={scale(16)} color={Colors.textGray} />
+        </TouchableOpacity>
 
-        {/* Search Bar - Styled for Dark Mode */}
         {!targetVendorId && (
-          <View style={styles.searchBarContainer}>
-            <Ionicons name="search" size={20} color={Colors.textLightGray} />
-            <TextInput
-              style={styles.searchBarInput}
-              placeholder="Search for sellers, brands..."
-              placeholderTextColor={Colors.textLightGray}
-              value={searchText}
-              onChangeText={setSearchText}
-            />
-          </View>
+          <TouchableOpacity
+            style={styles.searchBarContainer}
+            onPress={() => navigation.navigate('AllCategoriesScreen')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="search" size={scale(20)} color={Colors.textGray} />
+            <Text style={styles.searchBarPlaceholder}>Browse categories & shops...</Text>
+            <Ionicons name="chevron-forward" size={scale(16)} color={Colors.textGray} />
+          </TouchableOpacity>
         )}
 
         {renderContent()}
       </SafeAreaView>
+
+      <AddressModal
+        visible={showAddressModal}
+        onClose={() => setShowAddressModal(false)}
+        onSelectAddress={handleSelectAddress}
+        onAddAddress={handleAddAddress}
+        selectedAddress={selectedAddress}
+        addresses={addresses}
+        isLoading={isAddressLoading}
+        onOpenMap={handleOpenAddAddress}
+      />
+
+      {showAddAddress && (
+        <View style={styles.modalOverlay}>
+          <AddAddressScreen
+            onClose={handleCloseAddAddress}
+            onLocationSelect={handleMapLocationSelect}
+            onSave={() => {
+              setShowAddAddress(false);
+            }}
+          />
+        </View>
+      )}
     </View>
   );
 };
 
-// --- General Styles ---
+// ------------------- Styles -------------------
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "transparent" },
-  header: {
-    paddingTop: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 15,
+  container: { flex: 1, backgroundColor: "#FFFFFF" },
+  safeArea: { flex: 1, backgroundColor: "#FFFFFF" },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FFFFFF',
+    zIndex: 1000,
   },
-  backButton: { paddingHorizontal: 15 },
-  headerTitle: {
+  locationBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    paddingHorizontal: scale(16),
+    paddingVertical: verticalScale(12),
+    marginHorizontal: scale(16),
+    borderRadius: moderateScale(10),
+    borderWidth: 1,
+    borderColor: '#E5E5E5',
+    marginTop: verticalScale(12),
+  },
+  locationBarText: {
     flex: 1,
-    fontSize: 18,
-    fontWeight: "bold",
-    color: Colors.cardWhite, // White text on dark bg
-    textAlign: "center",
-    marginRight: 40,
+    color: Colors.textDark,
+    fontSize: moderateScale(14),
+    marginLeft: scale(8),
+    marginRight: scale(8),
+    fontWeight: '500',
   },
   searchBarContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#1F222A", // Dark theme input box
-    borderRadius: 12,
-    paddingHorizontal: 15,
-    marginHorizontal: 16,
-    marginVertical: 10,
+    backgroundColor: "#F5F5F5",
+    borderRadius: moderateScale(12),
+    paddingHorizontal: scale(15),
+    marginHorizontal: scale(16),
+    marginVertical: verticalScale(10),
     borderWidth: 1,
-    borderColor: "#333",
+    borderColor: "#E5E5E5",
+    paddingVertical: verticalScale(12),
   },
-  searchBarInput: {
+  searchBarPlaceholder: {
     flex: 1,
-    marginLeft: 10,
-    fontSize: 15,
-    paddingVertical: 12,
-    color: Colors.cardWhite,
+    marginLeft: scale(10),
+    fontSize: moderateScale(15),
+    color: Colors.textGray,
   },
-  flatlistContainer: { paddingBottom: 30, paddingTop: 10 },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: scale(16),
+    paddingVertical: verticalScale(8),
+    marginTop: verticalScale(4),
+  },
+  sectionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sectionHeaderLine: {
+    width: scale(4),
+    height: scale(20),
+    backgroundColor: Colors.accentGreen,
+    borderRadius: moderateScale(2),
+    marginRight: scale(8),
+  },
+  sectionHeaderTitle: {
+    fontSize: moderateScale(18),
+    fontWeight: '700',
+    color: Colors.textDark,
+  },
+  sectionHeaderCount: {
+    fontSize: moderateScale(12),
+    color: Colors.textLightGray,
+  },
+  categoryGridContainer: {
+    paddingHorizontal: scale(8),
+    paddingVertical: verticalScale(4),
+  },
+  categoryGridContent: {
+    paddingBottom: verticalScale(4),
+  },
+  categoryGridItem: {
+    flex: 1,
+    aspectRatio: 1,
+    margin: scale(4),
+    borderRadius: moderateScale(12),
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#1A1A1A',
+  },
+  categoryGridImage: {
+    width: '100%',
+    height: '100%',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+  },
+  categoryGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '60%',
+  },
+  categoryTextContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: scale(10),
+    alignItems: 'center',
+  },
+  categoryGridName: {
+    fontSize: moderateScale(13),
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: verticalScale(2),
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  categoryGridCount: {
+    fontSize: moderateScale(10),
+    color: 'rgba(255,255,255,0.85)',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  showMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: verticalScale(12),
+    marginHorizontal: scale(16),
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5E5',
+    marginTop: verticalScale(4),
+  },
+  showMoreText: {
+    fontSize: moderateScale(14),
+    color: Colors.accentGreen,
+    fontWeight: '600',
+    marginRight: scale(6),
+  },
+  flatlistContainer: { paddingBottom: verticalScale(30), paddingTop: verticalScale(4) },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loadingText: { marginTop: 10, fontSize: 16, color: Colors.textLightGray },
+  loadingText: { marginTop: verticalScale(10), fontSize: moderateScale(16), color: Colors.textGray },
   messageContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: scale(20),
   },
   messageTitle: {
-    fontSize: 20,
+    fontSize: moderateScale(20),
     fontWeight: "bold",
-    marginBottom: 10,
-    color: Colors.cardWhite,
+    marginBottom: verticalScale(10),
+    color: Colors.textDark,
   },
   messageText: {
-    fontSize: 16,
-    color: Colors.textLightGray,
+    fontSize: moderateScale(16),
+    color: Colors.textGray,
     textAlign: "center",
-    marginBottom: 5,
+    marginBottom: verticalScale(5),
   },
-  retryButton: {
-    marginTop: 20,
-    backgroundColor: Colors.accentGreen,
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 8,
-  },
-  retryButtonText: { color: Colors.cardWhite, fontWeight: "bold" },
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 50,
+    marginTop: verticalScale(50),
+    paddingHorizontal: scale(20),
   },
-  emptyText: { fontSize: 16, color: Colors.textLightGray },
-});
-
-// --- ShopCard Specific Styles (Matches Screenshot) ---
-const shopCardStyles = StyleSheet.create({
-  cardContainer: {
-    backgroundColor: Colors.cardWhite,
-    borderRadius: 24, // Huge rounded corners like the image
-    padding: 18,
-    marginVertical: 10,
-    marginHorizontal: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 15,
-    elevation: 8,
-  },
-  topBadgeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  badgeLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  badgeIcon: {
-    fontSize: 14,
-    marginRight: 4,
-  },
-  badgeText: {
-    fontSize: 13,
-    fontWeight: "700",
+  emptyText: {
+    fontSize: moderateScale(18),
     color: Colors.textGray,
+    textAlign: 'center',
+    marginTop: verticalScale(12),
+    fontWeight: '600',
   },
-  badgeRight: {
-    flexDirection: "row",
-    alignItems: "center",
+  emptySubText: {
+    fontSize: moderateScale(14),
+    color: Colors.textGray,
+    textAlign: 'center',
+    marginTop: verticalScale(6),
   },
-  verifiedText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: Colors.accentBlue,
-    marginLeft: 4,
-  },
-  titleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 4,
-  },
-  shopName: {
-    flex: 1,
-    fontSize: 22,
-    fontWeight: "900",
-    color: Colors.textDark,
-    letterSpacing: -0.5,
-    marginRight: 10,
-  },
-  ratingContainer: {
-    alignItems: "flex-end",
-  },
-  ratingPill: {
+  retryButton: {
+    marginTop: verticalScale(20),
     backgroundColor: Colors.accentGreen,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(25),
+    borderRadius: moderateScale(8),
   },
-  ratingNumber: {
-    color: Colors.cardWhite,
-    fontWeight: "800",
-    fontSize: 13,
-  },
-  ratingCount: {
-    color: Colors.textLightGray,
-    fontSize: 10,
-    marginTop: 4,
-    fontWeight: "600",
-  },
-  subtitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  subtitleText: {
-    fontSize: 14,
-    color: Colors.textGray,
-    fontWeight: "500",
-  },
-  dotSeparator: {
-    color: Colors.textLightGray,
-  },
-  contactRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  contactText: {
-    fontSize: 12,
-    color: Colors.textGray,
-    fontWeight: "500",
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.dividerGray,
-    width: "100%",
-    marginVertical: 14,
-  },
-  bottomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  bottomLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  offerIconBadge: {
-    width: 38,
-    height: 38,
-    backgroundColor: Colors.accentPurple,
-    borderRadius: 12, // Mimics the badge shape
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  offerTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: Colors.textDark,
-    marginBottom: 2,
-  },
-  offerSubtitle: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: Colors.textLightGray,
-    letterSpacing: 0.5,
-  },
-  productImagesContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  miniProductImg: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: Colors.cardWhite,
-    backgroundColor: Colors.dividerGray,
-  },
+  retryButtonText: { color: Colors.cardWhite, fontWeight: "bold" },
 });
 
 export default ShopListings;

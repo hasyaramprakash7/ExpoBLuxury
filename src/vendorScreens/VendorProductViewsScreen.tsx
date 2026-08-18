@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
+// src/vendorScreens/VendorProductViewsScreen.tsx
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,6 +11,7 @@ import {
   TouchableOpacity,
   Dimensions,
   Alert,
+  SectionList,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
@@ -30,7 +32,46 @@ const Colors = {
   border: '#E2E8F0',
   black: '#000000',
   error: '#EF4444',
+  royalGreen: '#1B8C40',
+  royalGreenLight: '#2A9D4A',
+  textMuted: '#6B7280',
 };
+
+// --- Types ---
+interface ProductView {
+  _id: string;
+  productId: string;
+  productType: 'Property' | 'Rental';
+  vendorId: string;
+  viewerUserId: string;
+  viewerName: string;
+  viewerPhone: string;
+  viewedAt: string;
+  product?: {
+    _id: string;
+    title: string;
+    images?: string[];
+    minPriceCr?: number;
+    maxPriceCr?: number;
+    monthlyRent?: number;
+    propertyType?: string;
+    rentalType?: string;
+  };
+}
+
+interface GroupedView {
+  userId: string;
+  userName: string;
+  userPhone: string;
+  productId: string;
+  productType: string;
+  productTitle: string;
+  productImage: string;
+  productPrice: string;
+  viewCount: number;
+  lastViewedAt: string;
+  views: ProductView[];
+}
 
 const VendorProductViewsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -40,6 +81,7 @@ const VendorProductViewsScreen: React.FC = () => {
     (state: RootState) => state.productViews
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
   const fetchViews = useCallback(
     async (pageNum = 1, refresh = false) => {
@@ -69,16 +111,15 @@ const VendorProductViewsScreen: React.FC = () => {
     }
   }, [error]);
 
-  // 🔥 Listen for real‑time new views via Socket.IO
+  // Listen for real‑time new views via Socket.IO
   useEffect(() => {
     const handleNewView = (newView: any) => {
       console.log('🔔 New view via socket:', newView);
       dispatch(addView(newView));
 
-      // Show a toast / pop‑up notification to the vendor
       Toast.show({
         type: 'info',
-        text1: '👀 New Lead!',
+        text1: '👀 New View!',
         text2: `${newView.viewerName} viewed your "${newView.product?.title || 'listing'}"`,
         visibilityTime: 4000,
         position: 'top',
@@ -100,66 +141,197 @@ const VendorProductViewsScreen: React.FC = () => {
     }
   };
 
-  const renderItem = ({ item }: { item: any }) => (
-    <View style={styles.viewCard}>
-      <View style={styles.cardHeader}>
-        <View style={styles.userInfo}>
-          <Ionicons name="person-circle" size={40} color={Colors.primary} />
-          <View style={styles.userText}>
-            <Text style={styles.userName}>{item.viewerName}</Text>
-            <Text style={styles.userPhone}>{item.viewerPhone}</Text>
+  // --- Group views by user + product ---
+  const groupedViews = useMemo(() => {
+    const groupMap = new Map<string, GroupedView>();
+
+    views.forEach((view: ProductView) => {
+      const key = `${view.viewerUserId}-${view.productId}`;
+      
+      if (groupMap.has(key)) {
+        const existing = groupMap.get(key)!;
+        existing.viewCount += 1;
+        existing.views.push(view);
+        // Update last viewed time
+        if (new Date(view.viewedAt) > new Date(existing.lastViewedAt)) {
+          existing.lastViewedAt = view.viewedAt;
+        }
+      } else {
+        const productTitle = view.product?.title || 'Unknown Listing';
+        const productImage = view.product?.images?.[0] || 'https://via.placeholder.com/100';
+        let productPrice = '';
+        if (view.productType === 'Property') {
+          productPrice = `₹${view.product?.minPriceCr || 0} Cr`;
+        } else {
+          productPrice = `₹${view.product?.monthlyRent || 0}/month`;
+        }
+
+        groupMap.set(key, {
+          userId: view.viewerUserId,
+          userName: view.viewerName || 'Unknown User',
+          userPhone: view.viewerPhone || 'N/A',
+          productId: view.productId,
+          productType: view.productType,
+          productTitle: productTitle,
+          productImage: productImage,
+          productPrice: productPrice,
+          viewCount: 1,
+          lastViewedAt: view.viewedAt,
+          views: [view],
+        });
+      }
+    });
+
+    // Sort by view count (most views first) and then by last viewed
+    return Array.from(groupMap.values()).sort((a, b) => {
+      if (a.viewCount !== b.viewCount) {
+        return b.viewCount - a.viewCount;
+      }
+      return new Date(b.lastViewedAt).getTime() - new Date(a.lastViewedAt).getTime();
+    });
+  }, [views]);
+
+  // --- Section Data for SectionList ---
+  const sectionData = useMemo(() => {
+    // Group by user
+    const userMap = new Map<string, { user: string; userId: string; phone: string; data: GroupedView[] }>();
+    
+    groupedViews.forEach((item) => {
+      if (userMap.has(item.userId)) {
+        userMap.get(item.userId)!.data.push(item);
+      } else {
+        userMap.set(item.userId, {
+          user: item.userName,
+          userId: item.userId,
+          phone: item.userPhone,
+          data: [item],
+        });
+      }
+    });
+
+    return Array.from(userMap.values()).map((userGroup) => ({
+      userId: userGroup.userId,
+      title: userGroup.user,
+      phone: userGroup.phone,
+      data: userGroup.data,
+      totalViews: userGroup.data.reduce((sum, item) => sum + item.viewCount, 0),
+    }));
+  }, [groupedViews]);
+
+  const toggleSection = (userId: string) => {
+    const newSet = new Set(expandedSections);
+    if (newSet.has(userId)) {
+      newSet.delete(userId);
+    } else {
+      newSet.add(userId);
+    }
+    setExpandedSections(newSet);
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    
+    if (hours < 1) return 'Just now';
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  // --- Render Section Header ---
+  const renderSectionHeader = ({ section }: { section: any }) => {
+    const isExpanded = expandedSections.has(section.userId);
+    
+    return (
+      <TouchableOpacity
+        style={styles.sectionHeader}
+        onPress={() => toggleSection(section.userId)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.sectionHeaderLeft}>
+          <View style={styles.userAvatar}>
+            <Text style={styles.userAvatarText}>
+              {section.title?.charAt(0)?.toUpperCase() || 'U'}
+            </Text>
+          </View>
+          <View>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+            <View style={styles.sectionSubtitle}>
+              <Ionicons name="call-outline" size={12} color={Colors.slate} />
+              <Text style={styles.sectionPhone}>{section.phone}</Text>
+            </View>
           </View>
         </View>
-        <Text style={styles.viewDate}>
-          {new Date(item.viewedAt).toLocaleDateString()} {new Date(item.viewedAt).toLocaleTimeString()}
-        </Text>
-      </View>
-
-      {item.product && (
-        <TouchableOpacity
-          style={styles.productPreview}
-          onPress={() => {
-            if (item.productType === 'Property') {
-              navigation.navigate('PropertyDetailScreen', { propertyId: item.productId });
-            } else {
-              navigation.navigate('RentalDetail', { rentalId: item.productId });
-            }
-          }}
-        >
-          <Image
-            source={{ uri: item.product.images?.[0] || 'https://via.placeholder.com/100' }}
-            style={styles.productImage}
-          />
-          <View style={styles.productInfo}>
-            <Text style={styles.productTitle} numberOfLines={1}>
-              {item.product.title}
-            </Text>
-            <Text style={styles.productType}>{item.productType}</Text>
-            <Text style={styles.productPrice}>
-              {item.productType === 'Property'
-                ? `₹${item.product.minPriceCr} Cr`
-                : `₹${item.product.monthlyRent}/month`}
-            </Text>
+        <View style={styles.sectionHeaderRight}>
+          <View style={styles.viewCountBadge}>
+            <Text style={styles.viewCountText}>{section.totalViews}</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={Colors.slate} />
-        </TouchableOpacity>
-      )}
-    </View>
+          <Ionicons
+            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+            size={20}
+            color={Colors.slate}
+          />
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  // --- Render Item ---
+  const renderItem = ({ item }: { item: GroupedView }) => (
+    <TouchableOpacity
+      style={styles.viewCard}
+      onPress={() => {
+        if (item.productType === 'Property') {
+          navigation.navigate('PropertyDetailScreen', { propertyId: item.productId });
+        } else {
+          navigation.navigate('RentalDetail', { rentalId: item.productId });
+        }
+      }}
+      activeOpacity={0.8}
+    >
+      <View style={styles.productPreview}>
+        <Image
+          source={{ uri: item.productImage }}
+          style={styles.productImage}
+        />
+        <View style={styles.productInfo}>
+          <Text style={styles.productTitle} numberOfLines={1}>
+            {item.productTitle}
+          </Text>
+          <View style={styles.productMeta}>
+            <Text style={styles.productType}>{item.productType}</Text>
+            <Text style={styles.productPrice}>{item.productPrice}</Text>
+          </View>
+        </View>
+        <View style={styles.itemRight}>
+          <View style={styles.countBadge}>
+            <Text style={styles.countText}>{item.viewCount}</Text>
+          </View>
+          <Text style={styles.viewTime}>{formatDate(item.lastViewedAt)}</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 
-  // Debug: show number of views
+  // --- Debug Info ---
   const DebugInfo = () => (
     <View style={styles.debugContainer}>
-      <Text style={styles.debugText}>📊 {views.length} views loaded</Text>
+      <Text style={styles.debugText}>📊 {views.length} total views</Text>
+      <Text style={styles.debugText}>👥 {sectionData.length} unique users</Text>
+      <Text style={styles.debugText}>📦 {groupedViews.length} unique product views</Text>
       {error && <Text style={styles.errorText}>❌ {error}</Text>}
-      {vendor && <Text style={styles.debugText}>Vendor ID: {vendor._id}</Text>}
+      {vendor && <Text style={styles.debugText}>Vendor: {vendor.shopName || vendor.name}</Text>}
     </View>
   );
 
   if (loading && views.length === 0) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <ActivityIndicator size="large" color={Colors.royalGreen} />
+        <Text style={styles.loadingText}>Loading views...</Text>
       </View>
     );
   }
@@ -178,34 +350,53 @@ const VendorProductViewsScreen: React.FC = () => {
 
       <DebugInfo />
 
-      <FlatList
-        data={views}
-        keyExtractor={(item) => item._id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
-        }
-        onEndReached={loadMore}
-        onEndReachedThreshold={0.3}
-        ListFooterComponent={
-          loading && views.length > 0 ? <ActivityIndicator size="small" color={Colors.primary} /> : null
-        }
-        ListEmptyComponent={
-          !loading ? (
-            <View style={styles.empty}>
-              <Ionicons name="eye-off-outline" size={60} color={Colors.slate} />
-              <Text style={styles.emptyText}>No product views yet.</Text>
-              <Text style={styles.emptySub}>
-                When users view your listings, they'll appear here.
-              </Text>
-              <TouchableOpacity style={styles.emptyRefreshBtn} onPress={onRefresh}>
-                <Text style={styles.emptyRefreshText}>Refresh</Text>
-              </TouchableOpacity>
-            </View>
-          ) : null
-        }
-      />
+      {groupedViews.length === 0 && !loading ? (
+        <View style={styles.empty}>
+          <Ionicons name="eye-off-outline" size={60} color={Colors.slate} />
+          <Text style={styles.emptyText}>No product views yet</Text>
+          <Text style={styles.emptySub}>
+            When users view your properties or rentals, they'll appear here
+          </Text>
+          <TouchableOpacity style={styles.emptyRefreshBtn} onPress={onRefresh}>
+            <Text style={styles.emptyRefreshText}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <SectionList
+          sections={sectionData}
+          keyExtractor={(item, index) => `${item.userId}-${item.productId}-${index}`}
+          renderSectionHeader={renderSectionHeader}
+          renderItem={renderItem}
+          stickySectionHeadersEnabled={false}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.royalGreen}
+              colors={[Colors.royalGreen]}
+            />
+          }
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={
+            loading && views.length > 0 ? (
+              <ActivityIndicator size="small" color={Colors.royalGreen} style={styles.footerLoader} />
+            ) : null
+          }
+          ListEmptyComponent={
+            !loading && sectionData.length === 0 ? (
+              <View style={styles.empty}>
+                <Ionicons name="eye-off-outline" size={60} color={Colors.slate} />
+                <Text style={styles.emptyText}>No views yet</Text>
+                <Text style={styles.emptySub}>
+                  When users view your listings, they'll appear here
+                </Text>
+              </View>
+            ) : null
+          }
+        />
+      )}
     </View>
   );
 };
@@ -219,59 +410,191 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 50,
     paddingBottom: 16,
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.royalGreen,
   },
   headerTitle: { color: Colors.white, fontSize: 18, fontWeight: 'bold' },
   backBtn: { padding: 4 },
   refreshBtn: { padding: 4 },
   listContent: { padding: 16, paddingBottom: 40 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  viewCard: {
+  loadingText: { color: Colors.slate, marginTop: 12, fontSize: 14 },
+  footerLoader: { paddingVertical: 20 },
+  
+  // Section Header
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: Colors.white,
-    borderRadius: 12,
     padding: 14,
-    marginBottom: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+    marginTop: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 6,
+    shadowRadius: 4,
     elevation: 2,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  cardHeader: {
+  sectionHeaderLeft: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    flex: 1,
   },
-  userInfo: { flexDirection: 'row', alignItems: 'center' },
-  userText: { marginLeft: 10 },
-  userName: { fontSize: 16, fontWeight: 'bold', color: Colors.black },
-  userPhone: { fontSize: 14, color: Colors.slate },
-  viewDate: { fontSize: 12, color: Colors.slate },
+  userAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.royalGreen,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  userAvatarText: {
+    color: Colors.white,
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.black,
+  },
+  sectionSubtitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    gap: 4,
+  },
+  sectionPhone: {
+    fontSize: 12,
+    color: Colors.slate,
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  viewCountBadge: {
+    backgroundColor: Colors.royalGreen + '15',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.royalGreen + '30',
+  },
+  viewCountText: {
+    color: Colors.royalGreen,
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  
+  // View Card
+  viewCard: {
+    backgroundColor: Colors.white,
+    borderRadius: 10,
+    marginBottom: 6,
+    marginLeft: 16,
+    marginRight: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+  },
   productPreview: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.lightBg,
     padding: 10,
-    borderRadius: 8,
-    marginTop: 4,
+    gap: 10,
   },
-  productImage: { width: 60, height: 60, borderRadius: 8, marginRight: 12 },
-  productInfo: { flex: 1 },
-  productTitle: { fontSize: 14, fontWeight: '600', color: Colors.black },
-  productType: { fontSize: 12, color: Colors.slate },
-  productPrice: { fontSize: 13, fontWeight: 'bold', color: Colors.primary },
-  empty: { alignItems: 'center', justifyContent: 'center', marginTop: 80 },
-  emptyText: { fontSize: 18, fontWeight: 'bold', color: Colors.black, marginTop: 16 },
-  emptySub: { fontSize: 14, color: Colors.slate, textAlign: 'center', marginTop: 8 },
+  productImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    backgroundColor: Colors.lightBg,
+  },
+  productInfo: {
+    flex: 1,
+  },
+  productTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.black,
+  },
+  productMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  productType: {
+    fontSize: 11,
+    color: Colors.slate,
+    backgroundColor: Colors.lightBg,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  productPrice: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.royalGreen,
+  },
+  itemRight: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  countBadge: {
+    backgroundColor: Colors.royalGreen,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 24,
+    alignItems: 'center',
+  },
+  countText: {
+    color: Colors.white,
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  viewTime: {
+    fontSize: 10,
+    color: Colors.slate,
+  },
+  
+  // Empty State
+  empty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 80,
+    paddingHorizontal: 40,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.black,
+    marginTop: 16,
+  },
+  emptySub: {
+    fontSize: 14,
+    color: Colors.slate,
+    textAlign: 'center',
+    marginTop: 8,
+  },
   emptyRefreshBtn: {
     marginTop: 20,
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.royalGreen,
     paddingHorizontal: 24,
     paddingVertical: 10,
     borderRadius: 8,
   },
-  emptyRefreshText: { color: Colors.white, fontWeight: 'bold' },
+  emptyRefreshText: {
+    color: Colors.white,
+    fontWeight: 'bold',
+  },
+  
+  // Debug
   debugContainer: {
     backgroundColor: '#f0f0f0',
     padding: 10,

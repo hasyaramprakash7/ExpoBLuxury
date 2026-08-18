@@ -1,5 +1,5 @@
 // screens/PropertyCRUDScreen.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   Platform,
   Modal,
   RefreshControl,
+  Dimensions,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import * as ImagePicker from 'expo-image-picker';
@@ -32,6 +33,8 @@ import {
   selectPropertyError,
   selectPropertyPagination,
 } from '../features/propertySlice';
+// 👇 Import AddAddressScreen (exactly the same as rental's map picker)
+import AddAddressScreen from '../screens/AddAddressScreen';
 
 // --------------------- Types ---------------------
 type PropertyTypeEnum =
@@ -207,12 +210,188 @@ const TAGS_LIST = [
   'Bachelor Friendly',
 ];
 
-// --------------------- Helper Functions ---------------------
-// Helper to safely parse arrays that might be stored as strings
+// ================================================================
+// 1. Address Modal (without saved addresses – only GPS & Map)
+// ================================================================
+const { width, height } = Dimensions.get('window');
+
+interface AddressModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onAddCurrentLocation: () => void;
+  onOpenMap: () => void;
+  selectedAddressString?: string;
+  isLoading?: boolean;
+}
+
+const AddressModal: React.FC<AddressModalProps> = ({
+  visible,
+  onClose,
+  onAddCurrentLocation,
+  onOpenMap,
+  selectedAddressString,
+  isLoading,
+}) => {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+    >
+      <View style={addressModalStyles.overlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFillObject}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <View style={addressModalStyles.bottomSheet}>
+          <View style={addressModalStyles.bottomSheetHandle} />
+
+          <View style={addressModalStyles.sheetHeader}>
+            <Text style={addressModalStyles.sheetTitle}>Select Location</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color="#1C1C1E" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
+            {/* Use Current Location */}
+            <TouchableOpacity
+              style={addressModalStyles.currentLocationContainer}
+              onPress={onAddCurrentLocation}
+              disabled={isLoading}
+            >
+              <View style={addressModalStyles.currentLocationIcon}>
+                <Ionicons name="locate" size={22} color="#0B1021" />
+              </View>
+              <View style={addressModalStyles.addressInfo}>
+                <Text style={addressModalStyles.currentLocationTitle}>
+                  Use my current location
+                </Text>
+                <Text style={addressModalStyles.addressString} numberOfLines={1}>
+                  {selectedAddressString || "Fetch GPS & fill location"}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#6B7280" />
+            </TouchableOpacity>
+
+            {/* Pick from Map – opens AddAddressScreen modal */}
+            <TouchableOpacity
+              style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]}
+              onPress={onOpenMap}
+            >
+              <View style={[addressModalStyles.currentLocationIcon, { backgroundColor: 'rgba(27, 140, 64, 0.1)' }]}>
+                <Ionicons name="map" size={22} color="#1B8C40" />
+              </View>
+              <View style={addressModalStyles.addressInfo}>
+                <Text style={[addressModalStyles.currentLocationTitle, { color: "#1B8C40" }]}>
+                  Pick from Map
+                </Text>
+                <Text style={addressModalStyles.addressString} numberOfLines={1}>
+                  Search and select location on map
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#6B7280" />
+            </TouchableOpacity>
+
+            {isLoading && (
+              <View style={addressModalStyles.loadingContainer}>
+                <ActivityIndicator size="small" color="#0B1021" />
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const addressModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  bottomSheet: {
+    backgroundColor: '#F8F9FA',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    maxHeight: height * 0.8,
+    overflow: 'hidden',
+  },
+  bottomSheetHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: '#D1D5DB',
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EAEAEA',
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1C1C1E',
+    letterSpacing: -0.3,
+  },
+  addressList: {
+    maxHeight: height * 0.55,
+  },
+  currentLocationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#EAEAEA',
+  },
+  currentLocationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(11, 16, 33, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  currentLocationTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0B1021',
+    marginBottom: 2,
+  },
+  addressInfo: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  addressString: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+});
+
+// ================================================================
+// 2. Helper Functions
+// ================================================================
 const safeParseArray = (data: any): string[] => {
   if (!data) return [];
   if (Array.isArray(data)) {
-    // If it's already an array, check if it contains stringified arrays
     if (data.length === 1 && typeof data[0] === 'string' && data[0].startsWith('[') && data[0].endsWith(']')) {
       try {
         const parsed = JSON.parse(data[0]);
@@ -234,7 +413,9 @@ const safeParseArray = (data: any): string[] => {
   return [];
 };
 
-// --------------------- Custom Dropdown ---------------------
+// ================================================================
+// 3. Sub‑components: Dropdown, MultiSelectPills
+// ================================================================
 const CustomDropdown = ({
   label,
   options,
@@ -306,7 +487,6 @@ const CustomDropdown = ({
   );
 };
 
-// --------------------- Multi‑Select Pills ---------------------
 const MultiSelectPills = ({
   options,
   selectedValues,
@@ -342,7 +522,7 @@ const MultiSelectPills = ({
               <Ionicons
                 name="checkmark-circle"
                 size={18}
-                color="#4A148C"
+                color="#1B8C40"
                 style={{ marginLeft: 6 }}
               />
             )}
@@ -358,7 +538,9 @@ const MultiSelectPills = ({
   );
 };
 
-// --------------------- Main Component ---------------------
+// ================================================================
+// 4. Main Component – PropertyCRUDScreen
+// ================================================================
 const PropertyCRUDScreen: React.FC = () => {
   const dispatch = useDispatch<any>();
   const properties = useSelector(selectAllProperties);
@@ -376,10 +558,139 @@ const PropertyCRUDScreen: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Fetch properties
+  // Location modal states
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [showAddAddressModal, setShowAddAddressModal] = useState(false);
+
+  // 🔥 Enhanced getLocationSummary – falls back to coordinates
+  const getLocationSummary = useCallback(() => {
+    const parts = [];
+    if (formData.locationLocality && formData.locationLocality !== 'Unknown Locality')
+      parts.push(formData.locationLocality);
+    if (formData.locationCity) parts.push(formData.locationCity);
+    if (formData.locationState) parts.push(formData.locationState);
+    if (formData.locationPincode) parts.push(formData.locationPincode);
+
+    if (parts.length === 0 && formData.lat && formData.lng) {
+      return `📍 ${parseFloat(formData.lat).toFixed(6)}, ${parseFloat(formData.lng).toFixed(6)}`;
+    }
+    return parts.length ? parts.join(', ') : 'Select a location';
+  }, [formData]);
+
+  // ========== Location Handlers ==========
+  const handleAddCurrentLocation = useCallback(async () => {
+    setIsLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Toast.show({ type: 'error', text1: 'Permission Denied', text2: 'Location permission required.' });
+        setIsLocating(false);
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const { latitude, longitude } = location.coords;
+
+      const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (geocode.length > 0) {
+        const { city, region, district, postalCode, street, name, subregion } = geocode[0];
+        const detectedCity = city || district || region || '';
+        const detectedLocality = street || name || subregion || district || '';
+        const detectedState = region || '';
+        const detectedPincode = postalCode || '';
+
+        setFormData((prev) => ({
+          ...prev,
+          lat: latitude.toString(),
+          lng: longitude.toString(),
+          locationCity: detectedCity,
+          locationLocality: detectedLocality,
+          locationState: detectedState,
+          locationPincode: detectedPincode,
+        }));
+
+        Toast.show({
+          type: 'success',
+          text1: 'Location Detected',
+          text2: `📍 ${detectedLocality}, ${detectedCity}`,
+        });
+      } else {
+        setFormData((prev) => ({
+          ...prev,
+          lat: latitude.toString(),
+          lng: longitude.toString(),
+        }));
+        Toast.show({ type: 'info', text1: 'Coordinates filled', text2: 'Enter address manually.' });
+      }
+    } catch (error) {
+      console.error('❌ Location detection error:', error);
+      Toast.show({ type: 'error', text1: 'Location Error', text2: 'Could not detect location.' });
+    } finally {
+      setIsLocating(false);
+      setShowAddressModal(false);
+    }
+  }, []);
+
+  // 🔥 Open AddAddressScreen modal
+  const handleOpenAddAddress = useCallback(() => {
+    setShowAddressModal(false);
+    setShowAddAddressModal(true);
+  }, []);
+
+  // 🔥 Location callback – exactly same extraction as rental's handleMapLocationSelect
+  const handleLocationFromAddAddress = useCallback((lat: number, lng: number, addressDetails: any) => {
+    console.log('📍 Property location selected:', { lat, lng, addressDetails });
+
+    // Extract all available address components with fallbacks (exactly like rental)
+    const city = addressDetails.city || '';
+    const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
+    const state = addressDetails.state || '';
+    const pincode = addressDetails.pincode || '';
+    const country = addressDetails.country || 'India';
+    const district = addressDetails.district || '';
+    const street = addressDetails.street || '';
+
+    // Build a comprehensive address string for display
+    const addressParts = [
+      street,
+      addressDetails.colony,
+      addressDetails.suburb,
+      addressDetails.neighbourhood,
+      locality,
+      city,
+      district,
+      state,
+      pincode,
+      country,
+    ].filter(Boolean);
+    const fullAddress = addressParts.join(', ');
+
+    // Update form data with all available address fields
+    setFormData((prev) => ({
+      ...prev,
+      lat: lat.toString(),
+      lng: lng.toString(),
+      locationCity: city,
+      locationLocality: locality || city || 'Unknown Locality',
+      locationState: state,
+      locationPincode: pincode,
+    }));
+
+    Toast.show({
+      type: 'success',
+      text1: 'Location Set',
+      text2: `📍 ${fullAddress || 'Address filled from map.'}`,
+    });
+  }, []);
+
+  const handleCloseAddAddress = useCallback(() => {
+    setShowAddAddressModal(false);
+  }, []);
+
+  // ========== CRUD Logic (unchanged) ==========
   useEffect(() => {
     if (currentVendorId) {
-      console.log('🔄 Fetching properties for vendor:', currentVendorId);
       dispatch(fetchProperties({ vendorId: currentVendorId, page: 1, limit: 10 }));
     } else {
       console.warn('⚠️ No vendor ID found, skipping property fetch.');
@@ -388,7 +699,6 @@ const PropertyCRUDScreen: React.FC = () => {
 
   useEffect(() => {
     if (error) {
-      console.error('❌ Property error from Redux:', error);
       Toast.show({ type: 'error', text1: 'Error', text2: error });
     }
   }, [error]);
@@ -398,7 +708,6 @@ const PropertyCRUDScreen: React.FC = () => {
       Toast.show({ type: 'info', text1: 'No Vendor', text2: 'Please login again.' });
       return;
     }
-    console.log('🔄 Refreshing properties...');
     setRefreshing(true);
     await dispatch(fetchProperties({ vendorId: currentVendorId, page: 1, limit: 10 }));
     setRefreshing(false);
@@ -406,14 +715,13 @@ const PropertyCRUDScreen: React.FC = () => {
 
   const handleLoadMore = () => {
     if (hasMore && !loading && !refreshing && currentVendorId) {
-      console.log(`📄 Loading more properties: page ${currentPage + 1}`);
       dispatch(fetchProperties({ vendorId: currentVendorId, page: currentPage + 1, limit: 10 }));
     }
   };
 
   const renderFooter = () => {
     if (!loading || properties.length === 0 || refreshing) return null;
-    return <ActivityIndicator size="small" color="#4A148C" style={{ padding: 20 }} />;
+    return <ActivityIndicator size="small" color="#1B8C40" style={{ padding: 20 }} />;
   };
 
   const handleChange = (name: keyof PropertyFormData, value: string | boolean) => {
@@ -434,106 +742,47 @@ const PropertyCRUDScreen: React.FC = () => {
     });
   };
 
-  // ---------- GPS Autofill ----------
-  const handleUseGps = async () => {
-    console.log('📍 Using GPS to fill location for property...');
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.warn('❌ Location permission denied.');
-        Toast.show({ type: 'error', text1: 'Permission Denied', text2: 'Location permission required.' });
-        return;
-      }
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const { latitude, longitude } = location.coords;
-      console.log(`📍 GPS coordinates: ${latitude}, ${longitude}`);
-      const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
-      if (geocode.length > 0) {
-        const { city, region, district, postalCode, street, name } = geocode[0];
-        console.log('📍 Reverse geocoded:', { city, region, district, postalCode, street, name });
-        setFormData((prev) => ({
-          ...prev,
-          lat: latitude.toString(),
-          lng: longitude.toString(),
-          locationCity: city || district || region || prev.locationCity,
-          locationLocality: street || name || district || prev.locationLocality,
-          locationState: region || prev.locationState,
-          locationPincode: postalCode || prev.locationPincode,
-        }));
-        Toast.show({ type: 'success', text1: 'Location filled from GPS' });
-      } else {
-        console.log('📍 No reverse geocode result, using only coordinates.');
-        setFormData((prev) => ({
-          ...prev,
-          lat: latitude.toString(),
-          lng: longitude.toString(),
-        }));
-        Toast.show({ type: 'info', text1: 'Coordinates filled, enter address manually.' });
-      }
-    } catch (err) {
-      console.error('❌ GPS error:', err);
-      Toast.show({ type: 'error', text1: 'GPS Error', text2: 'Could not get location.' });
-    }
-  };
-
   // ---------- Image Picker ----------
   const pickImages = async () => {
-    console.log('📸 Opening image picker for property...');
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      console.log(`📸 Media library permission status: ${status}`);
       if (status !== 'granted') {
-        console.warn('❌ Media library permission denied.');
         Toast.show({ type: 'error', text1: 'Permission required', text2: 'Allow access to your photo library.' });
         return;
       }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         quality: 0.7,
         base64: false,
       });
-
-      console.log('📸 Picker result:', JSON.stringify(result, null, 2));
-
       if (!result.canceled) {
-        console.log(`📸 Selected ${result.assets.length} images for property.`);
         setNewImages((prev) => [...prev, ...result.assets]);
-      } else {
-        console.log('📸 Image picker cancelled.');
       }
     } catch (error) {
-      console.error('❌ Image picker error:', error);
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to open image picker.' });
     }
   };
 
   const removeNewImage = (index: number) => {
-    console.log(`🗑️ Removing new image at index ${index}`);
     setNewImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   // ---------- Submit ----------
   const handleSubmit = async () => {
-    console.log('🚀 Submitting property form...');
     if (!formData.title) {
-      console.warn('⚠️ Missing title');
       Toast.show({ type: 'error', text1: 'Missing Title' });
       return;
     }
     if (!formData.minPriceCr) {
-      console.warn('⚠️ Missing min price');
       Toast.show({ type: 'error', text1: 'Missing Price' });
       return;
     }
     if (!formData.superBuiltUpSqFt) {
-      console.warn('⚠️ Missing area');
       Toast.show({ type: 'error', text1: 'Missing Area' });
       return;
     }
     if (!formData.lat || !formData.lng) {
-      console.warn('⚠️ Missing coordinates');
       Toast.show({ type: 'error', text1: 'Missing Map Coordinates' });
       return;
     }
@@ -596,72 +845,46 @@ const PropertyCRUDScreen: React.FC = () => {
       images: newImages,
     };
 
-    console.log('📦 Final payload:', JSON.stringify(payload, null, 2));
-    console.log(`🖼️ New images count: ${newImages.length}`);
-    newImages.forEach((img, i) => {
-      console.log(`  Image ${i+1}:`, { uri: img.uri, name: img.name, type: img.type });
-    });
-
     let resultAction;
     if (editingId) {
-      console.log(`✏️ Updating property with ID: ${editingId}`);
       resultAction = await dispatch(updateProperty({ id: editingId, payload }));
     } else {
-      console.log('➕ Creating new property');
       resultAction = await dispatch(createProperty(payload));
     }
 
     if (createProperty.fulfilled.match(resultAction) || updateProperty.fulfilled.match(resultAction)) {
-      console.log('✅ Property saved successfully:', resultAction.payload);
       Toast.show({ type: 'success', text1: 'Property saved successfully!' });
       closeForm();
     } else if (resultAction?.payload) {
-      console.error('❌ Property save failed:', resultAction.payload);
       Toast.show({ type: 'error', text1: 'Error', text2: resultAction.payload as string });
     } else {
-      console.error('❌ Unexpected result action:', resultAction);
       Toast.show({ type: 'error', text1: 'Error', text2: 'Unknown error occurred.' });
     }
   };
 
   const handleDelete = (id: string) => {
-    console.log(`🗑️ Attempting to delete property ${id}`);
     Alert.alert(
       'Delete Listing',
       'Are you sure?',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => {
-          console.log(`🗑️ Dispatching deleteProperty for ${id}`);
           dispatch(deleteProperty(id));
         }},
       ]
     );
   };
 
-  // ---------- COMPLETE FIXED: Open Edit Form ----------
   const openEditForm = (property: Property) => {
-    console.log(`✏️ Opening edit form for property ${property._id}`);
-    console.log('📋 Full property data:', JSON.stringify(property, null, 2));
-    
     const hasCoords =
       Array.isArray(property?.location?.coordinates?.coordinates) &&
       property.location.coordinates.coordinates.length === 2;
 
-    // Parse arrays
     const projectHighlights = safeParseArray(property?.projectHighlights);
     const tags = safeParseArray(property?.tags);
     const amenities = safeParseArray(property?.amenities);
     const images = property?.images || [];
 
-    console.log('📋 Parsed arrays:', {
-      projectHighlights: projectHighlights,
-      tags: tags,
-      amenities: amenities,
-      images: images
-    });
-
-    // ✅ FIX: Properly map ALL fields with proper fallbacks
     const formDataFromProperty: PropertyFormData = {
       title: property?.title || '',
       propertyType: property?.propertyType || 'Apartment',
@@ -682,7 +905,6 @@ const PropertyCRUDScreen: React.FC = () => {
       propertyFloor: property?.configuration?.propertyFloor?.toString() || '',
       carParkingAvailable: property?.configuration?.carParkingAvailable ?? true,
       furnishingStatus: property?.configuration?.furnishingStatus || 'Unfurnished',
-      // ✅ CRITICAL FIX: Map facing with proper fallback
       facing: (property?.configuration?.facing as FacingEnum) || '',
       ownershipType: property?.configuration?.ownershipType || 'Freehold',
       possessionDate: property?.possessionDate ? new Date(property.possessionDate).toISOString().split('T')[0] : '2025-12-31',
@@ -692,23 +914,10 @@ const PropertyCRUDScreen: React.FC = () => {
       amenities: [...amenities],
       websiteUrl: property?.websiteUrl || '',
       virtualTourUrl: property?.virtualTourUrl || '',
-      // ✅ CRITICAL FIX: Map registrationId and maintenanceCharges
       registrationId: property?.registrationId || '',
       maintenanceCharges: property?.maintenanceCharges?.toString() || '',
     };
 
-    console.log('✅ Form data prepared:', formDataFromProperty);
-    console.log('✅ Facing value:', formDataFromProperty.facing);
-    console.log('✅ Registration ID:', formDataFromProperty.registrationId);
-    console.log('✅ Maintenance Charges:', formDataFromProperty.maintenanceCharges);
-    console.log('✅ Tags count:', formDataFromProperty.tags.length);
-    console.log('✅ Tags values:', formDataFromProperty.tags);
-    console.log('✅ Amenities count:', formDataFromProperty.amenities.length);
-    console.log('✅ Amenities values:', formDataFromProperty.amenities);
-    console.log('✅ Highlights count:', formDataFromProperty.projectHighlights.length);
-    console.log('✅ Highlights values:', formDataFromProperty.projectHighlights);
-    
-    // Set all states
     setFormData(formDataFromProperty);
     setExistingImages([...images]);
     setNewImages([]);
@@ -717,7 +926,6 @@ const PropertyCRUDScreen: React.FC = () => {
   };
 
   const closeForm = () => {
-    console.log('🔒 Closing property form');
     setFormData(initialFormData);
     setExistingImages([]);
     setNewImages([]);
@@ -729,15 +937,14 @@ const PropertyCRUDScreen: React.FC = () => {
     <Text style={styles.sectionTitle}>{title}</Text>
   );
 
-  // ---------- Render Form ----------
+  // ================================================================
+  // Render Form with Location Picker
+  // ================================================================
   const renderForm = () => {
-    // Combine existing and new images properly
     const allImages = [
       ...existingImages,
       ...newImages.map(asset => asset.uri)
     ];
-
-    console.log('🖼️ All images:', { existingImages, newImages: newImages.length, total: allImages.length });
 
     return (
       <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
@@ -866,28 +1073,81 @@ const PropertyCRUDScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Location & Map */}
+        {/* ========== LOCATION PICKER ========== */}
         <View style={styles.cardSection}>
-          <View style={[styles.row, { alignItems: 'center', marginBottom: 10 }]}>
+          <View style={styles.locationHeader}>
             <SectionTitle title="Location & Map" />
-            <TouchableOpacity onPress={handleUseGps} style={styles.gpsBtn}>
-              <Ionicons name="navigate" size={14} color="#fff" />
-              <Text style={styles.gpsBtnText}>Use GPS</Text>
+            <TouchableOpacity
+              style={styles.locationSelectBtn}
+              onPress={() => setShowAddressModal(true)}
+            >
+              <Ionicons name="location-outline" size={18} color="#fff" />
+              <Text style={styles.locationSelectText}>Select</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ fontSize: 12, color: '#64748B', marginBottom: 15 }}>
-            GPS will fill coordinates and address details.
-          </Text>
-          <TextInput style={[styles.input, { marginBottom: 10 }]} value={formData.locationCity} onChangeText={(t) => handleChange('locationCity', t)} placeholder="City" />
-          <TextInput style={[styles.input, { marginBottom: 10 }]} value={formData.locationLocality} onChangeText={(t) => handleChange('locationLocality', t)} placeholder="Locality" />
-          <TextInput style={[styles.input, { marginBottom: 10 }]} value={formData.locationState} onChangeText={(t) => handleChange('locationState', t)} placeholder="State" />
-          <TextInput style={[styles.input, { marginBottom: 10 }]} value={formData.locationPincode} onChangeText={(t) => handleChange('locationPincode', t)} placeholder="Pincode" keyboardType="numeric" />
+
+          <TouchableOpacity
+            style={styles.locationSummary}
+            onPress={() => setShowAddressModal(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="location-sharp" size={20} color="#1B8C40" />
+            <Text style={styles.locationSummaryText} numberOfLines={1}>
+              {getLocationSummary()}
+            </Text>
+            <Ionicons name="chevron-down" size={18} color="#6B7280" />
+          </TouchableOpacity>
+
+          {formData.lat && formData.lng && (
+            <Text style={styles.coordsHint}>
+              📌 {parseFloat(formData.lat).toFixed(6)}, {parseFloat(formData.lng).toFixed(6)}
+            </Text>
+          )}
+
+          <Text style={[styles.label, { marginTop: 12 }]}>Manual Override (optional)</Text>
+          <TextInput
+            style={[styles.input, { marginBottom: 10 }]}
+            value={formData.locationCity}
+            onChangeText={(t) => handleChange('locationCity', t)}
+            placeholder="City"
+          />
+          <TextInput
+            style={[styles.input, { marginBottom: 10 }]}
+            value={formData.locationLocality}
+            onChangeText={(t) => handleChange('locationLocality', t)}
+            placeholder="Locality"
+          />
+          <TextInput
+            style={[styles.input, { marginBottom: 10 }]}
+            value={formData.locationState}
+            onChangeText={(t) => handleChange('locationState', t)}
+            placeholder="State"
+          />
+          <TextInput
+            style={[styles.input, { marginBottom: 10 }]}
+            value={formData.locationPincode}
+            onChangeText={(t) => handleChange('locationPincode', t)}
+            placeholder="Pincode"
+            keyboardType="numeric"
+          />
           <View style={styles.row}>
             <View style={styles.halfWidth}>
-              <TextInput style={styles.input} value={formData.lat} onChangeText={(t) => handleChange('lat', t)} placeholder="Latitude" keyboardType="numeric" />
+              <TextInput
+                style={styles.input}
+                value={formData.lat}
+                onChangeText={(t) => handleChange('lat', t)}
+                placeholder="Latitude"
+                keyboardType="numeric"
+              />
             </View>
             <View style={styles.halfWidth}>
-              <TextInput style={styles.input} value={formData.lng} onChangeText={(t) => handleChange('lng', t)} placeholder="Longitude" keyboardType="numeric" />
+              <TextInput
+                style={styles.input}
+                value={formData.lng}
+                onChangeText={(t) => handleChange('lng', t)}
+                placeholder="Longitude"
+                keyboardType="numeric"
+              />
             </View>
           </View>
         </View>
@@ -932,7 +1192,7 @@ const PropertyCRUDScreen: React.FC = () => {
         <View style={[styles.cardSection, { marginBottom: 40 }]}>
           <SectionTitle title="Property Media" />
           <TouchableOpacity style={styles.uploadBtn} onPress={pickImages}>
-            <Ionicons name="images" size={24} color="#4A148C" />
+            <Ionicons name="images" size={24} color="#1B8C40" />
             <Text style={styles.uploadBtnText}>Select Photos from Gallery</Text>
           </TouchableOpacity>
           <View style={styles.galleryGrid}>
@@ -962,17 +1222,42 @@ const PropertyCRUDScreen: React.FC = () => {
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{editingId ? 'Update Property' : 'Publish Listing'}</Text>}
           </TouchableOpacity>
         </View>
+
+        {/* Address Modal (for GPS & Map) */}
+        <AddressModal
+          visible={showAddressModal}
+          onClose={() => setShowAddressModal(false)}
+          onAddCurrentLocation={handleAddCurrentLocation}
+          onOpenMap={handleOpenAddAddress}
+          selectedAddressString={getLocationSummary()}
+          isLoading={isLocating}
+        />
+
+        {/* 🔥 AddAddressScreen as a full-screen modal */}
+        <Modal
+          visible={showAddAddressModal}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={handleCloseAddAddress}
+        >
+          <AddAddressScreen
+            onClose={handleCloseAddAddress}
+            onLocationSelect={handleLocationFromAddAddress}
+          />
+        </Modal>
       </ScrollView>
     );
   };
 
-  // ---------- List View ----------
+  // ================================================================
+  // List View
+  // ================================================================
   if (isFormVisible) return renderForm();
 
   if (loading && properties.length === 0) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#4A148C" />
+        <ActivityIndicator size="large" color="#1B8C40" />
       </View>
     );
   }
@@ -984,10 +1269,7 @@ const PropertyCRUDScreen: React.FC = () => {
           <Text style={styles.greetingText}>Vendor Dashboard</Text>
           <Text style={styles.mainTitle}>My Properties</Text>
         </View>
-        <TouchableOpacity onPress={() => {
-          console.log('➕ Add property button pressed');
-          setIsFormVisible(true);
-        }} style={styles.floatingAddBtn}>
+        <TouchableOpacity onPress={() => setIsFormVisible(true)} style={styles.floatingAddBtn}>
           <Ionicons name="add" size={28} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -1000,7 +1282,7 @@ const PropertyCRUDScreen: React.FC = () => {
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.3}
         ListFooterComponent={renderFooter}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#4A148C" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1B8C40" />}
         renderItem={({ item }) => {
           const coverImage = item?.images?.[0] || 'https://via.placeholder.com/300';
           return (
@@ -1031,7 +1313,7 @@ const PropertyCRUDScreen: React.FC = () => {
                 </View>
                 <View style={styles.listingActions}>
                   <TouchableOpacity onPress={() => openEditForm(item)} style={[styles.actionBtn, styles.editBtn]}>
-                    <Ionicons name="pencil-outline" size={18} color="#4A148C" />
+                    <Ionicons name="pencil-outline" size={18} color="#1B8C40" />
                     <Text style={styles.editBtnText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => handleDelete(item._id)} style={[styles.actionBtn, styles.deleteBtn]}>
@@ -1054,7 +1336,9 @@ const PropertyCRUDScreen: React.FC = () => {
   );
 };
 
-// --------------------- Styles ---------------------
+// ================================================================
+// 5. Styles (green & white theme)
+// ================================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC' },
@@ -1097,12 +1381,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   dropdownOptionActive: {
-    backgroundColor: '#F3E8FF',
+    backgroundColor: '#E8F5E9',
     borderRadius: 8,
     paddingHorizontal: 10,
   },
   dropdownOptionText: { fontSize: 16, color: '#475569', textAlign: 'center' },
-  dropdownOptionTextActive: { color: '#4A148C', fontWeight: '700' },
+  dropdownOptionTextActive: { color: '#1B8C40', fontWeight: '700' },
 
   // ---- Pills ----
   pillContainer: {
@@ -1120,16 +1404,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
     borderColor: 'transparent',
-    shadowColor: '#4A148C',
+    shadowColor: '#1B8C40',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
   pillActive: {
-    backgroundColor: '#F3E8FF',
-    borderColor: '#C084FC',
-    shadowColor: '#4A148C',
+    backgroundColor: '#E8F5E9',
+    borderColor: '#66BB6A',
+    shadowColor: '#1B8C40',
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
@@ -1140,7 +1424,7 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   pillTextActive: {
-    color: '#4A148C',
+    color: '#1B8C40',
   },
   clearPill: {
     paddingHorizontal: 16,
@@ -1171,13 +1455,13 @@ const styles = StyleSheet.create({
   greetingText: { fontSize: 14, color: '#64748B', fontWeight: '600', textTransform: 'uppercase' },
   mainTitle: { fontSize: 28, fontWeight: '800', color: '#0F172A', marginTop: 4 },
   floatingAddBtn: {
-    backgroundColor: '#4A148C',
+    backgroundColor: '#1B8C40',
     width: 50,
     height: 50,
     borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#4A148C',
+    shadowColor: '#1B8C40',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -1211,7 +1495,7 @@ const styles = StyleSheet.create({
   statusBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
   listingBody: { padding: 16 },
   listingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  listingPrice: { fontSize: 20, fontWeight: '800', color: '#4A148C' },
+  listingPrice: { fontSize: 20, fontWeight: '800', color: '#1B8C40' },
   listingBhk: {
     fontSize: 13,
     fontWeight: '600',
@@ -1236,8 +1520,8 @@ const styles = StyleSheet.create({
   vendorPhone: { fontSize: 12, color: '#64748B', marginLeft: 'auto' },
   listingActions: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 12 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8, flex: 1 },
-  editBtn: { backgroundColor: '#F3E8FF', marginRight: 10 },
-  editBtnText: { color: '#4A148C', fontWeight: '700', marginLeft: 6 },
+  editBtn: { backgroundColor: '#E8F5E9', marginRight: 10 },
+  editBtnText: { color: '#1B8C40', fontWeight: '700', marginLeft: 6 },
   deleteBtn: { backgroundColor: '#FEF2F2', flex: 0.3 },
 
   // ---- Empty State ----
@@ -1304,31 +1588,71 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 2,
   },
-  switchTrackActive: { backgroundColor: '#4A148C' },
+  switchTrackActive: { backgroundColor: '#1B8C40' },
   switchThumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff' },
   switchThumbActive: { transform: [{ translateX: 22 }] },
-  gpsBtn: {
+
+  // ---- Location Picker ----
+  locationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  locationSelectBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: '#1B8C40',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 8,
+    gap: 6,
   },
-  gpsBtnText: { color: '#fff', fontSize: 12, fontWeight: '700', marginLeft: 4 },
+  locationSelectText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  locationSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 12,
+  },
+  locationSummaryText: {
+    flex: 1,
+    fontSize: 15,
+    color: '#1E293B',
+    marginLeft: 8,
+    marginRight: 8,
+    fontWeight: '500',
+  },
+  coordsHint: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginBottom: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+
+  // ---- Image Upload ----
   uploadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F3E8FF',
+    backgroundColor: '#E8F5E9',
     borderWidth: 1,
-    borderColor: '#D8B4FE',
+    borderColor: '#66BB6A',
     borderStyle: 'dashed',
     borderRadius: 12,
     paddingVertical: 20,
     marginBottom: 20,
   },
-  uploadBtnText: { color: '#4A148C', fontWeight: '700', fontSize: 15, marginLeft: 10 },
+  uploadBtnText: { color: '#1B8C40', fontWeight: '700', fontSize: 15, marginLeft: 10 },
   galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   galleryItem: { width: '30%', aspectRatio: 1, borderRadius: 12, backgroundColor: '#F1F5F9' },
   galleryImage: { width: '100%', height: '100%', borderRadius: 12 },
@@ -1354,11 +1678,11 @@ const styles = StyleSheet.create({
     borderTopColor: '#E2E8F0',
   },
   submitBtn: {
-    backgroundColor: '#4A148C',
+    backgroundColor: '#1B8C40',
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
-    shadowColor: '#4A148C',
+    shadowColor: '#1B8C40',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,

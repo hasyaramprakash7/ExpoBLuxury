@@ -1,3 +1,4 @@
+// src/vendorScreens/VendorOrderList.tsx
 import React, {
   useEffect,
   useState,
@@ -39,7 +40,7 @@ import { StackNavigationProp } from "@react-navigation/stack";
 import Toast from "react-native-toast-message";
 import WhatsappInvoiceSender from "./WhatsappInvoiceSender";
 import { ShoppingCart, Truck } from "lucide-react-native";
-import { useAudioPlayer } from "expo-audio";
+import { Audio } from "expo-av";
 
 // --- DayJS Configuration ---
 dayjs.extend(relativeTime);
@@ -147,7 +148,10 @@ const PADDING = 15;
 const INITIAL_X = SCREEN_WIDTH - BUTTON_SIZE - PADDING;
 const INITIAL_Y = Platform.OS === "android" ? 65 : 40;
 
-// --- Helper: Infer product unit (same as in CartItem) ---
+// --- Audio Sound Object (Global ref to avoid recreation) ---
+let soundObject: Audio.Sound | null = null;
+
+// --- Helper: Infer product unit ---
 const getProductUnit = (product: any): string => {
   if (product?.unit) return product.unit;
   const name = product?.name?.toLowerCase() || "";
@@ -271,6 +275,60 @@ const FloatingLogisticsButtons = () => {
   );
 };
 
+// --- Audio Helper Functions ---
+const loadNewOrderSound = async () => {
+  try {
+    if (soundObject) {
+      await soundObject.unloadAsync();
+      soundObject = null;
+    }
+    const { sound } = await Audio.Sound.createAsync(
+      require("../../assets/ttsMP3.com_VoiceText_2025-8-18_11-48-44.mp3")
+    );
+    soundObject = sound;
+    await soundObject.setIsLoopingAsync(true);
+    return soundObject;
+  } catch (error) {
+    console.error("Failed to load sound:", error);
+    return null;
+  }
+};
+
+const playNewOrderSound = async () => {
+  try {
+    if (!soundObject) {
+      await loadNewOrderSound();
+    }
+    if (soundObject) {
+      await soundObject.playAsync();
+    }
+  } catch (error) {
+    console.error("Failed to play sound:", error);
+  }
+};
+
+const stopNewOrderSound = async () => {
+  try {
+    if (soundObject) {
+      await soundObject.stopAsync();
+      await soundObject.setPositionAsync(0);
+    }
+  } catch (error) {
+    // Silently handle audio errors
+  }
+};
+
+const unloadSound = async () => {
+  try {
+    if (soundObject) {
+      await soundObject.unloadAsync();
+      soundObject = null;
+    }
+  } catch (error) {
+    // Silently handle audio errors
+  }
+};
+
 // --- Main Component ---
 const VendorOrderList = () => {
   const dispatch: AppDispatch = useDispatch();
@@ -302,9 +360,13 @@ const VendorOrderList = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const newOrderSound = useAudioPlayer(
-    require("../../assets/ttsMP3.com_VoiceText_2025-8-18_11-48-44.mp3"),
-  );
+  // --- Load sound on mount ---
+  useEffect(() => {
+    loadNewOrderSound();
+    return () => {
+      unloadSound();
+    };
+  }, []);
 
   // --- AsyncStorage Caching ---
   const saveOrdersToCache = async (orders: Order[]) => {
@@ -328,35 +390,6 @@ const VendorOrderList = () => {
     }
     return false;
   }, [dispatch]);
-
-  // --- Audio ---
-  const playNewOrderSound = () => {
-    try {
-      if (newOrderSound) {
-        newOrderSound.loop = true;
-        newOrderSound.play();
-      }
-    } catch (e) {
-      console.error("Failed to play new order sound:", e);
-    }
-  };
-
-  const stopNewOrderSound = () => {
-    try {
-      if (newOrderSound) {
-        newOrderSound.pause();
-        newOrderSound.seekTo(0);
-      }
-    } catch (e) {
-      console.error("Failed to stop new order sound:", e);
-    }
-  };
-
-  const handleNewOrderAcknowledgment = () => {
-    stopNewOrderSound();
-    setIsNewOrderAlertActive(false);
-    setUnseenOrderCount(0);
-  };
 
   // --- Fetch Orders ---
   const fetchOrders = useCallback(
@@ -406,7 +439,7 @@ const VendorOrderList = () => {
         setIsRefreshing(false);
       }
     },
-    [vendorId, dispatch, newOrderSound],
+    [vendorId, dispatch],
   );
 
   const onRefresh = useCallback(() => {
@@ -438,7 +471,11 @@ const VendorOrderList = () => {
           ? `You have ${unseenOrderCount} new orders that were placed while you were away.`
           : "A new order has been placed. Please review it now.";
       Alert.alert("New Order Received! 🔔", message, [
-        { text: "OK", onPress: handleNewOrderAcknowledgment },
+        { text: "OK", onPress: () => {
+          stopNewOrderSound();
+          setIsNewOrderAlertActive(false);
+          setUnseenOrderCount(0);
+        }},
       ]);
     }
   }, [isNewOrderAlertActive, unseenOrderCount]);
@@ -458,42 +495,43 @@ const VendorOrderList = () => {
   };
 
   // --- Helpers ---
-  const handleStatusChange = (
-    orderId: string,
-    currentOrderStatus: string,
-    newStatus: string,
-  ) => {
-    if (currentOrderStatus === newStatus) return;
-    Alert.alert(
-      "Confirm Status Change",
-      `Are you sure you want to change this order's status to "${newStatus}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Yes",
-          onPress: () => {
-            if (newStatus === "processing") {
-              handleNewOrderAcknowledgment();
-            }
-            dispatch(updateVendorOrderStatus({ orderId, newStatus }))
-              .unwrap()
-              .then(() => {
-                Toast.show({
-                  type: "success",
-                  text1: `Order ${orderId.slice(-8)} status updated to ${newStatus}.`,
+  const handleStatusChange = useCallback(
+    (orderId: string, currentOrderStatus: string, newStatus: string) => {
+      if (currentOrderStatus === newStatus) return;
+      Alert.alert(
+        "Confirm Status Change",
+        `Are you sure you want to change this order's status to "${newStatus}"?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Yes",
+            onPress: () => {
+              if (newStatus === "processing") {
+                stopNewOrderSound();
+                setIsNewOrderAlertActive(false);
+                setUnseenOrderCount(0);
+              }
+              dispatch(updateVendorOrderStatus({ orderId, newStatus }))
+                .unwrap()
+                .then(() => {
+                  Toast.show({
+                    type: "success",
+                    text1: `Order ${orderId.slice(-8)} status updated to ${newStatus}.`,
+                  });
+                })
+                .catch((err) => {
+                  Toast.show({
+                    type: "error",
+                    text1: err.message || "Failed to update order status.",
+                  });
                 });
-              })
-              .catch((err) => {
-                Toast.show({
-                  type: "error",
-                  text1: err.message || "Failed to update order status.",
-                });
-              });
+            },
           },
-        },
-      ],
-    );
-  };
+        ],
+      );
+    },
+    [dispatch],
+  );
 
   const handleAssignDeliveryBoy = (order: Order) => {
     if (!order || !order._id) {

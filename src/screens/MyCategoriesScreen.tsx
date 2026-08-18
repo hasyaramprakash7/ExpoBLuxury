@@ -12,10 +12,9 @@ import {
   TextInput,
   RefreshControl,
 } from "react-native";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { useSelector, useDispatch } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
-
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
 import NewProductCard from "../components/NewProductCard11";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
@@ -61,7 +60,6 @@ const shuffleArray = (array) => {
   return newArr;
 };
 
-// --- Floating Cart Bar ---
 const FloatingCartBar = ({ cartItems }) => {
   const navigation = useNavigation();
   const getEffectivePrice = (product, qty) => {
@@ -74,9 +72,8 @@ const FloatingCartBar = ({ cartItems }) => {
   const total = useMemo(() => {
     const subtotal = cartItems.reduce(
       (sum, item) =>
-        sum +
-        getEffectivePrice(item.productId || {}, item.quantity) * item.quantity,
-      0,
+        sum + getEffectivePrice(item.productId || {}, item.quantity) * item.quantity,
+      0
     );
     return subtotal + subtotal * 0.03 + subtotal * 0.05; // Platform + GST
   }, [cartItems]);
@@ -108,13 +105,13 @@ const MyCategoriesScreen = () => {
   const [shuffleIndex, setShuffleIndex] = useState(0);
 
   const { location: userLocation, loading: isLocLoading } = useSelector(
-    (state) => state.location,
+    (state) => state.location
   );
   const { allProducts, loading: prodLoading } = useSelector(
-    (state) => state.vendorProducts,
+    (state) => state.vendorProducts
   );
   const { allVendors, loading: vendLoading } = useSelector(
-    (state) => state.vendorAuth,
+    (state) => state.vendorAuth
   );
   const cartItems = useSelector((state) => state.cart.items);
 
@@ -150,7 +147,7 @@ const MyCategoriesScreen = () => {
           userLocation.latitude,
           userLocation.longitude,
           v.address.latitude,
-          v.address.longitude,
+          v.address.longitude
         );
         return dist <= (v.deliveryRange || 10);
       }) || [];
@@ -160,7 +157,7 @@ const MyCategoriesScreen = () => {
       products = products.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q),
+          p.category.toLowerCase().includes(q)
       );
     }
 
@@ -316,7 +313,7 @@ const MyCategoriesScreen = () => {
         data={filteredProducts}
         renderItem={renderProductCard}
         keyExtractor={(item) => item._id}
-        numColumns={1} // SINGLE ROW
+        numColumns={1}
         key={`single-col-${shuffleIndex}`}
         contentContainerStyle={{ paddingBottom: hasCart ? 120 : 40 }}
         refreshControl={
@@ -327,7 +324,7 @@ const MyCategoriesScreen = () => {
           />
         }
       />
-      {/* {hasCart && <FloatingCartBar cartItems={Object.values(cartItems)} />} */}
+      {hasCart && <FloatingCartBar cartItems={Object.values(cartItems)} />}
     </SafeAreaView>
   );
 };
@@ -355,7 +352,6 @@ const styles = StyleSheet.create({
   },
   categoryText: { fontSize: 10, color: "#444" },
   activeCategoryText: { fontWeight: "bold", color: Colors.starbucksGreen },
-
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -368,7 +364,6 @@ const styles = StyleSheet.create({
     borderColor: "#DDD",
   },
   searchInput: { flex: 1, fontSize: 14 },
-
   filterRow: { flexDirection: "row", paddingHorizontal: 15, paddingBottom: 1 },
   filterBtn: {
     flex: 1,
@@ -385,7 +380,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.starbucksGreen,
   },
   filterBtnText: { fontSize: 12, color: "#444" },
-
   singleRowContainer: {
     width: "100%",
     paddingHorizontal: 10,

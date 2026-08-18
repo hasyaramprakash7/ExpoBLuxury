@@ -13,27 +13,11 @@ import {
 import { useDispatch, useSelector } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useNavigation } from "@react-navigation/native";
-
-// --- Redux Slices & Types ---
 import { AppDispatch, RootState } from "../app/store";
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
 import { fetchLocationStart } from "../features/locationSlice";
 import { Product } from "../components/NewProductCard";
-
-interface Vendor {
-  _id: string;
-  shopName: string;
-  isOnline: boolean;
-  address?: {
-    latitude?: number;
-    longitude?: number;
-  };
-  deliveryRange?: number;
-  shopImage: string;
-}
-
-// --- NewProductCard Component ---
 import NewProductCard from "../components/NewProductCard11";
 
 // --- Color Palette and Constants ---
@@ -72,7 +56,6 @@ const haversineDistance = (lat1, lon1, lat2, lon2) => {
   return distance;
 };
 
-// Helper function to handle category name formatting
 const getCategoryName = (fullCategoryName) => {
   const parts = fullCategoryName.split("_");
   if (fullCategoryName.toLowerCase().includes("hotels")) {
@@ -83,16 +66,12 @@ const getCategoryName = (fullCategoryName) => {
   return parts[parts.length - 1];
 };
 
-// ===================================================================================
-// == MAIN SCREEN COMPONENT: ProductSearchScreen
-// ===================================================================================
 const ProductSearchScreen: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation();
   const [query, setQuery] = useState("");
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
 
-  // --- Use the shared location state from the Redux store ---
   const {
     location: userLocation,
     loading: isLocationLoading,
@@ -109,14 +88,13 @@ const ProductSearchScreen: React.FC = () => {
     error: vendorsError,
   } = useSelector((state: RootState) => state.vendorAuth);
 
-  // --- Fetch products and vendors once on component mount ---
   useEffect(() => {
     dispatch(fetchAllVendorProducts());
     dispatch(fetchAllVendors());
   }, [dispatch]);
 
   const vendorMap = useMemo(() => {
-    const map: { [key: string]: Vendor } = {};
+    const map: { [key: string]: any } = {};
     allVendors?.forEach((vendor) => {
       map[vendor._id] = vendor;
     });
@@ -124,10 +102,8 @@ const ProductSearchScreen: React.FC = () => {
   }, [allVendors]);
 
   const inRangeVendors = useMemo(() => {
-    if (!allVendors || !userLocation) {
-      return [];
-    }
-    const vendorsWithDistance = allVendors
+    if (!allVendors || !userLocation) return [];
+    return allVendors
       .map((vendor) => {
         if (
           !vendor.address ||
@@ -142,7 +118,7 @@ const ProductSearchScreen: React.FC = () => {
           userLocation.latitude,
           userLocation.longitude,
           vendor.address.latitude,
-          vendor.address.longitude,
+          vendor.address.longitude
         );
         if (distance <= vendor.deliveryRange) {
           return { ...vendor, distance };
@@ -150,28 +126,20 @@ const ProductSearchScreen: React.FC = () => {
         return null;
       })
       .filter(Boolean);
-    return vendorsWithDistance;
   }, [allVendors, userLocation]);
 
   const inRangeProducts = useMemo(() => {
-    if (
-      !allProducts ||
-      allProducts.length === 0 ||
-      !inRangeVendors ||
-      inRangeVendors.length === 0
-    ) {
+    if (!allProducts || allProducts.length === 0 || !inRangeVendors || inRangeVendors.length === 0) {
       return [];
     }
     const inRangeVendorIds = inRangeVendors.map((vendor) => vendor._id);
     return allProducts.filter((product) =>
-      inRangeVendorIds.includes(product.vendorId),
+      inRangeVendorIds.includes(product.vendorId)
     );
   }, [allProducts, inRangeVendors]);
 
   const uniqueBrands = useMemo(() => {
-    if (!inRangeProducts || inRangeProducts.length === 0) {
-      return [];
-    }
+    if (!inRangeProducts || inRangeProducts.length === 0) return [];
     const brandsMap = new Map();
     inRangeProducts.forEach((product) => {
       if (product.brandName && !brandsMap.has(product.brandName)) {
@@ -179,7 +147,7 @@ const ProductSearchScreen: React.FC = () => {
           (p) =>
             p.brandName === product.brandName &&
             p.images &&
-            p.images.length > 0,
+            p.images.length > 0
         );
         const imageUrl = firstImageProduct?.images?.[0];
         brandsMap.set(product.brandName, { name: product.brandName, imageUrl });
@@ -189,15 +157,13 @@ const ProductSearchScreen: React.FC = () => {
   }, [inRangeProducts]);
 
   const uniqueCategories = useMemo(() => {
-    if (!inRangeProducts || inRangeProducts.length === 0) {
-      return [];
-    }
+    if (!inRangeProducts || inRangeProducts.length === 0) return [];
     const categoriesMap = new Map();
     inRangeProducts.forEach((product) => {
       if (product.category && !categoriesMap.has(product.category)) {
         const firstImageProduct = inRangeProducts.find(
           (p) =>
-            p.category === product.category && p.images && p.images.length > 0,
+            p.category === product.category && p.images && p.images.length > 0
         );
         const imageUrl = firstImageProduct?.images?.[0];
         categoriesMap.set(product.category, {
@@ -211,17 +177,16 @@ const ProductSearchScreen: React.FC = () => {
 
   const hotelsCategory = useMemo(() => {
     return uniqueCategories.filter((cat) =>
-      cat.name.toLowerCase().includes("hotels"),
+      cat.name.toLowerCase().includes("hotels")
     );
   }, [uniqueCategories]);
 
   const otherCategories = useMemo(() => {
     return uniqueCategories.filter(
-      (cat) => !cat.name.toLowerCase().includes("hotels"),
+      (cat) => !cat.name.toLowerCase().includes("hotels")
     );
   }, [uniqueCategories]);
 
-  // Search logic now filters within in-range products
   useEffect(() => {
     if (!query.trim()) {
       setFilteredProducts([]);
@@ -245,23 +210,17 @@ const ProductSearchScreen: React.FC = () => {
 
   const isLoading = productsLoading || vendorsLoading || isLocationLoading;
 
-  // --- Handler for the retry button to re-fetch location ---
   const handleRetryLocation = useCallback(() => {
-    // Trigger a new location fetch from the Redux slice.
-    // This ensures consistency with the HomeScreen.
     dispatch(fetchLocationStart());
   }, [dispatch]);
 
-  // Renders a vertical grid of items
   const renderVerticalGrid = (
     title: string,
     data: any[],
     onPressItem: (item: any) => void,
-    renderItem: (item: any) => React.ReactNode,
+    renderItem: (item: any) => React.ReactNode
   ) => {
-    if (data.length === 0) {
-      return null;
-    }
+    if (data.length === 0) return null;
     return (
       <View style={styles.sectionContainer}>
         <Text style={styles.sectionTitle}>{title}</Text>
@@ -280,7 +239,6 @@ const ProductSearchScreen: React.FC = () => {
     );
   };
 
-  // Renders the content for a grid item
   const renderGridItemContent = (item, type) => (
     <>
       <Image
@@ -307,9 +265,7 @@ const ProductSearchScreen: React.FC = () => {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.greenPrimary} />
           <Text style={styles.loadingText}>
-            {isLocationLoading
-              ? "Finding your location..."
-              : "Loading products..."}
+            {isLocationLoading ? "Finding your location..." : "Loading products..."}
           </Text>
         </View>
       );
@@ -346,7 +302,6 @@ const ProductSearchScreen: React.FC = () => {
     }
 
     if (query.trim()) {
-      // Show search results
       return (
         <View style={styles.productsGridContainer}>
           <Text style={[styles.sectionTitle, { marginLeft: 0 }]}>
@@ -372,26 +327,25 @@ const ProductSearchScreen: React.FC = () => {
         </View>
       );
     } else {
-      // Show categorized/branded lists when no query
       return (
         <>
           {renderVerticalGrid(
             "Hotels",
             hotelsCategory,
             handleCategoryPress,
-            (item) => renderGridItemContent(item, "category"),
+            (item) => renderGridItemContent(item, "category")
           )}
           {renderVerticalGrid(
             "Brands",
             uniqueBrands,
             handleBrandPress,
-            (item) => renderGridItemContent(item, "brand"),
+            (item) => renderGridItemContent(item, "brand")
           )}
           {renderVerticalGrid(
             "Categories",
             otherCategories,
             handleCategoryPress,
-            (item) => renderGridItemContent(item, "category"),
+            (item) => renderGridItemContent(item, "category")
           )}
         </>
       );
@@ -406,7 +360,7 @@ const ProductSearchScreen: React.FC = () => {
           placeholder="Search products, categories, vendors, or tags..."
           value={query}
           onChangeText={setQuery}
-          autoFocus={true} // The key addition for immediate input
+          autoFocus={true}
         />
         <Ionicons
           name="search"
@@ -420,7 +374,6 @@ const ProductSearchScreen: React.FC = () => {
   );
 };
 
-// --- STYLES ---
 const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
@@ -447,17 +400,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginRight: 10,
   },
-  searchIcon: {
-    padding: 8,
-  },
-  mainScrollView: {
-    flex: 1,
-  },
-  sectionContainer: {
-    marginTop: 20,
-    paddingHorizontal: 15,
-    marginBottom: 100,
-  },
+  searchIcon: { padding: 8 },
+  mainScrollView: { flex: 1 },
+  sectionContainer: { marginTop: 20, paddingHorizontal: 15, marginBottom: 100 },
   sectionTitle: {
     fontSize: 22,
     fontWeight: "bold",
@@ -470,11 +415,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 50,
   },
-  loadingText: {
-    marginTop: 10,
-    color: Colors.grayText,
-    fontSize: 16,
-  },
+  loadingText: { marginTop: 10, color: Colors.grayText, fontSize: 16 },
   errorContainer: {
     flex: 1,
     justifyContent: "center",

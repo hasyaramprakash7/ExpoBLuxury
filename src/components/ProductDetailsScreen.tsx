@@ -47,7 +47,7 @@ interface Product {
   bulkMinimumUnits?: number;
   largeQuantityPrice?: number;
   largeQuantityMinimumUnits?: number;
-  unit?: string;          // NEW: e.g., "kg", "g", "units", "piece"
+  unit?: string;
 }
 
 type RootStackParamList = {
@@ -70,6 +70,7 @@ const Colors = {
   saveYellow: "#FACC15",
   bgOverlay: "rgba(0,0,0,0.6)",
   goldPrimary: "#FFFFFF",
+  royalGreen: "#1B8C40",
 };
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -93,7 +94,7 @@ const FloatingProductDetailScreen = () => {
     );
   }, [product.name, product.category]);
 
-  // --- DYNAMIC UNIT (inferred from product.unit, category, name, sizes) ---
+  // --- DYNAMIC UNIT ---
   const unitLabel = useMemo(() => {
     if (product.unit) return product.unit;
 
@@ -319,6 +320,10 @@ const FloatingProductDetailScreen = () => {
 
   // --- CART ACTIONS ---
   const handleCartAction = async (qtyToDispatch: number) => {
+    // Prevent adding to cart if stock is 0 (walk-in product)
+    if (displayStock === 0) {
+      return showToast("This is a walk-in product. Please visit the store.", "info");
+    }
     if (isVendorOffline)
       return showToast("Vendor is currently offline.", "error");
     if (isVendorOutOfRange)
@@ -371,6 +376,9 @@ const FloatingProductDetailScreen = () => {
   };
 
   const handleQuantityBlur = async () => {
+    // Don't allow quantity changes for walk-in products
+    if (displayStock === 0) return;
+    
     setIsEditingQty(false);
     let numericalQuantity = currentNumericalQuantity;
     if (numericalQuantity === 0 && (cartItem?.quantity || 0) > 0) {
@@ -390,6 +398,10 @@ const FloatingProductDetailScreen = () => {
   };
 
   const handleQuantityButtonClick = async (increment: boolean) => {
+    // Don't allow quantity changes for walk-in products
+    if (displayStock === 0) {
+      return showToast("This is a walk-in product. Please visit the store.", "info");
+    }
     if (requiresSizeSelection && !selectedSize)
       return showToast("Please select a size.", "warn");
     let newQty;
@@ -406,11 +418,12 @@ const FloatingProductDetailScreen = () => {
   };
 
   const handleAddToCartClick = async () => {
-    if (isDisabled || displayStock === 0)
-      return showToast(
-        displayStock === 0 ? "Out of stock." : "Vendor unavailable.",
-        "error",
-      );
+    // Prevent adding to cart for walk-in products
+    if (displayStock === 0) {
+      return showToast("This is a walk-in product. Please visit the store to purchase.", "info");
+    }
+    if (isDisabled)
+      return showToast("Vendor unavailable.", "error");
     if (requiresSizeSelection && !selectedSize)
       return showToast("Please select a size.", "warn");
     if (!showQuantityInput || currentNumericalQuantity === 0) {
@@ -421,14 +434,16 @@ const FloatingProductDetailScreen = () => {
   };
 
   const isDisabled = isVendorOffline || isVendorOutOfRange;
+  const isWalkIn = displayStock === 0;
+  
   const isAddToCartButtonDisabled =
     isDisabled ||
-    displayStock === 0 ||
+    isWalkIn ||
     isAddingToCart ||
     (requiresSizeSelection && !selectedSize);
 
   const getButtonText = () => {
-    if (displayStock === 0) return "Out of Stock";
+    if (isWalkIn) return "Visit Store";
     if (isDisabled) return isVendorOffline ? "Offline" : "Out of Range";
     if (requiresSizeSelection && !selectedSize) return "Select Size";
     return "   Order Now   ";
@@ -463,7 +478,7 @@ const FloatingProductDetailScreen = () => {
       </TouchableWithoutFeedback>
 
       <View style={styles.sheetContainer}>
-        {/* --- IMAGE CAROUSEL (replaces single background image) --- */}
+        {/* --- IMAGE CAROUSEL (No overlay for walk-in) --- */}
         {images.length > 0 ? (
           <>
             <FlatList
@@ -499,7 +514,7 @@ const FloatingProductDetailScreen = () => {
           </View>
         )}
 
-        {/* Gradient Overlay */}
+        {/* Gradient Overlay - Only for non-walk-in products or keep it subtle */}
         <LinearGradient
           colors={["transparent", "rgba(0,0,0,0.8)", "#000000"]}
           locations={[0.2, 0.65, 1]}
@@ -517,20 +532,6 @@ const FloatingProductDetailScreen = () => {
             )}
           </View>
           <View style={styles.topRightControls}>
-            {/* <TouchableOpacity
-              onPress={() =>
-                navigation.navigate("ChatScreen" as any, {
-                  forwardProduct: product,
-                })
-              }
-              style={styles.iconButton}
-            >
-              <Ionicons
-                name="arrow-redo-outline"
-                size={20}
-                color={Colors.white}
-              />
-            </TouchableOpacity> */}
             <TouchableOpacity
               onPress={() => navigation.goBack()}
               style={[styles.iconButton, { marginLeft: 10 }]}
@@ -575,7 +576,15 @@ const FloatingProductDetailScreen = () => {
                   )}
               </View>
 
-              {/* --- SIZE PILLS (NOW ACTIVE) --- */}
+              {/* Walk-in Badge - Royal Green */}
+              {isWalkIn && (
+                <View style={styles.walkInBadge}>
+                  <Ionicons name="storefront-outline" size={16} color={Colors.royalGreen} />
+                  <Text style={styles.walkInBadgeText}>Available in-store only</Text>
+                </View>
+              )}
+
+              {/* --- SIZE PILLS --- */}
               {requiresSizeSelection && (
                 <ScrollView
                   horizontal
@@ -606,8 +615,8 @@ const FloatingProductDetailScreen = () => {
                 </ScrollView>
               )}
 
-              {/* Price Tiers with dynamic unit */}
-              {priceTiers.length > 0 && (
+              {/* Price Tiers - Hidden for walk-in products */}
+              {!isWalkIn && priceTiers.length > 0 && (
                 <View style={styles.priceTiersContainer}>
                   {priceTiers.map((tier, index) => (
                     <View key={index} style={styles.priceTierItem}>
@@ -635,7 +644,11 @@ const FloatingProductDetailScreen = () => {
 
             {/* Right side: Add/Quantity controls */}
             <View style={styles.rightActionSide}>
-              {isDisabled || displayStock === 0 ? (
+              {isWalkIn ? (
+                <View style={[styles.controlBtnStyle, styles.walkInBtn]}>
+                  <Text style={styles.walkInBtnText}>Visit Store</Text>
+                </View>
+              ) : isDisabled || displayStock === 0 ? (
                 <View style={[styles.controlBtnStyle, styles.addBtnDisabled]}>
                   <Text style={styles.disabledBtnText}>{getButtonText()}</Text>
                 </View>
@@ -734,7 +747,7 @@ const FloatingProductDetailScreen = () => {
               )}
 
               <Text style={styles.stockAlertText}>
-                {displayStock > 0 && displayStock <= 10
+                {!isWalkIn && displayStock > 0 && displayStock <= 10
                   ? `Only ${displayStock} left!`
                   : ""}
               </Text>
@@ -750,7 +763,7 @@ const FloatingProductDetailScreen = () => {
   );
 };
 
-// --- STYLES (updated/extended) ---
+// --- STYLES ---
 const styles = StyleSheet.create({
   overlayContainer: {
     flex: 1,
@@ -894,6 +907,25 @@ const styles = StyleSheet.create({
     textDecorationLine: "line-through",
     marginLeft: 10,
   },
+  // Walk-in styles - Royal Green
+  walkInBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    backgroundColor: "rgba(27, 140, 64, 0.15)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: Colors.royalGreen,
+  },
+  walkInBadgeText: {
+    color: Colors.royalGreen,
+    fontSize: 13,
+    fontWeight: "600",
+    marginLeft: 6,
+  },
   // Size pills
   sizeScrollView: {
     marginVertical: 8,
@@ -1007,6 +1039,17 @@ const styles = StyleSheet.create({
     color: Colors.textLightGray,
     lineHeight: 22,
     marginTop: 16,
+  },
+  // Walk-in button styles
+  walkInBtn: {
+    backgroundColor: Colors.royalGreen,
+    borderWidth: 1,
+    borderColor: Colors.royalGreen,
+  },
+  walkInBtnText: {
+    color: Colors.white,
+    fontWeight: "900",
+    fontSize: 16,
   },
 });
 

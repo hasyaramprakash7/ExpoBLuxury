@@ -13,13 +13,16 @@ import {
 import { useSelector } from "react-redux";
 import { RootState } from "../app/store";
 
-// Screen Imports
-import ChatScreen from "../screens/ChatScreen";
+// ---------- Screen Imports ----------
+import ChatScreen from "../navigation/CategoryManagementScreen";
 import HomeScreen from "../screens/HomeScreen";
 import InsuranceProductsAndDetails from "../navigation/BrowserScreen";
 import UserOrderScreen from "../userScreens/UserOrderScreen";
 import ProductSearchScreen from "../screens/UserPropertyListScreen";
 import Search from "../screens/UserRentalListScreen";
+import ShopListings from "../screens/ShopListings";
+import AdManagementScreen from "../screens/AdManagementScreen";
+import AdListScreen from "../screens/AdListScreen";
 
 const { width } = Dimensions.get("window");
 
@@ -28,11 +31,6 @@ const ROYAL_GREEN_PRO = "#166534";
 const INACTIVE_COLOR = "#8E8E93";
 const CART_ZONE_WIDTH = 80;
 
-const SCROLL_ZONE_WIDTH = width - CART_ZONE_WIDTH;
-// Total 6 scrollable tabs to fit perfectly
-const ITEM_WIDTH = SCROLL_ZONE_WIDTH / 6;
-
-// --- Shadows ---
 const heavyDropShadow = {
   textShadowColor: "rgba(0, 0, 0, 0.25)",
   textShadowOffset: { width: 0, height: 4 },
@@ -45,7 +43,6 @@ const activeGlow = {
   textShadowRadius: 8,
 };
 
-// --- THE FIX FOR CLIPPING ---
 const unclipShadow = {
   paddingBottom: 15,
   marginBottom: -15,
@@ -55,14 +52,13 @@ const unclipShadow = {
 
 const Tab = createBottomTabNavigator();
 
+// ---------- Dynamic Tab Bar ----------
 const ScrollableUnderCartTabBar = ({ state, navigation }) => {
   const scrollViewRef = useRef(null);
 
-  // 1. Identify if the active screen is the Property screen
   const activeRouteName = state.routes[state.index].name;
   const isPropertyActive = activeRouteName === "RealEstate";
 
-  // 2. Define Dynamic Colors based on active screen
   const navBgColor = isPropertyActive ? "#000000" : "#FFFFFF";
   const navTextColor = isPropertyActive ? "#FFFFFF" : "#333333";
   const dividerColor = isPropertyActive
@@ -73,19 +69,24 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
   const cartItems = useSelector((state: RootState) => state.cart.items);
   const totalCount = useMemo(
     () => cartItems.reduce((s, i) => s + i.quantity, 0),
-    [cartItems],
+    [cartItems]
   );
+
+  const routeCount = state.routes.length;
+  const SCROLL_ZONE_WIDTH = width - CART_ZONE_WIDTH;
+  // ✅ Use a flexible width: at least 65px per item, but distribute remaining space
+  const ITEM_WIDTH = Math.max(65, SCROLL_ZONE_WIDTH / routeCount);
 
   useEffect(() => {
     scrollViewRef.current?.scrollTo({
       x: Math.max(0, state.index * ITEM_WIDTH - ITEM_WIDTH / 2),
       animated: true,
     });
-  }, [state.index]);
+  }, [state.index, ITEM_WIDTH]);
 
   return (
     <View style={[tabStyles.mainContainer, { backgroundColor: navBgColor }]}>
-      {/* --- FIXED LEFT ZONE (CART) --- */}
+      {/* Fixed CART Zone */}
       <View style={tabStyles.fixedCartZone}>
         <TouchableOpacity
           onPress={() => navigation.navigate("CartScreen" as never)}
@@ -112,17 +113,18 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
               heavyDropShadow,
               unclipShadow,
             ]}
+            numberOfLines={1}
+            ellipsizeMode="clip"
           >
             Cart
           </Text>
         </TouchableOpacity>
-
         <View
           style={[tabStyles.verticalDivider, { backgroundColor: dividerColor }]}
         />
       </View>
 
-      {/* --- SCROLL ZONE (TABS) --- */}
+      {/* Scrollable Tabs */}
       <View style={tabStyles.scrollZone}>
         <ScrollView
           ref={scrollViewRef}
@@ -142,12 +144,15 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
                 key={route.key}
                 onPress={() => navigation.navigate(route.name)}
                 activeOpacity={0.6}
-                style={tabStyles.tabItem}
+                style={[
+                  tabStyles.tabItem,
+                  { width: ITEM_WIDTH, minWidth: 60 }, // ✅ ensure minimum width
+                ]}
               >
                 <View style={tabStyles.iconWrapper}>
                   <Ionicons
                     name={getIcon(route.name, isFocused)}
-                    size={22}
+                    size={24}
                     color={activeColor}
                     style={[currentShadow, unclipShadow]}
                   />
@@ -159,6 +164,8 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
                     currentShadow,
                     unclipShadow,
                   ]}
+                  numberOfLines={1}
+                  ellipsizeMode="clip"
                 >
                   {getLabel(route.name)}
                 </Text>
@@ -171,50 +178,85 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
   );
 };
 
+// ---------- Icon & Label Helpers ----------
 const getIcon = (name, focused) => {
   const icons = {
-    Order: focused ? "storefront" : "storefront-outline",
-    RealEstate: focused ? "home" : "home-outline",
+    Shops: focused ? "storefront" : "storefront-outline",
     Rental: focused ? "key" : "key-outline",
-    Home: focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline",
+    Order: focused ? "bag" : "bag-outline",
+    RealEstate: focused ? "home" : "home-outline",
     POS: focused ? "calculator" : "calculator-outline",
     Pay: focused ? "wallet" : "wallet-outline",
+    AdList: focused ? "list" : "list-outline",
+    Home: focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline",
+    AdManagement: focused ? "settings" : "settings-outline",
   };
   return icons[name] || "apps-outline";
 };
 
 const getLabel = (name) => {
   const labels = {
+    Shops: "Shops",
+    Rental: "Rental",
     Order: "Shop",
     RealEstate: "Property",
-    Rental: "Rental",
-    Home: "Chat",
     POS: "POS",
     Pay: "Pay",
+    AdList: "Brands",
+    Home: "Chat",
+    AdManagement: "Ad Mgt",
   };
   return labels[name] || name;
 };
 
+// ---------- Main Navigator ----------
 const UserTabNavigator = () => {
+  const user = useSelector((state: RootState) => state.auth.user);
+
+  const rawPhone = user?.phone || user?.mobile || "";
+  let normalizedPhone = rawPhone.replace(/\D/g, "");
+  if (normalizedPhone.startsWith("91")) {
+    normalizedPhone = normalizedPhone.substring(2);
+  }
+
+  const isSpecialUser = normalizedPhone === "7893828468";
+
+  const baseScreens = [
+    { name: "Shops", component: ShopListings },
+    { name: "Rental", component: Search },
+            { name: "AdList", component: AdListScreen },
+
+    { name: "RealEstate", component: ProductSearchScreen },
+    { name: "Order", component: HomeScreen },
+
+    { name: "POS", component: InsuranceProductsAndDetails },
+    { name: "Pay", component: UserOrderScreen },
+  ];
+
+  const extraScreens = isSpecialUser
+    ? [
+        { name: "Home", component: ChatScreen },
+        { name: "AdManagement", component: AdManagementScreen },
+      ]
+    : [];
+
+  const screens = [...baseScreens, ...extraScreens];
+
   return (
     <View style={{ flex: 1, backgroundColor: "#F9F9F9" }}>
       <Tab.Navigator
         tabBar={(props) => <ScrollableUnderCartTabBar {...props} />}
         screenOptions={{ headerShown: false }}
       >
-        <Tab.Screen name="Order" component={HomeScreen} />
-        <Tab.Screen name="RealEstate" component={ProductSearchScreen} />
-        <Tab.Screen name="Rental" component={Search} />
-                <Tab.Screen name="POS" component={InsuranceProductsAndDetails} />
-
-        {/* <Tab.Screen name="Home" component={ChatScreen} /> */}
-        <Tab.Screen name="Pay" component={UserOrderScreen} />
+        {screens.map(({ name, component }) => (
+          <Tab.Screen key={name} name={name} component={component} />
+        ))}
       </Tab.Navigator>
     </View>
   );
 };
 
-// --- Styles ---
+// ---------- Styles ----------
 const tabStyles = StyleSheet.create({
   mainContainer: {
     width: width,
@@ -286,30 +328,33 @@ const tabStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 0.3,
+    textAlign: "center",
   },
   scrollZone: {
     flex: 1,
     overflow: "visible",
   },
   scrollContent: {
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
     alignItems: "center",
     overflow: "visible",
   },
   tabItem: {
-    width: ITEM_WIDTH,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "transparent",
     paddingTop: 6,
     paddingBottom: 10,
-    marginHorizontal: 8,
+    marginHorizontal: 0,
     overflow: "visible",
   },
-    tabLabel: {
+  tabLabel: {
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
+    marginTop: 8,
+    textAlign: "center",
+    flexShrink: 0, // ✅ prevents text from compressing
   },
 });
 

@@ -1,3 +1,4 @@
+// App.tsx - Updated with CategoryShopsScreen
 import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
@@ -33,6 +34,7 @@ import { useShareIntent } from "expo-share-intent";
 import {
   setupNotifications,
   registerForPushNotificationsAsync,
+  setupLeadNotificationListener,
 } from "./src/userScreens/utils/NotificationHelper";
 import { store, persistor, RootState, AppDispatch } from "./src/app/store";
 import socket, {
@@ -74,6 +76,7 @@ import CartScreen from "./src/screens/Cart";
 import Chatscreen from "./src/screens/ChatScreen";
 import ShopListings from "./src/screens/ShopListings";
 import ShopDetails from "./src/screens/ShopDetails";
+import CategoryShopsScreen from "./src/screens/CategoryShopsScreen"; // 🔥 ADD THIS IMPORT
 import CategoryProductsScreen from "./src/screens/CategoryProductsScreen";
 import ShopProductsScreen from "./src/screens/ShopProductsScreen";
 import BrandProductsScreen from "./src/screens/BrandProductsScreen";
@@ -99,7 +102,15 @@ import SubscriptionChoiceScreen from './src/vendorScreens/SubscriptionChoiceScre
 import SubscriptionManagementScreen from './src/vendorScreens/SubscriptionManagementScreen';
 import SubscriptionPendingScreen from './src/vendorScreens/SubscriptionPendingScreen';
 
+// ---- User screens added for vendor access ----
+import HomeScreen from "./src/screens/HomeScreen";
+import Search from "./src/screens/UserRentalListScreen";
+import AdListScreen from "./src/screens/AdListScreen";
+import WebViewScreen from "./src/screens/WebViewScreen";
+import AllCategoriesScreen from './src/screens/AllCategoriesScreen';
+import AddAddressScreen from './src/screens/AddAddressScreen';
 
+import VendorLeadsScreen from "./src/vendorScreens/VendorLeadsScreen";
 import { navigationRef, RootStackParamList } from "./src/userScreens/utils/navigationRef";
 
 SplashScreenExpo.preventAutoHideAsync();
@@ -327,24 +338,86 @@ const AppNavigator = () => {
   const [permissionsDone, setPermissionsDone] = useState(false);
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
 
+  // Setup notification listeners
+  useEffect(() => {
+    const subscriptions = setupLeadNotificationListener();
+    return () => {
+      if (subscriptions?.foregroundSubscription) {
+        subscriptions.foregroundSubscription.remove();
+      }
+      if (subscriptions?.responseSubscription) {
+        subscriptions.responseSubscription.remove();
+      }
+    };
+  }, []);
+
+  // Handle notification responses
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const data = response.notification.request.content.data;
         console.log('🔔 Notification tapped:', data);
-        if (data.type === 'product' && data.id) {
-          navigationRef.current?.navigate('ProductDetails', { productId: data.id });
-        } else if (data.type === 'property' && data.id) {
-          navigationRef.current?.navigate('PropertyDetailScreen', { propertyId: data.id });
-        } else if (data.type === 'rental' && data.id) {
-          navigationRef.current?.navigate('RentalDetail', { rentalId: data.id });
-        } else {
-          navigationRef.current?.navigate('UserTabs');
+        
+        if (!data || !data.type) {
+          console.warn('⚠️ Notification missing type data');
+          return;
+        }
+
+        switch (data.type) {
+          case 'view':
+            if (data.vendorId) {
+              navigationRef.current?.navigate('ShopDetails', { 
+                vendorId: data.vendorId 
+              });
+            } else {
+              navigationRef.current?.navigate('ShopListings');
+            }
+            break;
+            
+          case 'lead':
+            if (vendorAuthToken) {
+              navigationRef.current?.navigate('VendorLeads');
+            } else {
+              navigationRef.current?.navigate('VendorLogin');
+            }
+            break;
+            
+          case 'product':
+            if (data.id) {
+              navigationRef.current?.navigate('ProductDetails', { productId: data.id });
+            }
+            break;
+            
+          case 'property':
+            if (data.id) {
+              navigationRef.current?.navigate('PropertyDetailScreen', { propertyId: data.id });
+            }
+            break;
+            
+          case 'rental':
+            if (data.id) {
+              navigationRef.current?.navigate('RentalDetail', { rentalId: data.id });
+            }
+            break;
+            
+          case 'chat':
+            navigationRef.current?.navigate('ChatScreen');
+            break;
+            
+          case 'daily_update':
+            if (vendorAuthToken) {
+              navigationRef.current?.navigate('VendorDashboard');
+            }
+            break;
+            
+          default:
+            navigationRef.current?.navigate('UserTabs');
+            break;
         }
       }
     );
     return () => subscription.remove();
-  }, []);
+  }, [vendorAuthToken]);
 
   useEffect(() => {
     const currentUserId = vendor?._id || user?._id || deliveryBoy?._id;
@@ -448,12 +521,12 @@ const AppNavigator = () => {
   if (vendorAuthToken) {
     MainNavigator = (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {/* Existing vendor screens */}
         <Stack.Screen name="VendorDashboard" component={VendorDashboardScreen} />
         <Stack.Screen name="RentalCRUD" component={RentalCRUDScreen} />
         <Stack.Screen name="SubscriptionChoice" component={SubscriptionChoiceScreen} />
         <Stack.Screen name="SubscriptionManagement" component={SubscriptionManagementScreen} />
         <Stack.Screen name="SubscriptionPending" component={SubscriptionPendingScreen} />
-
         <Stack.Screen name="VendorProductViews" component={VendorProductViewsScreen} />
         <Stack.Screen name="VendorProductCRUD" component={VendorProductCRUDScreen} />
         <Stack.Screen name="VendorChatScreen" component={VendorChatScreen} />
@@ -463,6 +536,21 @@ const AppNavigator = () => {
         <Stack.Screen name="InsuranceProductCRUD" component={InsuranceProductCRUDScreen} />
         <Stack.Screen name="PropertyCRUDScreen" component={PropertyCRUDScreen} />
         <Stack.Screen name="VendorAppointmentsList" component={VendorAppointmentsList} />
+        <Stack.Screen name="VendorLeads" component={VendorLeadsScreen} />
+        {/* 🔥 ADD CategoryShopsScreen here */}
+        <Stack.Screen name="CategoryShopsScreen" component={CategoryShopsScreen} />
+        {/* User-facing screens for vendor access */}
+        <Stack.Screen name="HomeScreen" component={HomeScreen} />
+        <Stack.Screen name="ProductSearchScreen" component={ProductSearchScreen} />
+        <Stack.Screen name="Search" component={Search} />
+        <Stack.Screen name="InsuranceProductsAndDetails" component={InsuranceProductsAndDetails} />
+        <Stack.Screen name="UserOrderScreen" component={UserOrderScreen} />
+        <Stack.Screen name="ChatScreen" component={Chatscreen} />
+        <Stack.Screen name="ShopListings" component={ShopListings} />
+        <Stack.Screen name="ShopDetails" component={ShopDetails} />
+        
+                <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />
+
       </Stack.Navigator>
     );
   } else if (deliveryBoy?._id) {
@@ -485,6 +573,8 @@ const AppNavigator = () => {
         <Stack.Screen name="UserOrderScreen" component={UserOrderScreen} />
         <Stack.Screen name="ShopListings" component={ShopListings} />
         <Stack.Screen name="ShopDetails" component={ShopDetails} />
+        {/* 🔥 ADD CategoryShopsScreen here */}
+        <Stack.Screen name="CategoryShopsScreen" component={CategoryShopsScreen} />
         <Stack.Screen name="CategoryProducts" component={CategoryProductsScreen} />
         <Stack.Screen name="ShopProducts" component={ShopProductsScreen} />
         <Stack.Screen name="BrandProducts" component={BrandProductsScreen} />
@@ -497,6 +587,10 @@ const AppNavigator = () => {
         <Stack.Screen name="UserPropertyListScreen" component={UserPropertyListScreen} />
         <Stack.Screen name="RentalList" component={UserRentalListScreen} />
         <Stack.Screen name="RentalDetail" component={RentalDetailScreen} />
+          <Stack.Screen name="AdListScreen" component={AdListScreen} />
+        <Stack.Screen name="WebViewScreen" component={WebViewScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="AllCategoriesScreen" component={AllCategoriesScreen} />
+
       </Stack.Navigator>
     );
   } else {

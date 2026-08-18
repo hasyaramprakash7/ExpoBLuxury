@@ -7,9 +7,10 @@ import {
   fetchVendorProfile,
   toggleVendorStatus,
   fetchSubscriptionStatus,
-  verifySubscription, // 🔥 NEW
+  verifySubscription,
 } from "../features/vendor/vendorAuthSlice";
 import { fetchVendorOrders } from "../features/vendor/vendorOrderSlice";
+import { fetchVendorStats } from "../features/vendor/vendorAuthSlice";
 import { RootState, AppDispatch } from "../app/store";
 import {
   View,
@@ -20,6 +21,7 @@ import {
   ScrollView,
   SafeAreaView,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
@@ -75,6 +77,9 @@ export default function VendorDashboard() {
     useState<ImagePicker.ImagePickerAsset | null>(null);
   const [loadingAddress, setLoadingAddress] = useState(false);
   const [signupError, setSignupError] = useState<string | null>(null);
+  
+  // 🔥 NEW: Refresh/Reload state
+  const [refreshing, setRefreshing] = useState(false);
 
   const [formData, setFormData] = useState<Vendor>({
     _id: "",
@@ -99,6 +104,27 @@ export default function VendorDashboard() {
   });
 
   console.log('📱 [VendorDashboard] Mounted, subscriptionStatus:', subscriptionStatus);
+
+  // 🔥 NEW: Handle refresh/reload
+  const onRefresh = useCallback(async () => {
+    console.log('🔄 [VendorDashboard] Manual refresh triggered...');
+    setRefreshing(true);
+    try {
+      // Fetch all data in parallel
+      await Promise.all([
+        dispatch(fetchVendorProfile()),
+        dispatch(fetchVendorStats()),
+        dispatch(fetchSubscriptionStatus()),
+        dispatch(fetchVendorOrders(vendor?._id || "")),
+      ]);
+      console.log('✅ [VendorDashboard] Refresh completed successfully');
+    } catch (error) {
+      console.error('❌ [VendorDashboard] Refresh error:', error);
+      Alert.alert('Refresh Failed', 'Could not refresh dashboard data.');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [dispatch, vendor?._id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -430,7 +456,7 @@ export default function VendorDashboard() {
     );
   }
 
-  // ---- 🔥 PENDING STATE HANDLER (UPDATED with Verify Payment) ----
+  // ---- PENDING STATE HANDLER (UPDATED with Verify Payment) ----
   if (subscriptionStatus === 'pending') {
     const [verifying, setVerifying] = useState(false);
 
@@ -488,15 +514,34 @@ export default function VendorDashboard() {
     );
   }
 
-  // ---- Normal dashboard ----
+  // ---- Normal dashboard with refresh control ----
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#009632"
+            colors={["#009632"]}
+            progressBackgroundColor="#ffffff"
+          />
+        }
+        showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerCard}>
-          <Text style={styles.headerTitle}>Vendor Dashboard</Text>
+          <View style={styles.headerTopRow}>
+            <Text style={styles.headerTitle}>Vendor Dashboard</Text>
+            <TouchableOpacity onPress={onRefresh} style={styles.reloadButton} disabled={refreshing}>
+              {refreshing ? (
+                <ActivityIndicator size="small" color="#009632" />
+              ) : (
+                <Ionicons name="refresh-outline" size={22} color="#009632" />
+              )}
+            </TouchableOpacity>
+          </View>
           <Text style={styles.headerWelcome}>Welcome, {vendor.name || vendor.shopName}!</Text>
         </View>
 
@@ -533,7 +578,7 @@ export default function VendorDashboard() {
           />
         </View>
 
-        {/* --- Add "Manage Subscription" button --- */}
+        {/* --- "Manage Subscription" button --- */}
         <TouchableOpacity
           style={styles.subscriptionButton}
           onPress={() => navigation.navigate('SubscriptionManagement')}
@@ -579,8 +624,8 @@ export default function VendorDashboard() {
 
 // ---------- STYLES ----------
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#f8fafc" },
-  container: { flex: 1, backgroundColor: "#f8fafc" },
+  safeArea: { flex: 1, backgroundColor: "#0c0d0e" },
+  container: { flex: 1, backgroundColor: "#07090b" },
   contentContainer: { paddingVertical: 32, paddingHorizontal: 16, paddingBottom: 80 },
   headerCard: {
     backgroundColor: "#ffffff",
@@ -593,8 +638,21 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  headerTitle: { fontSize: 28, fontWeight: "bold", color: "#1e293b", marginBottom: 8 },
+  headerTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  headerTitle: { fontSize: 28, fontWeight: "bold", color: "#1e293b" },
   headerWelcome: { fontSize: 16, color: "#475569" },
+  reloadButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: "#f0fdf4",
+    borderWidth: 1,
+    borderColor: "#dcfce7",
+  },
   dashboardGrid: { flexDirection: "column", gap: 32 },
   profileSection: { flex: 2 },
   statusBase: {
@@ -680,7 +738,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 8,
   },
-  // ---- Pending styles ----
   pendingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -721,4 +778,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-

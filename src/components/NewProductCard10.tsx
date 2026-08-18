@@ -47,7 +47,7 @@ interface Product {
   category?: string;
   sizes?: string[];
   description?: string;
-  unit?: string;          // NEW: e.g., "kg", "g", "units", "piece"
+  unit?: string;
 }
 
 interface NewProductCardProps {
@@ -75,6 +75,7 @@ const Colors = {
   yellowStar: "#F59E0B",
   purpleDark: "#1b3a2dff",
   goldPrimary: "#F5F5F5",
+  royalGreen: "#1B8C40", // Royal green color
 };
 
 const PRODUCT_NAME_MAX_LENGTH = 100;
@@ -99,14 +100,11 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
 
   // --- DYNAMIC UNIT DETECTION ---
   const unitLabel = useMemo(() => {
-    // 1. If product has a unit field, use it directly
     if (product.unit) return product.unit;
 
-    // 2. Infer from category and name
     const cat = (product.category || "").toLowerCase();
     const name = product.name.toLowerCase();
 
-    // Weight-based categories
     if (
       cat.includes("grocery") ||
       cat.includes("vegetable") ||
@@ -124,23 +122,18 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       name.includes("litre") ||
       name.includes("ml")
     ) {
-      // If sizes contain "g" or "kg", assume grams/kilograms
       if (product.sizes?.some((s) => s.includes("g") || s.includes("kg"))) {
-        return "kg"; // or could be "g" – we'll default to kg
+        return "kg";
       }
       return "kg";
     }
 
-    // If the product has size labels like "S", "M", "L" → likely units/pieces
     if (product.sizes?.some((s) => /^[A-Z]+$/.test(s) || /^\d+$/.test(s))) {
       return "units";
     }
 
-    // Default
     return "units";
   }, [product.unit, product.category, product.name, product.sizes]);
-
-  // ---- REST OF THE HOOKS & LOGIC (unchanged) ----
 
   const requiresSizeSelection = product.sizes && product.sizes.length > 0;
   const [selectedSize, setSelectedSize] = useState<string | null>(
@@ -221,9 +214,8 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     );
 
     const defaultMax = Math.min(bulkMin - 1, largeQtyMin - 1);
-    const unit = unitLabel; // dynamic unit
+    const unit = unitLabel;
 
-    // Default tier (1 to before bulk)
     if (defaultMax >= 1 || (!hasBulkTier && !hasLargeQtyTier)) {
       const label =
         defaultMax === Infinity
@@ -239,7 +231,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       });
     }
 
-    // Bulk tier
     if (hasBulkTier) {
       const bulkMax = largeQtyMin - 1;
       const label =
@@ -254,7 +245,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       });
     }
 
-    // Large quantity tier
     if (hasLargeQtyTier) {
       const label = `≥ ${product.largeQuantityMinimumUnits} ${unit}`;
       tiers.push({
@@ -339,6 +329,10 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   );
 
   const handleCartAction = async (qtyToDispatch: number) => {
+    // Prevent adding to cart if stock is 0
+    if (displayStock === 0) {
+      return showToast("This is a walk-in product. Please visit the store.", "info");
+    }
     if (isVendorOffline)
       return showToast("Vendor is currently offline.", "error");
     if (isVendorOutOfRange)
@@ -385,6 +379,9 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   };
 
   const handleQuantityBlur = async () => {
+    // Don't allow quantity changes for walk-in products
+    if (displayStock === 0) return;
+    
     let numericalQuantity = currentNumericalQuantity;
     if (numericalQuantity === 0 && (cartItem?.quantity || 0) > 0) {
       await handleCartAction(0);
@@ -403,6 +400,10 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   };
 
   const handleQuantityButtonClick = async (increment: boolean) => {
+    // Don't allow quantity changes for walk-in products
+    if (displayStock === 0) {
+      return showToast("This is a walk-in product. Please visit the store.", "info");
+    }
     if (requiresSizeSelection && !selectedSize)
       return showToast("Please select a size.", "warn");
     let newQty;
@@ -421,11 +422,12 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   };
 
   const handleAddToCartClick = async () => {
-    if (isDisabled || displayStock === 0)
-      return showToast(
-        displayStock === 0 ? "Out of stock." : "Vendor unavailable.",
-        "error",
-      );
+    // Prevent adding to cart for walk-in products
+    if (displayStock === 0) {
+      return showToast("This is a walk-in product. Please visit the store to purchase.", "info");
+    }
+    if (isDisabled)
+      return showToast("Vendor unavailable.", "error");
     if (requiresSizeSelection && !selectedSize)
       return showToast("Please select a size.", "warn");
     if (!showQuantityInput || currentNumericalQuantity === 0) {
@@ -436,26 +438,29 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   };
 
   const handleCardPress = () => {
-    if (!isDisabled)
-      navigation.navigate("ProductDetails", { product: product });
+    // Allow navigation to product details even for walk-in products
+    navigation.navigate("ProductDetails", { product: product });
   };
 
   const handleShareToChat = () =>
     navigation.navigate("ChatScreen" as any, { forwardProduct: product });
 
   const isDisabled = isVendorOffline || isVendorOutOfRange;
+  const isWalkIn = displayStock === 0;
+  
   const isAddToCartButtonDisabled =
     isDisabled ||
-    displayStock === 0 ||
+    isWalkIn ||
     isAddingToCart ||
     (requiresSizeSelection && !selectedSize);
+
   const truncatedProductName =
     product.name.length > PRODUCT_NAME_MAX_LENGTH
       ? `${product.name.substring(0, PRODUCT_NAME_MAX_LENGTH)}...`
       : product.name;
 
   const getButtonText = () => {
-    if (displayStock === 0) return "Out of Stock";
+    if (isWalkIn) return "Visit Store";
     if (isDisabled) return isVendorOffline ? "Offline" : "Out of Range";
     if (requiresSizeSelection && !selectedSize) return "Select Size";
     return "ADD";
@@ -528,7 +533,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
           </View>
         )}
 
-        {/* --- SIZE PILLS (UNCOMMENTED) --- */}
+        {/* --- SIZE PILLS --- */}
         {requiresSizeSelection && (
           <ScrollView
             horizontal
@@ -565,7 +570,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
         )}
 
         {/* --- PRICE TIERS WITH DYNAMIC UNIT --- */}
-        {priceTiers.length > 0 && (
+        {priceTiers.length > 0 && !isWalkIn && (
           <View style={styles.priceTiersContainer}>
             {priceTiers.map((tier, index) => (
               <View
@@ -593,6 +598,14 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
                 </Text>
               </View>
             ))}
+          </View>
+        )}
+
+        {/* Walk-in Badge - Royal Green */}
+        {isWalkIn && (
+          <View style={styles.walkInBadge}>
+            <Ionicons name="storefront-outline" size={14} color={Colors.royalGreen} />
+            <Text style={styles.walkInBadgeText}>Available in-store only</Text>
           </View>
         )}
       </View>
@@ -627,7 +640,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
             {/* <Ionicons name="arrow-redo-circle" size={26} color={Colors.white} /> */}
           </TouchableOpacity>
 
-          {isDisabled && (
+          {isDisabled && !isWalkIn && (
             <View style={styles.offlineOverlay}>
               <Text style={styles.offlineText}>
                 {isVendorOffline ? "Offline" : "Out of Range"}
@@ -638,7 +651,11 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
 
         {/* --- FLOATING ADD / QUANTITY CONTROLS --- */}
         <View style={styles.addBtnContainer}>
-          {isDisabled || displayStock === 0 ? (
+          {isWalkIn ? (
+            <View style={[styles.addBtn, styles.walkInBtn]}>
+              <Text style={styles.walkInBtnText}>Visit Store</Text>
+            </View>
+          ) : isDisabled || displayStock === 0 ? (
             <View style={[styles.addBtn, styles.addBtnDisabled]}>
               <Text style={styles.disabledBtnText}>{getButtonText()}</Text>
             </View>
@@ -747,7 +764,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
         </View>
 
         <Text style={styles.stockAlertText}>
-          {displayStock > 0 && displayStock <= 10
+          {!isWalkIn && displayStock > 0 && displayStock <= 10
             ? `Only ${displayStock} left!`
             : ""}
         </Text>
@@ -756,7 +773,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   );
 };
 
-// --- STYLES (unchanged, included for completeness) ---
+// --- STYLES ---
 const styles = StyleSheet.create({
   cardContainer: {
     flexDirection: "row",
@@ -846,8 +863,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  sizeScrollView: { marginVertical: 6,height: 30,               // <-- fixed height
-  flexGrow: 0,  },
+  sizeScrollView: { marginVertical: 6, height: 30, flexGrow: 0 },
   sizePill: {
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -950,6 +966,45 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     fontSize: 12,
     fontWeight: "bold",
+  },
+
+  // Walk-in styles - Royal Green
+  walkInBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+    backgroundColor: "rgba(27, 140, 64, 0.1)", // Light green background
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: Colors.royalGreen,
+  },
+  walkInBadgeText: {
+    color: Colors.royalGreen,
+    fontSize: 11,
+    fontWeight: "600",
+    marginLeft: 4,
+  },
+  walkInBtn: {
+    width: "100%",
+    backgroundColor: Colors.royalGreen,
+    borderWidth: 1,
+    borderColor: Colors.royalGreen,
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  walkInBtnText: {
+    color: Colors.white,
+    fontWeight: "900",
+    fontSize: 13,
   },
 
   addBtnContainer: {

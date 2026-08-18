@@ -13,9 +13,8 @@ import {
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useSelector } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
-
 import { RootState } from "../app/store";
-import NewProductCard from "../components/NewProductCard10"; // Adjust path if needed
+import NewProductCard from "../components/NewProductCard10";
 
 const { width } = Dimensions.get("window");
 
@@ -68,41 +67,34 @@ const FloatingCartBar = ({ cartItems, navigation }: any) => {
   );
 };
 
-// --- Main Screen ---
 const ShopProductsScreen = () => {
   const route = useRoute<any>();
   const { vendorId } = route.params;
   const navigation = useNavigation<any>();
 
-  // 🔥 Add state for the search bar
   const [searchText, setSearchText] = useState("");
 
-  const { allProducts } = useSelector(
-    (state: RootState) => state.vendorProducts,
-  );
+  const { allProducts } = useSelector((state: RootState) => state.vendorProducts);
   const { allVendors } = useSelector((state: RootState) => state.vendorAuth);
   const cartItems = useSelector((state: RootState) => state.cart.items);
 
   const vendorData = useMemo(
     () => allVendors.find((v) => v._id === vendorId),
-    [allVendors, vendorId],
+    [allVendors, vendorId]
   );
 
-  // 🔥 Updated to filter products based on the search text
   const filteredProducts = useMemo(() => {
-    // 1. Get all products for this vendor
     let products = allProducts.filter(
-      (p) => (p.vendor?._id || p.vendorId) === vendorId,
+      (p) => (p.vendor?._id || p.vendorId) === vendorId
     );
 
-    // 2. Filter them if the user typed anything in the search bar
     if (searchText.trim() !== "") {
       const lowercasedSearch = searchText.toLowerCase();
       products = products.filter(
         (p) =>
           p.name.toLowerCase().includes(lowercasedSearch) ||
           (p.description &&
-            p.description.toLowerCase().includes(lowercasedSearch)),
+            p.description.toLowerCase().includes(lowercasedSearch))
       );
     }
     return products;
@@ -110,20 +102,16 @@ const ShopProductsScreen = () => {
 
   const isVendorOffline = vendorData ? !vendorData.isOnline : true;
 
-  // --- Render The Swiggy Style Vendor Header ---
   const renderHeader = () => (
     <View>
-      {/* Dark Background Top Half */}
       <View style={styles.darkTopBackground}>
         <View style={styles.navRow}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={24} color={Colors.cardWhite} />
           </TouchableOpacity>
-          {/* Removed Group Order Button from here */}
         </View>
       </View>
 
-      {/* Overlapping White Vendor Card */}
       <View style={styles.vendorCardWrapper}>
         <View style={styles.vendorCard}>
           <View style={styles.badgeRow}>
@@ -140,7 +128,7 @@ const ShopProductsScreen = () => {
                 {vendorData?.shopName || "Shop Details"}
               </Text>
               <Text style={styles.shopSubtitle}>
-                 {vendorData?.address?.district || "Local Area"}
+                {vendorData?.address?.district || "Local Area"}
               </Text>
             </View>
             <View style={styles.ratingBox}>
@@ -150,14 +138,11 @@ const ShopProductsScreen = () => {
               <Text style={styles.ratingSub}>1K+ ratings</Text>
             </View>
           </View>
-          {/* Removed 50% Off and Divider from here */}
         </View>
       </View>
 
-      {/* Search Section */}
       <View style={styles.filterSection}>
         <View style={styles.searchBar}>
-          {/* 🔥 Turned into a working TextInput */}
           <TextInput
             style={styles.searchInput}
             placeholder="Search for dishes..."
@@ -167,7 +152,6 @@ const ShopProductsScreen = () => {
           />
           <Ionicons name="search" size={20} color={Colors.textGray} />
         </View>
-        {/* Removed Filter Pills from here */}
       </View>
     </View>
   );
@@ -195,12 +179,12 @@ const ShopProductsScreen = () => {
           </View>
         }
       />
-      {/* {Object.keys(cartItems).length > 0 && (
+      {Object.values(cartItems).length > 0 && (
         <FloatingCartBar
           cartItems={Object.values(cartItems)}
           navigation={navigation}
         />
-      )} */}
+      )}
     </View>
   );
 };

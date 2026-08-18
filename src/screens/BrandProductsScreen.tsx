@@ -15,14 +15,12 @@ import {
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
 import { useSelector, useDispatch } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import * as Location from "expo-location";
-
-import NewProductCard from "../components/NewProductCard2"
+import NewProductCard from "../components/NewProductCard2";
 import { RootState, AppDispatch } from "../app/store";
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
 
-// --- Haversine Distance Calculation Function (Copied for consistency) ---
+// --- Haversine Distance Calculation Function ---
 const haversineDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -47,7 +45,6 @@ const Colors = {
   borderGray: "#DDDDDD",
 };
 
-// --- Type Definitions ---
 type BrandProductsRouteParams = {
   brandName: string;
 };
@@ -57,7 +54,7 @@ type BrandProductsScreenRouteProp = RouteProp<
   "BrandProducts"
 >;
 
-// Floating Cart Bar Component (Unchanged)
+// Floating Cart Bar
 const FloatingCartBar = ({ cartItems }) => {
   const navigation = useNavigation();
   const DELIVERY_CHARGE = 0;
@@ -116,9 +113,7 @@ const FloatingCartBar = ({ cartItems }) => {
     };
   }, [cartItems, getEffectivePrice]);
 
-  if (cartItems.length === 0) {
-    return null;
-  }
+  if (cartItems.length === 0) return null;
 
   return (
     <View style={mergedStyles.floatingCartBar}>
@@ -139,14 +134,12 @@ const FloatingCartBar = ({ cartItems }) => {
   );
 };
 
-// --- BrandProductsScreen Component ---
 const BrandProductsScreen = () => {
   const navigation = useNavigation();
   const route = useRoute<BrandProductsScreenRouteProp>();
   const { brandName } = route.params;
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
 
-  // --- Read location and its loading state from Redux ---
   const { location: userLocation, loading: isLocationLoading } = useSelector(
     (state) => state.location
   );
@@ -160,7 +153,6 @@ const BrandProductsScreen = () => {
   );
   const cartItems = useSelector((state: RootState) => state.cart.items);
 
-  // --- Fetch data only if not already present, no need to fetch location here ---
   useEffect(() => {
     if (!allVendors || allVendors.length === 0) {
       dispatch(fetchAllVendors());
@@ -174,7 +166,7 @@ const BrandProductsScreen = () => {
   const numColumns = useMemo(() => {
     const minCardWidth = 175;
     const containerWidth = width * 0.75;
-    return Math.floor(containerWidth / minCardWidth);
+    return Math.floor(containerWidth / minCardWidth) || 2;
   }, [width]);
 
   const vendorMap = useMemo(() => {
@@ -187,11 +179,8 @@ const BrandProductsScreen = () => {
     return map;
   }, [allVendors]);
 
-  // Filter vendors based on delivery range, location, and approval status
   const inRangeVendors = useMemo(() => {
-    if (!allVendors || !userLocation) {
-      return [];
-    }
+    if (!allVendors || !userLocation) return [];
     return allVendors.filter((vendor) => {
       if (
         !vendor.address ||
@@ -199,7 +188,7 @@ const BrandProductsScreen = () => {
         !vendor.address.longitude ||
         !vendor.deliveryRange ||
         !vendor.isOnline ||
-        !vendor.isApproved // <-- Added condition to filter for approved vendors
+        !vendor.isApproved
       ) {
         return false;
       }
@@ -223,7 +212,6 @@ const BrandProductsScreen = () => {
     );
   }, [allProducts, inRangeVendors]);
 
-  // Create a list of all unique brands with an associated image, but only from in-range products
   const uniqueBrands = useMemo(() => {
     const brandsMap = new Map();
     inRangeProducts.forEach((product) => {
@@ -243,10 +231,7 @@ const BrandProductsScreen = () => {
   }, [inRangeProducts]);
 
   const filteredProducts = useMemo(() => {
-    if (!brandName) {
-      return [];
-    }
-    // Filter from the in-range products list
+    if (!brandName) return [];
     return inRangeProducts.filter((product) => product.brandName === brandName);
   }, [inRangeProducts, brandName]);
 
@@ -439,9 +424,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
     marginBottom: 10,
   },
-  row: {
-    justifyContent: "space-between",
-  },
 });
 
 const mergedStyles = StyleSheet.create({
@@ -534,7 +516,6 @@ const mergedStyles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
   },
-  // New styles for loading and no results
   loadingContainer: {
     flex: 1,
     justifyContent: "center",

@@ -48,14 +48,13 @@ import {
   setSelectedAddress,
   saveUserAddress,
   SavedAddress,
-  selectAllAddresses,   // 🔥 ADDED
+  selectAllAddresses,
 } from "../features/locationSlice";
 
 // Custom Components
 import NewProductCard1 from "../components/NewProductCard10";
 import NewProductCard2 from "../components/NewProductCard11";
 import ShopCard from "./ShopCard";
-import NewArrivals from "./NewArrivals";
 
 // Local Assets
 const image = require("../../assets/b4.jpg");
@@ -114,6 +113,7 @@ interface Product {
   brandName: string;
   images?: string[];
   price: number;
+  stock: number;
 }
 
 interface ShopDisplay {
@@ -235,7 +235,7 @@ const ImageBanner: React.FC<ImageBannerProps> = ({ imageUrl, onPress }) => (
 );
 
 // ========================================================
-// 🔥 HOME SCREEN – FIXED WITH ADAPTER SELECTORS
+// 🔥 HOME SCREEN – FILTERS OUT WALK-IN PRODUCTS (stock = 0)
 // ========================================================
 
 const HomeScreen: React.FC = () => {
@@ -248,7 +248,7 @@ const HomeScreen: React.FC = () => {
   const [numRecommendedProducts, setNumRecommendedProducts] = useState(10);
   const [reentryTrigger, setReentryTrigger] = useState(0);
 
-  // --- Address Form State (now includes landmark, city, pincode) ---
+  // --- Address Form State ---
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [addressForm, setAddressForm] = useState({
     type: "Home" as "Home" | "Work" | "Other",
@@ -270,7 +270,6 @@ const HomeScreen: React.FC = () => {
     error: locationError,
   } = useSelector((state: RootState) => state.location);
 
-  // 🔥 FIX: Use the adapter selector to get the addresses array
   const addresses = useSelector(selectAllAddresses);
 
   const { allProducts, loading: productsLoading } = useSelector(
@@ -311,9 +310,11 @@ const HomeScreen: React.FC = () => {
       }
     }, [dispatch, token]),
   );
-useEffect(() => {
-  console.log('📦 nearbyVendors in Redux:', nearbyVendors);
-}, [nearbyVendors]);
+
+  useEffect(() => {
+    console.log('📦 nearbyVendors in Redux:', nearbyVendors);
+  }, [nearbyVendors]);
+
   // 1. Auto‑request GPS if no saved addresses & no location
   useEffect(() => {
     if (
@@ -330,15 +331,15 @@ useEffect(() => {
   }, [token, addresses.length, userLocation, isLocationLoading]);
 
   // 2. Fetch vendors & products when location changes
- useEffect(() => {
-  if (userLocation?.latitude && userLocation?.longitude) {
-    console.log('📍 Dispatching fetchNearbyVendors with:', userLocation);
-    dispatch(fetchNearbyVendors({
-      lat: userLocation.latitude,
-      lng: userLocation.longitude,
-    }));
-  }
-}, [userLocation]);
+  useEffect(() => {
+    if (userLocation?.latitude && userLocation?.longitude) {
+      console.log('📍 Dispatching fetchNearbyVendors with:', userLocation);
+      dispatch(fetchNearbyVendors({
+        lat: userLocation.latitude,
+        lng: userLocation.longitude,
+      }));
+    }
+  }, [userLocation]);
 
   // --- Open modal and refresh addresses every time ---
   const onOpenAddressModal = useCallback(() => {
@@ -420,17 +421,23 @@ useEffect(() => {
     return approvedVendors as any;
   }, [nearbyVendors, isRefreshing]);
 
+  // 🔥 FILTER: Only include products with stock > 0 (exclude walk-in products)
   const inRangeProducts: Product[] = useMemo(() => {
     if (productCache.current.length > 0 && !isRefreshing)
       return productCache.current;
     if (!allProducts || inRangeVendors.length === 0) return [];
 
     const inRangeVendorIds = inRangeVendors.map((vendor) => vendor._id);
-    const filteredProducts: Product[] = (allProducts || []).filter(
-      (product: Product) => inRangeVendorIds.includes(product.vendorId),
-    );
+    const filteredProducts: Product[] = (allProducts || [])
+      .filter((product: Product) => {
+        // Must be from an in-range vendor AND have stock > 0
+        const isInRange = inRangeVendorIds.includes(product.vendorId);
+        const hasStock = product.stock > 0;
+        return isInRange && hasStock;
+      });
 
     productCache.current = filteredProducts;
+    console.log(`📊 [HomeScreen] Filtered products: ${filteredProducts.length} (excluded ${(allProducts || []).length - filteredProducts.length} out-of-stock/walk-in products)`);
     return filteredProducts;
   }, [allProducts, inRangeVendors, isRefreshing]);
 
@@ -523,11 +530,11 @@ useEffect(() => {
   }, [inRangeProducts, isRefreshing]);
 
   // --- Address selection ---
- const handleSelectAddress = (address: SavedAddress) => {
-  lastFetchedCoordsRef.current = null;
-  dispatch(setSelectedAddress(address));
-  setAddressModalVisible(false);
-};
+  const handleSelectAddress = (address: SavedAddress) => {
+    lastFetchedCoordsRef.current = null;
+    dispatch(setSelectedAddress(address));
+    setAddressModalVisible(false);
+  };
 
   const handleInitiateAddAddress = async () => {
     if (!token) {
@@ -607,7 +614,6 @@ useEffect(() => {
     }
 
     try {
-      // Optionally set first address as default
       const isFirstAddress = addresses.length === 0;
       const payload = {
         ...addressForm,
@@ -617,7 +623,6 @@ useEffect(() => {
         saveUserAddress({ token, addressData: payload }),
       ).unwrap();
       setIsEditingAddress(false);
-      // Re-fetch to get updated list with new address
       if (token) {
         dispatch(fetchUserAddresses(token));
       }
@@ -632,9 +637,8 @@ useEffect(() => {
     setIsEditingAddress(false);
   };
 
-  // --- Sorted address list: selected address first, then the rest (deduplicated) ---
+  // --- Sorted address list ---
   const sortedAddressList = useMemo(() => {
-    // Remove any duplicate IDs
     const uniqueMap = new Map<string, SavedAddress>();
     addresses.forEach((addr) => uniqueMap.set(addr.id, addr));
     const uniqueAddresses = Array.from(uniqueMap.values());
@@ -714,7 +718,7 @@ useEffect(() => {
     }
   };
 
-  // --- Address Modal (enhanced) ---
+  // --- Address Modal ---
   const renderAddressModal = () => (
     <Modal
       visible={isAddressModalVisible}
@@ -769,7 +773,6 @@ useEffect(() => {
           </View>
 
           {isEditingAddress ? (
-            // ---- Edit Form ----
             <ScrollView
               style={allStyles.addressList}
               showsVerticalScrollIndicator={false}
@@ -867,7 +870,6 @@ useEffect(() => {
               </TouchableOpacity>
             </ScrollView>
           ) : (
-            // ---- Address List ----
             <ScrollView
               style={allStyles.addressList}
               showsVerticalScrollIndicator={false}
@@ -898,7 +900,6 @@ useEffect(() => {
                 </View>
               )}
 
-              {/* Use Current Location card – dynamic text */}
               <TouchableOpacity
                 style={allStyles.currentLocationContainer}
                 onPress={() => handleInitiateAddAddress()}
@@ -1068,7 +1069,7 @@ useEffect(() => {
     if (inRangeProducts.length === 0 && userLocation)
       return (
         <View style={allStyles.messageContainer}>
-          <Text style={allStyles.messageTitle}>No Prdts Nby!</Text>
+          <Text style={allStyles.messageTitle}>No Products Available!</Text>
           <Text style={allStyles.messageText}>
             Looks like no products are currently available in your area.
           </Text>
@@ -1104,29 +1105,7 @@ useEffect(() => {
           {renderCategoryBar()}
         </View>
 
-        {/* <NewArrivals /> */}
-
-        {/* <TouchableOpacity
-          style={allStyles.freeShippingBanner as ViewStyle}
-          onPress={handleFreeShippingBannerPress}
-        >
-          <View style={allStyles.bannerTextContainer as ViewStyle}>
-            <Text style={allStyles.bannerTitle as TextStyle}>
-              <Text style={allStyles.bannerTitleBold as TextStyle}>
-                TATA ALA 10% Returns
-              </Text>
-            </Text>
-            <Text style={allStyles.bannerSubtitle as TextStyle}>
-              Unlock exclusive perks with Savings Booster
-            </Text>
-          </View>
-          <Ionicons
-            name="arrow-forward-outline"
-            size={24}
-            color={Colors.darkText}
-          />
-        </TouchableOpacity> */}
-
+        {/* Top Deals Section - Only shows products with stock > 0 */}
         {topDeals.length > 0 && (
           <ImageBackground
             source={image}
@@ -1165,6 +1144,7 @@ useEffect(() => {
           </ImageBackground>
         )}
 
+        {/* Nearby Shops Section */}
         {uniqueShops.length > 0 && (
           <View style={allStyles.horizontalSection as ViewStyle}>
             <SectionHeader
@@ -1194,6 +1174,7 @@ useEffect(() => {
           </View>
         )}
 
+        {/* Popular Brands Section - Only shows products with stock > 0 */}
         {uniqueBrands.length > 0 && (
           <ImageBackground
             source={image2}
@@ -1245,6 +1226,7 @@ useEffect(() => {
           </ImageBackground>
         )}
 
+        {/* Recommended Products Section - Only shows products with stock > 0 */}
         {recommendedProducts.length > 0 && (
           <View style={allStyles.gridSection as ViewStyle}>
             <SectionHeader title="Recommended Products" />
@@ -1375,8 +1357,7 @@ useEffect(() => {
   );
 };
 
-
-// --- Stylesheet (unchanged) ---
+// --- Main Stylesheet ---
 const allStyles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "transparent" },
   container: { flex: 1, backgroundColor: "transparent" },
@@ -1673,7 +1654,7 @@ const allStyles = StyleSheet.create({
 
   mainContentScrollView: { flex: 1, backgroundColor: "transparent" },
   contentContainer: { paddingBottom: 60 },
-  bannerWrapper: { position: "relative", marginBottom: 0, width: "100%",  },
+  bannerWrapper: { position: "relative", marginBottom: 0, width: "100%" },
   freeShippingBanner: {
     flexDirection: "row",
     alignItems: "center",

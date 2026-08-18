@@ -1,3 +1,4 @@
+// src/app/store.ts
 import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import { persistStore, persistReducer } from "redux-persist";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -11,14 +12,17 @@ import orderReducer from '../features/orders/orderSlice';
 import vendorProductReducer from "../features/vendor/vendorProductSlices";
 import deliveryBoyAuthReducer from '../features/deliveryBoy/deliveryBoyOrderSlice';
 import locationReducer from "../features/locationSlice";
-import insuranceReducer from "../features/insuranceSlice"; 
+import insuranceReducer from "../features/insuranceSlice";
 import appointmentReducer from '../features/appointmentSlice';
-import propertyReducer from '../features/propertySlice'; 
+import propertyReducer from '../features/propertySlice';
 import rentalReducer from '../features/rentalSlice';
 import productViewReducer from '../features/productViewSlice';
 
-// --- NEW IMPORT ---
-// import browserReducer from "../features/browserSlice"; 
+// ========== NEW SLICES ==========
+import categoryReducer from '../features/categorySlice';
+import reviewReducer from '../features/reviewSlice';
+import leadReducer from '../features/leadSlice';
+import adReducer from '../features/adSlice';
 
 // 1. Combine all reducers
 const rootReducer = combineReducers({
@@ -27,17 +31,21 @@ const rootReducer = combineReducers({
   vendorOrders: vendorOrderReducer,
   vendorProducts: vendorProductReducer,
   cart: cartReducer,
-  chat: chatReducer, 
+  chat: chatReducer,
   order: orderReducer,
   location: locationReducer,
-  insurance: insuranceReducer, 
+  insurance: insuranceReducer,
   appointments: appointmentReducer,
   property: propertyReducer,
   deliveryBoyAuth: deliveryBoyAuthReducer,
   rental: rentalReducer,
-    productViews: productViewReducer,
+  productViews: productViewReducer,
 
-  // browser: browserReducer, 
+  // ========== NEW REDUCERS ==========
+  categories: categoryReducer,
+  reviews: reviewReducer,
+  leads: leadReducer,
+  ads: adReducer,
 });
 
 // 2. Configure Redux Persist
@@ -45,24 +53,26 @@ const persistConfig = {
   key: 'root',
   storage: AsyncStorage,
   whitelist: [
-    'auth', 
-    'vendorAuth', 
-    'chat', 
+    'auth',
+    'vendorAuth',
+    'chat',
     'cart',
     'vendorProducts',
     'vendorOrders',
     'order',
     'property',
-    "rental",
-    // 'browser',
-    // 🔥 ADDED THE MISSING REDUCERS TO SAVE EVERYTHING OFFLINE 🔥
-    'location', // 🔥 ADD LOCATION BACK HERE SO IT SAVES OFFLINE!
+    'rental',
+    'location',
     'insurance',
     'appointments',
     'deliveryBoyAuth',
-    "productViews"
-
-  ], 
+    'productViews',
+    // ========== PERSIST NEW DATA ==========
+    'categories',
+    'reviews',   // cache reviews for offline viewing
+    'leads',     // vendor leads cache
+    'ads',       // banner ads cache
+  ],
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);
@@ -72,8 +82,8 @@ export const store = configureStore({
   reducer: persistedReducer,
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
-      serializableCheck: false, // Disables warnings for redux-persist
-      immutableCheck: false,    // Fixes the 44ms state invariant warning
+      serializableCheck: false,
+      immutableCheck: false,
     }),
 });
 

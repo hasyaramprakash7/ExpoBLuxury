@@ -17,6 +17,7 @@ import {
   StatusBar,
   Animated,
   Platform,
+  Alert,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -26,6 +27,18 @@ import * as Location from 'expo-location';
 import { fetchRentals, selectAllRentals, selectRentalLoading, selectRentalPagination } from '../features/rentalSlice';
 import { RootState } from '../app/store';
 import Toast from 'react-native-toast-message';
+import { Colors as AppColors, scale, verticalScale, moderateScale } from '../constants/colors';
+import {
+  fetchLocationStart,
+  fetchLocationSuccess,
+  fetchLocationFailure,
+  fetchUserAddresses,
+  setSelectedAddress,
+  saveUserAddress,
+  selectAllAddresses,
+} from '../features/locationSlice';
+// 👇 Import AddAddressScreen
+import AddAddressScreen from '../screens/AddAddressScreen';
 
 const { width, height } = Dimensions.get('window');
 
@@ -46,10 +59,354 @@ const Colors = {
   error: '#EF4444',
   gradientStart: '#0B1021',
   gradientEnd: '#1A1F3A',
+  accentGreen: '#1B8C40',
+  textDark: '#1C1C1E',
+  textGray: '#6B7280',
+  textLightGray: '#9CA3AF',
 };
 
 const RENTAL_TYPES = ['PG', 'Hotel', 'Apartment', 'Villa', 'Hostel', 'Guest House'];
 
+// 🔥 Address Modal Component (Without Delete Option)
+interface AddressModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSelectAddress: (address: any) => void;
+  onAddAddress: () => void;
+  selectedAddress: any;
+  addresses: any[];
+  isLoading: boolean;
+  onOpenMap: () => void;
+}
+
+const AddressModal: React.FC<AddressModalProps> = ({
+  visible,
+  onClose,
+  onSelectAddress,
+  onAddAddress,
+  selectedAddress,
+  addresses,
+  isLoading,
+  onOpenMap,
+}) => {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+    >
+      <View style={addressModalStyles.overlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFillObject}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <View style={addressModalStyles.bottomSheet}>
+          <View style={addressModalStyles.bottomSheetHandle} />
+
+          <View style={addressModalStyles.sheetHeader}>
+            <Text style={addressModalStyles.sheetTitle}>Select Location</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={Colors.textDark} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
+            {/* Use Current Location */}
+            <TouchableOpacity
+              style={addressModalStyles.currentLocationContainer}
+              onPress={onAddAddress}
+            >
+              <View style={addressModalStyles.currentLocationIcon}>
+                <Ionicons name="locate" size={22} color={Colors.royalNavy} />
+              </View>
+              <View style={addressModalStyles.addressInfo}>
+                <Text style={addressModalStyles.currentLocationTitle}>
+                  Use my current location
+                </Text>
+                <Text style={addressModalStyles.addressString} numberOfLines={1}>
+                  {selectedAddress
+                    ? selectedAddress.addressString
+                    : "Fetch GPS & find nearby rentals"}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textGray} />
+            </TouchableOpacity>
+
+            {/* Pick from Map – now opens AddAddressScreen */}
+            <TouchableOpacity
+              style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]}
+              onPress={onOpenMap}
+            >
+              <View style={[addressModalStyles.currentLocationIcon, { backgroundColor: 'rgba(27, 140, 64, 0.1)' }]}>
+                <Ionicons name="map" size={22} color={Colors.accentGreen} />
+              </View>
+              <View style={addressModalStyles.addressInfo}>
+                <Text style={[addressModalStyles.currentLocationTitle, { color: Colors.accentGreen }]}>
+                  Pick from Map
+                </Text>
+                <Text style={addressModalStyles.addressString} numberOfLines={1}>
+                  Search and select location on map
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textGray} />
+            </TouchableOpacity>
+
+            <View style={addressModalStyles.sectionDivider} />
+
+            {addresses.length > 0 && (
+              <>
+                <Text style={addressModalStyles.savedAddressesHeader}>
+                  SAVED ADDRESSES
+                </Text>
+                {addresses.map((addr) => {
+                  const isSelected = selectedAddress?.id === addr.id;
+                  let iconName = "location";
+                  if (addr.type === "Home") iconName = "home";
+                  if (addr.type === "Work") iconName = "briefcase";
+                  if (addr.type === "Current Location") iconName = "locate";
+
+                  return (
+                    <TouchableOpacity
+                      key={addr.id}
+                      style={[
+                        addressModalStyles.addressItem,
+                        isSelected && addressModalStyles.addressItemSelected,
+                      ]}
+                      onPress={() => onSelectAddress(addr)}
+                    >
+                      <View style={addressModalStyles.iconContainer}>
+                        <Ionicons
+                          name={iconName as any}
+                          size={22}
+                          color={isSelected ? Colors.royalNavy : Colors.textDark}
+                        />
+                      </View>
+                      <View style={addressModalStyles.addressInfo}>
+                        <View style={addressModalStyles.addressTypeRow}>
+                          <Text
+                            style={[
+                              addressModalStyles.addressType,
+                              isSelected && { color: Colors.royalNavy },
+                            ]}
+                          >
+                            {addr.type}
+                          </Text>
+                          {isSelected && (
+                            <View style={addressModalStyles.selectedBadge}>
+                              <Text style={addressModalStyles.selectedBadgeText}>
+                                Selected
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={addressModalStyles.addressString} numberOfLines={2}>
+                          {addr.addressString}
+                        </Text>
+                        {addr.landmark && (
+                          <Text style={addressModalStyles.landmarkText}>
+                            📍 {addr.landmark}
+                          </Text>
+                        )}
+                      </View>
+                      {isSelected && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={24}
+                          color={Colors.success}
+                        />
+                      )}
+                      {/* ✅ DELETE OPTION REMOVED */}
+                    </TouchableOpacity>
+                  );
+                })}
+              </>
+            )}
+            {isLoading && (
+              <View style={addressModalStyles.loadingContainer}>
+                <ActivityIndicator size="small" color={Colors.royalNavy} />
+              </View>
+            )}
+          </ScrollView>
+
+          <View style={addressModalStyles.addAddressFooter}>
+            <TouchableOpacity
+              style={addressModalStyles.addAddressButton}
+              onPress={onAddAddress}
+            >
+              <Ionicons name="add" size={20} color={Colors.royalNavy} />
+              <Text style={addressModalStyles.addAddressButtonText}>
+                Add new address
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const addressModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  bottomSheet: {
+    backgroundColor: Colors.offWhite,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    maxHeight: height * 0.8,
+    overflow: 'hidden',
+  },
+  bottomSheetHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: '#D1D5DB',
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightBorder,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.textDark,
+    letterSpacing: -0.3,
+  },
+  addressList: {
+    maxHeight: height * 0.55,
+  },
+  currentLocationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: Colors.pureWhite,
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.lightBorder,
+  },
+  currentLocationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(11, 16, 33, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  currentLocationTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.royalNavy,
+    marginBottom: 2,
+  },
+  addressInfo: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  addressString: {
+    fontSize: 13,
+    color: Colors.textGray,
+    lineHeight: 18,
+  },
+  landmarkText: {
+    fontSize: 12,
+    color: Colors.textLightGray,
+    marginTop: 2,
+  },
+  sectionDivider: {
+    height: 8,
+    backgroundColor: '#F0F0F0',
+    width: '100%',
+  },
+  savedAddressesHeader: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textGray,
+    letterSpacing: 0.5,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+  },
+  addressItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: Colors.pureWhite,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightBorder,
+  },
+  addressItemSelected: {
+    backgroundColor: 'rgba(212, 175, 55, 0.04)',
+  },
+  iconContainer: {
+    width: 30,
+    alignItems: 'flex-start',
+  },
+  addressTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  addressType: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.textDark,
+  },
+  selectedBadge: {
+    marginLeft: 8,
+    backgroundColor: Colors.success,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  selectedBadgeText: {
+    color: Colors.pureWhite,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  addAddressFooter: {
+    padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    backgroundColor: Colors.pureWhite,
+    borderTopWidth: 1,
+    borderTopColor: Colors.lightBorder,
+  },
+  addAddressButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.pureWhite,
+    borderWidth: 1,
+    borderColor: Colors.lightBorder,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  addAddressButtonText: {
+    color: Colors.royalNavy,
+    fontSize: 16,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+});
+
+// Rental Card Component
 const RentalCard = ({ item }: { item: any }) => {
   const navigation = useNavigation<any>();
   const coverImage = item.images?.[0] || 'https://via.placeholder.com/600x400';
@@ -123,12 +480,20 @@ const RentalCard = ({ item }: { item: any }) => {
   );
 };
 
+// Main Component
 const UserRentalListScreen: React.FC = () => {
   const dispatch = useDispatch<any>();
   const navigation = useNavigation<any>();
   const rentals = useSelector(selectAllRentals);
   const loading = useSelector(selectRentalLoading);
   const { currentPage, hasMore } = useSelector(selectRentalPagination);
+  
+  // 🔥 Location Slice Selectors
+  const addresses = useSelector(selectAllAddresses);
+  const selectedAddress = useSelector((state: RootState) => state.location.selectedAddress);
+  const userLocation = useSelector((state: RootState) => state.location.location);
+  const locationLoading = useSelector((state: RootState) => state.location.loading);
+  const token = useSelector((state: RootState) => state.auth.user?.token);
 
   const [searchText, setSearchText] = useState('');
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -142,6 +507,9 @@ const UserRentalListScreen: React.FC = () => {
   const [isAvailable, setIsAvailable] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  // 🔥 New state for AddAddressScreen modal
+  const [showAddAddressModal, setShowAddAddressModal] = useState(false);
   
   const scrollY = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef<FlatList>(null);
@@ -151,6 +519,23 @@ const UserRentalListScreen: React.FC = () => {
     outputRange: [1, 0],
     extrapolate: 'clamp',
   });
+
+  // 🔥 Load addresses when token is available
+  useEffect(() => {
+    if (token) {
+      dispatch(fetchUserAddresses(token));
+    }
+  }, [dispatch, token]);
+
+  // 🔥 Update filter fields when selectedAddress changes
+  useEffect(() => {
+    if (selectedAddress) {
+      setCity(selectedAddress.city || '');
+      setLocality(selectedAddress.locality || '');
+      setState(selectedAddress.state || '');
+      setPincode(selectedAddress.pincode || '');
+    }
+  }, [selectedAddress]);
 
   // Helper to build filter object from current state
   const getFilterParams = useCallback((overrides: any = {}) => {
@@ -170,34 +555,120 @@ const UserRentalListScreen: React.FC = () => {
     };
   }, [searchText, selectedType, minRent, maxRent, city, state, locality, pincode, isAvailable]);
 
-  // Apply filters (accepts overrides for immediate application)
+  // Apply filters
   const applyFilters = useCallback((overrides?: any) => {
     const params = getFilterParams(overrides);
     dispatch(fetchRentals(params));
-    // Scroll to top after filter change
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [dispatch, getFilterParams]);
 
-  // Fetch on initial mount and when screen gains focus (refresh with current filters)
-  useEffect(() => {
-    applyFilters();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // 🔥 Handle location selection from AddAddressScreen
+  const handleLocationFromAddAddress = useCallback((lat: number, lng: number, addressDetails: any) => {
+    console.log('📍 Location selected from AddAddressScreen:', { lat, lng, addressDetails });
 
-  useFocusEffect(
-    useCallback(() => {
-      // Re-fetch with current filters when returning to screen
-      applyFilters();
-    }, [applyFilters])
-  );
+    // Extract all available address components with fallbacks
+    const city = addressDetails.city || addressDetails.district || '';
+    const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || addressDetails.district || '';
+    const state = addressDetails.state || '';
+    const pincode = addressDetails.pincode || '';
+    const country = addressDetails.country || 'India';
+    const street = addressDetails.street || '';
+    const fullAddress = addressDetails.addressString || addressDetails.fullAddress || '';
 
-  // Auto-detect location
-  const handleAutoDetectLocation = async () => {
+    // Build address string for display
+    const addressParts = [
+      street,
+      addressDetails.colony,
+      addressDetails.suburb,
+      addressDetails.neighbourhood,
+      locality,
+      city,
+      addressDetails.district,
+      state,
+      pincode,
+      country,
+    ].filter(Boolean);
+    const displayAddress = addressParts.join(', ') || fullAddress;
+
+    // Prepare address data to save
+    const addressData = {
+      type: "Home" as "Home" | "Work" | "Other" | "Current Location",
+      addressString: displayAddress || "Selected location",
+      landmark: "",
+      city: city || '',
+      pincode: pincode || '',
+      latitude: lat,
+      longitude: lng,
+      isDefault: addresses.length === 0,
+      state: state || '',
+      locality: locality || '',
+    };
+
+    // Save address using location slice
+    if (token) {
+      dispatch(saveUserAddress({ token, addressData }))
+        .unwrap()
+        .then((savedAddress: any) => {
+          dispatch(setSelectedAddress(savedAddress));
+          // Update filter fields
+          setCity(savedAddress.city || '');
+          setLocality(savedAddress.locality || '');
+          setState(state);
+          setPincode(savedAddress.pincode || '');
+          // Apply filters with new location
+          applyFilters({
+            city: savedAddress.city || undefined,
+            locality: savedAddress.locality || undefined,
+            state: state || undefined,
+            pincode: savedAddress.pincode || undefined,
+          });
+          Toast.show({
+            type: 'success',
+            text1: 'Location Saved',
+            text2: `📍 ${displayAddress}`,
+          });
+        })
+        .catch((error: any) => {
+          console.error('Failed to save address:', error);
+          Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
+        });
+    } else {
+      // If no token, just update filters directly (should not happen normally)
+      setCity(city);
+      setLocality(locality);
+      setState(state);
+      setPincode(pincode);
+      applyFilters({ city, locality, state, pincode });
+      Toast.show({ type: 'info', text1: 'Location Updated', text2: displayAddress });
+    }
+    setShowAddAddressModal(false);
+  }, [dispatch, token, addresses.length, applyFilters]);
+
+  // 🔥 Handle address selection from saved addresses
+  const handleSelectAddress = useCallback((address: any) => {
+    dispatch(setSelectedAddress(address));
+    setShowAddressModal(false);
+    // Apply filters with selected address
+    applyFilters({
+      city: address.city || undefined,
+      locality: address.locality || undefined,
+      state: address.state || undefined,
+      pincode: address.pincode || undefined,
+    });
+  }, [dispatch, applyFilters]);
+
+  // 🔥 Handle add current location
+  const handleAddCurrentLocation = useCallback(async () => {
+    if (!token) {
+      Toast.show({ type: 'error', text1: 'Authentication Required', text2: 'Please login to save address' });
+      return;
+    }
+    
     setIsLocating(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Toast.show({ type: 'error', text1: 'Permission Denied', text2: 'Location permission required for auto-detection.' });
+        Toast.show({ type: 'error', text1: 'Permission Denied', text2: 'Location permission required.' });
         setIsLocating(false);
         return;
       }
@@ -213,39 +684,80 @@ const UserRentalListScreen: React.FC = () => {
         const detectedState = region || '';
         const detectedPincode = postalCode || '';
 
-        // Update state
-        setCity(detectedCity);
-        setLocality(detectedLocality);
-        setState(detectedState);
-        setPincode(detectedPincode);
+        const addressString = [detectedLocality, detectedCity, detectedState, detectedPincode].filter(Boolean).join(", ");
+        
+        const addressData = {
+          type: "Current Location" as "Home" | "Work" | "Other" | "Current Location",
+          addressString: addressString || "Current Location",
+          landmark: "",
+          city: detectedCity,
+          pincode: detectedPincode,
+          latitude: latitude,
+          longitude: longitude,
+          isDefault: addresses.length === 0,
+        };
 
-        Toast.show({ 
-          type: 'success', 
-          text1: 'Location Detected', 
-          text2: `📍 ${detectedLocality}, ${detectedCity}` 
-        });
-
-        // Apply filters with detected location
-        applyFilters({
-          city: detectedCity || undefined,
-          locality: detectedLocality || undefined,
-          state: detectedState || undefined,
-          pincode: detectedPincode || undefined,
-        });
+        dispatch(saveUserAddress({ token, addressData }))
+          .unwrap()
+          .then((savedAddress: any) => {
+            dispatch(setSelectedAddress(savedAddress));
+            setCity(detectedCity);
+            setLocality(detectedLocality);
+            setState(detectedState);
+            setPincode(detectedPincode);
+            setShowAddressModal(false);
+            Toast.show({ 
+              type: 'success', 
+              text1: 'Location Detected', 
+              text2: `📍 ${detectedLocality}, ${detectedCity}` 
+            });
+            applyFilters({
+              city: detectedCity || undefined,
+              locality: detectedLocality || undefined,
+              state: detectedState || undefined,
+              pincode: detectedPincode || undefined,
+            });
+          })
+          .catch((error: any) => {
+            Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
+          });
       }
     } catch (error) {
       console.error('❌ Location detection error:', error);
-      Toast.show({ type: 'error', text1: 'Location Error', text2: 'Could not detect location. Please enter manually.' });
+      Toast.show({ type: 'error', text1: 'Location Error', text2: 'Could not detect location.' });
     } finally {
       setIsLocating(false);
     }
-  };
+  }, [dispatch, token, addresses.length, applyFilters]);
+
+  // 🔥 Open AddAddressScreen modal
+  const handleOpenMapPicker = useCallback(() => {
+    setShowAddressModal(false);
+    setShowAddAddressModal(true);
+  }, []);
+
+  // Initial fetch
+  useEffect(() => {
+    applyFilters();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (token) {
+        dispatch(fetchUserAddresses(token));
+      }
+      applyFilters();
+    }, [dispatch, token, applyFilters])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    if (token) {
+      await dispatch(fetchUserAddresses(token));
+    }
     await applyFilters();
     setRefreshing(false);
-  }, [applyFilters]);
+  }, [dispatch, token, applyFilters]);
 
   const handleLoadMore = () => {
     if (hasMore && !loading && !refreshing) {
@@ -268,9 +780,7 @@ const UserRentalListScreen: React.FC = () => {
     );
   };
 
-  // Clear all filters
   const clearAllFilters = () => {
-    // Reset all state
     setSearchText('');
     setSelectedType('');
     setMinRent('');
@@ -280,7 +790,6 @@ const UserRentalListScreen: React.FC = () => {
     setLocality('');
     setPincode('');
     setIsAvailable(true);
-    // Apply with all fields empty
     applyFilters({
       q: '',
       rentalType: '',
@@ -295,6 +804,16 @@ const UserRentalListScreen: React.FC = () => {
     setFiltersVisible(false);
   };
 
+  // Show loading state
+  if (locationLoading && addresses.length === 0) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.champagneGold} />
+        <Text style={styles.loadingText}>Loading locations...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.pureWhite} />
@@ -305,16 +824,12 @@ const UserRentalListScreen: React.FC = () => {
           <Text style={styles.headerTitle}>Perfect Rental</Text>
         </View>
         <View style={styles.headerActions}>
+          {/* 🔥 Location Button - Opens Address Modal */}
           <TouchableOpacity 
             style={styles.locationBtn} 
-            onPress={handleAutoDetectLocation}
-            disabled={isLocating}
+            onPress={() => setShowAddressModal(true)}
           >
-            {isLocating ? (
-              <ActivityIndicator size="small" color={Colors.champagneGold} />
-            ) : (
-              <Ionicons name="locate-outline" size={22} color={Colors.champagneGold} />
-            )}
+            <Ionicons name="location-outline" size={22} color={Colors.champagneGold} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.notificationBtn}>
             <Ionicons name="notifications-outline" size={24} color={Colors.royalNavy} />
@@ -322,6 +837,19 @@ const UserRentalListScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       </Animated.View>
+
+      {/* 🔥 Location Bar - Shows selected location */}
+      <TouchableOpacity 
+        style={styles.locationBar} 
+        onPress={() => setShowAddressModal(true)}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="location-sharp" size={scale(18)} color={Colors.accentGreen} />
+        <Text style={styles.locationBarText} numberOfLines={1}>
+          {selectedAddress?.addressString || city || locality || "Select a location"}
+        </Text>
+        <Ionicons name="chevron-down" size={scale(16)} color={Colors.textGray} />
+      </TouchableOpacity>
 
       {/* Search Bar */}
       <View style={styles.searchBar}>
@@ -415,6 +943,31 @@ const UserRentalListScreen: React.FC = () => {
         }
       />
 
+      {/* 🔥 Address Modal - Without Delete Option */}
+      <AddressModal
+        visible={showAddressModal}
+        onClose={() => setShowAddressModal(false)}
+        onSelectAddress={handleSelectAddress}
+        onAddAddress={handleAddCurrentLocation}
+        selectedAddress={selectedAddress}
+        addresses={addresses}
+        isLoading={isLocating || locationLoading}
+        onOpenMap={handleOpenMapPicker}
+      />
+
+      {/* 🔥 AddAddressScreen as a full-screen modal */}
+      <Modal
+        visible={showAddAddressModal}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowAddAddressModal(false)}
+      >
+        <AddAddressScreen
+          onClose={() => setShowAddAddressModal(false)}
+          onLocationSelect={handleLocationFromAddAddress}
+        />
+      </Modal>
+
       {/* Filter Modal */}
       <Modal visible={filtersVisible} transparent animationType="slide">
         <TouchableOpacity
@@ -431,17 +984,6 @@ const UserRentalListScreen: React.FC = () => {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} style={styles.modalScroll}>
-              <TouchableOpacity 
-                style={styles.autoLocateBtn} 
-                onPress={handleAutoDetectLocation}
-                disabled={isLocating}
-              >
-                <Ionicons name="locate" size={20} color={Colors.pureWhite} />
-                <Text style={styles.autoLocateText}>
-                  {isLocating ? 'Detecting...' : 'Auto-Detect Location'}
-                </Text>
-              </TouchableOpacity>
-
               <Text style={styles.filterLabel}>Search by Name</Text>
               <TextInput
                 style={styles.filterInput}
@@ -547,10 +1089,20 @@ const UserRentalListScreen: React.FC = () => {
   );
 };
 
-// Styles remain unchanged; keep the existing styles object.
-// (They are exactly the same as in your original file)
+// Styles (unchanged – keep all existing styles)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.offWhite },
+  loadingContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    backgroundColor: Colors.pureWhite,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: Colors.slate,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -563,9 +1115,43 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: isSmallPhone ? 12 : 14, color: Colors.slate, fontWeight: '500', letterSpacing: 1, textTransform: 'uppercase' },
   headerTitle: { fontSize: isSmallPhone ? 22 : 28, fontWeight: '800', color: Colors.royalNavy, marginTop: 2 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  locationBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.offWhite, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: Colors.champagneGold },
+  locationBtn: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 22, 
+    backgroundColor: Colors.offWhite, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    borderWidth: 1, 
+    borderColor: Colors.champagneGold 
+  },
   notificationBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.offWhite, justifyContent: 'center', alignItems: 'center' },
   notificationDot: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.champagneGold, borderWidth: 2, borderColor: Colors.pureWhite },
+  locationBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.pureWhite,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.lightBorder,
+    shadowColor: Colors.royalNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  locationBarText: {
+    flex: 1,
+    color: Colors.textDark,
+    fontSize: 14,
+    marginLeft: 8,
+    marginRight: 8,
+    fontWeight: '500',
+  },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -641,8 +1227,6 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: '800', color: Colors.royalNavy },
   modalCloseBtn: { padding: 4 },
   modalScroll: { marginBottom: 10 },
-  autoLocateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.royalNavy, paddingVertical: 12, borderRadius: 12, gap: 8, marginBottom: 16 },
-  autoLocateText: { color: Colors.pureWhite, fontWeight: '600', fontSize: 15 },
   filterLabel: { fontSize: isSmallPhone ? 13 : 14, fontWeight: '600', color: Colors.royalNavy, marginTop: 16, marginBottom: 8 },
   filterInput: { borderWidth: 1, borderColor: Colors.lightBorder, borderRadius: 12, padding: isSmallPhone ? 12 : 14, marginBottom: 8, fontSize: isSmallPhone ? 14 : 16, color: Colors.royalNavy, backgroundColor: Colors.offWhite },
   rangeRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

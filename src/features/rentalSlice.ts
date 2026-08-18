@@ -45,7 +45,6 @@ export interface Rental {
   updatedAt: Date | string;
 }
 
-// ✅ ADDED: Filter interface
 export interface RentalFilters {
   rentalType: string;
   minRent: number | null;
@@ -136,6 +135,7 @@ interface FetchRentalsArgs {
   radius?: number;
   h3Index?: string;
   sort?: string;
+  vendorId?: string;   // ✅ ADDED
 }
 
 interface FetchRentalsResponse {
@@ -144,7 +144,6 @@ interface FetchRentalsResponse {
   total: number;
 }
 
-// ✅ fetchRentals - PUBLIC endpoint
 export const fetchRentals = createAsyncThunk<
   FetchRentalsResponse,
   FetchRentalsArgs | void,
@@ -170,6 +169,7 @@ export const fetchRentals = createAsyncThunk<
     }
     if (args?.h3Index) params.h3Index = args.h3Index;
     if (args?.sort) params.sort = args.sort;
+    if (args?.vendorId) params.vendorId = args.vendorId;   // ✅ ADDED
 
     console.log(`🌐 Fetching rentals with params:`, params);
 
@@ -282,7 +282,6 @@ export const deleteRental = createAsyncThunk<
   }
 });
 
-// ✅ NEW: Search rentals with Elasticsearch-style query
 export const searchRentals = createAsyncThunk<
   FetchRentalsResponse,
   { query: string; page?: number; limit?: number },
@@ -312,7 +311,6 @@ export const searchRentals = createAsyncThunk<
   }
 });
 
-// ✅ NEW: Get pincode details for auto-fill
 export const getPincodeDetails = createAsyncThunk<
   { city: string; state: string; locality: string },
   string,
@@ -320,7 +318,6 @@ export const getPincodeDetails = createAsyncThunk<
 >('rental/getPincodeDetails', async (pincode, { rejectWithValue }) => {
   try {
     console.log(`📍 Fetching details for pincode: ${pincode}`);
-    // Use a pincode API
     const response = await axios.get(`https://api.postalpincode.in/pincode/${pincode}`);
     if (response.data && response.data[0]?.Status === 'Success') {
       const postOffice = response.data[0].PostOffice[0];
@@ -370,15 +367,12 @@ const rentalSlice = createSlice({
     resetRentalState: (state) => {
       Object.assign(state, initialState);
     },
-    // ✅ NEW: Set search query
     setSearchQuery: (state, action: PayloadAction<string>) => {
       state.searchQuery = action.payload;
     },
-    // ✅ NEW: Set filters
     setFilters: (state, action: PayloadAction<Partial<RentalFilters>>) => {
       state.filters = { ...state.filters, ...action.payload };
     },
-    // ✅ NEW: Clear all filters
     clearFilters: (state) => {
       state.filters = initialState.filters;
       state.searchQuery = '';
@@ -502,7 +496,6 @@ const rentalSlice = createSlice({
   },
 });
 
-// ✅ EXPORT ALL ACTIONS
 export const { 
   clearRentalError, 
   resetRentalState,
@@ -545,7 +538,6 @@ export const selectRentalPagination = createSelector(
   })
 );
 
-// ✅ NEW SELECTORS
 export const selectFilters = createSelector(
   [selectRentalState],
   (state) => state.filters
