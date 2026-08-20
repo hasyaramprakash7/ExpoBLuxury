@@ -32,6 +32,7 @@ import {
 } from "../features/locationSlice";
 import { fetchCategories } from "../features/categorySlice";
 import { LinearGradient } from "expo-linear-gradient";
+import { createSelector } from '@reduxjs/toolkit';
 
 import { Colors, getFullAddress, calculateDistance, scale, verticalScale, moderateScale } from "../constants/colors";
 import { AddressModal } from "../components/AddressModal";
@@ -41,9 +42,75 @@ import AddAddressScreen from "./AddAddressScreen";
 
 const { width, height } = Dimensions.get("window");
 const CATEGORY_DISPLAY_LIMIT = 30;
-const FETCH_STALE_MS = 5 * 60 * 1000; // 5 minutes
+const FETCH_STALE_MS = 5 * 60 * 1000;
 
-// ---------- Category Grid Item ----------
+const parseArrayField = (field: any): string[] => {
+  if (!field) return [];
+  
+  if (Array.isArray(field)) {
+    if (field.length === 1 && typeof field[0] === 'string' && field[0].startsWith('[')) {
+      try {
+        const parsed = JSON.parse(field[0]);
+        if (Array.isArray(parsed)) {
+          return parsed.map(item => String(item).trim()).filter(Boolean);
+        }
+      } catch (_) {}
+    }
+    return field.map(item => String(item).trim()).filter(Boolean);
+  }
+  
+  if (typeof field === 'string') {
+    try {
+      const parsed = JSON.parse(field);
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => String(item).trim()).filter(Boolean);
+      }
+      return [String(parsed).trim()].filter(Boolean);
+    } catch (_) {
+      if (field.includes(',')) {
+        return field.split(',').map(s => s.trim()).filter(Boolean);
+      }
+      return [field.trim()].filter(Boolean);
+    }
+  }
+  
+  return [];
+};
+
+const selectGenericAds = createSelector(
+  (state: RootState) => state.ads?.activeAds || [],
+  (activeAds) => activeAds.filter(ad => ad.isProductAd === false)
+);
+
+const AdCarouselWithNavigation = ({ limit = 5, title = "Sponsored" }) => {
+  const navigation = useNavigation<any>();
+  const allGenericAds = useSelector(selectGenericAds);
+  
+  const genericAds = useMemo(() => {
+    return allGenericAds.slice(0, limit);
+  }, [allGenericAds, limit]);
+
+  const handleAdPress = useCallback((ad: any) => {
+    console.log('🔗 [AdCarousel] Navigating to AdList with:', ad.title, ad._id);
+    navigation.navigate('AdList', { 
+      selectedAdTitle: ad.title || ad.name || 'Sponsored',
+      selectedAdId: ad._id
+    });
+  }, [navigation]);
+
+  if (!genericAds || genericAds.length === 0) {
+    return null;
+  }
+
+  return (
+    <AdCarousel 
+      ads={genericAds} 
+      title={title} 
+      onAdPress={handleAdPress}
+    />
+  );
+};
+
 const CategoryGridItem = ({
   category,
   onPress,
@@ -51,6 +118,8 @@ const CategoryGridItem = ({
   category: { name: string; count: number; image?: string; _id?: string };
   onPress: () => void;
 }) => {
+  const displayName = typeof category.name === 'string' ? category.name : String(category.name || 'Category');
+  
   return (
     <TouchableOpacity
       style={styles.categoryGridItem}
@@ -70,7 +139,7 @@ const CategoryGridItem = ({
       />
       <View style={styles.categoryTextContainer}>
         <Text style={styles.categoryGridName} numberOfLines={1}>
-          {category.name}
+          {displayName}
         </Text>
         <Text style={styles.categoryGridCount}>{category.count} shops</Text>
       </View>
@@ -78,7 +147,6 @@ const CategoryGridItem = ({
   );
 };
 
-// ---------- Category Section Header ----------
 const CategorySectionHeader = ({ title, count }: { title: string; count: number }) => (
   <View style={styles.sectionHeader}>
     <View style={styles.sectionHeaderLeft}>
@@ -89,14 +157,14 @@ const CategorySectionHeader = ({ title, count }: { title: string; count: number 
   </View>
 );
 
-// ---------- Main Component ----------
 const ShopListings = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const targetVendorId = route.params?.vendorId;
 
-  // Redux state – SAFE selectors with fallback empty arrays
+  console.log('🔷 [ShopListings] Screen initialized');
+
   const { location: userLocation, selectedAddress, loading: isLocationLoading } = useSelector(
     (state: RootState) => state.location,
   );
@@ -112,7 +180,6 @@ const ShopListings = () => {
   const categories = useSelector((state: RootState) => state.categories?.categories || []);
   const categoriesLoading = useSelector((state: RootState) => state.categories?.loading || false);
 
-  // Local state
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [showAddressModal, setShowAddressModal] = useState<boolean>(false);
   const [showAddAddress, setShowAddAddress] = useState<boolean>(false);
@@ -125,8 +192,9 @@ const ShopListings = () => {
   const fetchTimeout = useRef<NodeJS.Timeout | null>(null);
   const isFetching = useRef(false);
   const lastFetchTime = useRef<number>(0);
+  const locationPickerShown = useRef(false);
+  const isNavigatingAway = useRef(false);
 
-  // ---------- Back Handler for AddAddress modal ----------
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (showAddAddress) {
@@ -143,14 +211,13 @@ const ShopListings = () => {
     return () => backHandler.remove();
   }, [showAddAddress, showAddressModal]);
 
-  // ---------- Fetch categories on mount ----------
   useEffect(() => {
     if (categories.length === 0 && !categoriesLoading) {
+      console.log('🔷 [ShopListings] Fetching categories...');
       dispatch(fetchCategories());
     }
   }, [dispatch, categories.length, categoriesLoading]);
 
-  // ---------- Location helpers ----------
   const getCurrentLocation = useCallback(() => {
     let lat = userLocation?.latitude;
     let lng = userLocation?.longitude;
@@ -161,29 +228,42 @@ const ShopListings = () => {
     return { lat, lng };
   }, [userLocation, selectedAddress]);
 
-  // ---------- Core fetch function ----------
-  const fetchDirectoryVendors = useCallback(async () => {
+  const fetchDirectoryVendors = useCallback(async (options?: { force?: boolean, category?: string }) => {
+    console.log('🔷 [ShopListings] fetchDirectoryVendors called', { 
+      options, 
+      isFetching: isFetching.current,
+      directoryVendorsLength: directoryVendors?.length 
+    });
+    
     if (isFetching.current) {
       console.log('⏭️ [ShopListings] Fetch already in progress, skipping');
       return;
     }
     const { lat, lng } = getCurrentLocation();
     isFetching.current = true;
-    console.log('🔄 [ShopListings] fetchDirectoryVendors called', { lat, lng });
+    console.log('🔄 [ShopListings] fetchDirectoryVendors executing', { lat, lng, category: options?.category });
 
     try {
+      const params: any = {};
       if (lat && lng) {
-        await dispatch(searchDirectoryVendors({ lat, lng }));
-      } else {
-        await dispatch(searchDirectoryVendors({}));
+        params.lat = lat;
+        params.lng = lng;
       }
+      if (options?.category) {
+        params.category = options.category;
+      }
+      
+      console.log('📤 [ShopListings] Dispatching searchDirectoryVendors with params:', params);
+      await dispatch(searchDirectoryVendors(params));
+      
       if (!allProducts || allProducts.length === 0) {
+        console.log('📤 [ShopListings] Fetching products...');
         await dispatch(fetchAllVendorProducts());
       }
       if (categories.length === 0 && !categoriesLoading) {
+        console.log('📤 [ShopListings] Fetching categories...');
         await dispatch(fetchCategories());
       }
-      // ✅ Update last fetch time on success
       lastFetchTime.current = Date.now();
       console.log('✅ [ShopListings] Fetch completed, lastFetchTime updated');
     } catch (error) {
@@ -193,10 +273,14 @@ const ShopListings = () => {
       setIsInitialLoading(false);
       console.log('🏁 [ShopListings] isInitialLoading set to false');
     }
-  }, [dispatch, getCurrentLocation, allProducts, categories.length, categoriesLoading]);
+  }, [dispatch, getCurrentLocation, allProducts, categories.length, categoriesLoading, directoryVendors?.length]);
 
-  // ✅ Modified immediateFetch with staleness check
   const immediateFetch = useCallback(() => {
+    console.log('🔷 [ShopListings] immediateFetch called', { 
+      directoryVendorsLength: directoryVendors?.length,
+      lastFetchTime: lastFetchTime.current 
+    });
+    
     if (fetchTimeout.current) {
       clearTimeout(fetchTimeout.current);
       fetchTimeout.current = null;
@@ -206,15 +290,15 @@ const ShopListings = () => {
       (!directoryVendors || directoryVendors.length === 0) ||
       (now - lastFetchTime.current > FETCH_STALE_MS);
     if (shouldFetch) {
-      console.log('🔄 [ShopListings] immediateFetch – fetching');
-      fetchDirectoryVendors();
+      console.log('🔄 [ShopListings] immediateFetch – fetching all vendors');
+      fetchDirectoryVendors({});
     } else {
       console.log('⏭️ [ShopListings] immediateFetch skipped – data is fresh');
     }
   }, [fetchDirectoryVendors, directoryVendors]);
 
-  // ✅ Modified debouncedFetch with staleness check
   const debouncedFetch = useCallback(() => {
+    console.log('🔷 [ShopListings] debouncedFetch called');
     if (fetchTimeout.current) {
       clearTimeout(fetchTimeout.current);
       fetchTimeout.current = null;
@@ -225,8 +309,8 @@ const ShopListings = () => {
         (!directoryVendors || directoryVendors.length === 0) ||
         (now - lastFetchTime.current > FETCH_STALE_MS);
       if (shouldFetch) {
-        console.log('🔄 [ShopListings] debouncedFetch – fetching');
-        fetchDirectoryVendors();
+        console.log('🔄 [ShopListings] debouncedFetch – fetching all vendors');
+        fetchDirectoryVendors({});
       } else {
         console.log('⏭️ [ShopListings] debouncedFetch skipped – data is fresh');
       }
@@ -234,13 +318,14 @@ const ShopListings = () => {
     }, 300);
   }, [fetchDirectoryVendors, directoryVendors]);
 
-  // ---------- Location permission ----------
   const handleRequestLocation = async () => {
+    console.log('🔷 [ShopListings] handleRequestLocation called');
     if (isFetchingLocation.current) return;
     isFetchingLocation.current = true;
     dispatch(fetchLocationStart());
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
+      console.log('📍 [ShopListings] Location permission status:', status);
       if (status !== "granted") {
         dispatch(fetchLocationFailure("Permission to access location was denied."));
         Alert.alert("Permission Required", "This app needs location access to find nearby shops.");
@@ -252,6 +337,7 @@ const ShopListings = () => {
       });
       const lat = locationData.coords.latitude;
       const lng = locationData.coords.longitude;
+      console.log('📍 [ShopListings] Got location:', { lat, lng });
       dispatch(fetchLocationSuccess({ latitude: lat, longitude: lng }));
       immediateFetch();
     } catch (locError) {
@@ -262,8 +348,15 @@ const ShopListings = () => {
     }
   };
 
-  // Auto-request location if no address selected
   useEffect(() => {
+    console.log('🔷 [ShopListings] useEffect - location check', {
+      token: !!token,
+      initialLocationRequested: initialLocationRequested.current,
+      addressesLength: addresses.length,
+      hasLocation: !!userLocation?.latitude,
+      isLocationLoading
+    });
+    
     if (
       token &&
       !initialLocationRequested.current &&
@@ -277,8 +370,27 @@ const ShopListings = () => {
     }
   }, [token, addresses.length, userLocation, isLocationLoading]);
 
-  // ---------- Map & Address handlers ----------
+  useEffect(() => {
+    console.log('🔷 [ShopListings] useEffect - location picker check', {
+      locationPickerShown: locationPickerShown.current,
+      isInitialLoading,
+      isLocationLoading,
+      hasSelectedAddress: !!selectedAddress,
+      hasUserLocation: !!userLocation
+    });
+    
+    if (locationPickerShown.current) return;
+    if (isInitialLoading || isLocationLoading) return;
+
+    if (!selectedAddress && !userLocation) {
+      console.log('[ShopListings] No location found – opening AddAddressScreen');
+      setShowAddAddress(true);
+      locationPickerShown.current = true;
+    }
+  }, [isInitialLoading, isLocationLoading, selectedAddress, userLocation]);
+
   const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
+    console.log('🔷 [ShopListings] handleMapLocationSelect called', { lat, lng });
     if (fetchTimeout.current) {
       clearTimeout(fetchTimeout.current);
       fetchTimeout.current = null;
@@ -320,11 +432,13 @@ const ShopListings = () => {
   }, [dispatch, token, addresses.length, immediateFetch]);
 
   const handleOpenAddressModal = () => {
+    console.log('🔷 [ShopListings] Opening address modal');
     if (token) dispatch(fetchUserAddresses(token));
     setShowAddressModal(true);
   };
 
   const handleSelectAddress = (address: any) => {
+    console.log('🔷 [ShopListings] Selecting address:', address.addressString);
     if (
       selectedAddress?.id === address.id ||
       selectedAddress?.addressString === address.addressString
@@ -342,15 +456,18 @@ const ShopListings = () => {
   };
 
   const handleOpenAddAddress = () => {
+    console.log('🔷 [ShopListings] Opening add address');
     setShowAddressModal(false);
     setShowAddAddress(true);
   };
 
   const handleCloseAddAddress = () => {
+    console.log('🔷 [ShopListings] Closing add address');
     setShowAddAddress(false);
   };
 
   const handleAddAddress = async () => {
+    console.log('🔷 [ShopListings] handleAddAddress called');
     if (!token) {
       Alert.alert("Authentication Required", "Please login to add an address.");
       return;
@@ -407,7 +524,6 @@ const ShopListings = () => {
     }
   };
 
-  // ---------- Refresh ----------
   const onRefresh = useCallback(async () => {
     console.log('🔄 [ShopListings] Pull-to-refresh triggered');
     setIsRefreshing(true);
@@ -417,25 +533,26 @@ const ShopListings = () => {
     }
     try {
       await Promise.all([
-        fetchDirectoryVendors(),
+        fetchDirectoryVendors({}),
         dispatch(fetchAllVendorProducts()),
         dispatch(fetchCategories()),
       ]);
+      console.log('✅ [ShopListings] Refresh completed');
     } catch (error) {
+      console.error('❌ [ShopListings] Refresh error:', error);
       Alert.alert("Refresh Failed", "Could not refresh data.");
     } finally {
       setIsRefreshing(false);
     }
   }, [fetchDirectoryVendors, dispatch]);
 
-  // ---------- Initial load ----------
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       const loadInitialData = async () => {
         console.log('🚀 [ShopListings] Initial load started');
         if (!directoryVendors || directoryVendors.length === 0) {
-          await fetchDirectoryVendors();
+          await fetchDirectoryVendors({});
         }
         if (!allProducts || allProducts.length === 0) {
           await dispatch(fetchAllVendorProducts());
@@ -453,18 +570,25 @@ const ShopListings = () => {
     }
   }, []);
 
-  // ---------- Focus effect – only fetch if stale or empty ----------
   useFocusEffect(
     useCallback(() => {
-      console.log('📱 [ShopListings] Screen focused');
+      console.log('📱 [ShopListings] Screen focused, isNavigatingAway:', isNavigatingAway.current);
+      
+      if (isNavigatingAway.current) {
+        isNavigatingAway.current = false;
+        console.log('🔄 [ShopListings] Returning from navigation, fetching all vendors');
+        fetchDirectoryVendors({});
+        return;
+      }
+      
       const now = Date.now();
       const shouldFetch = 
         (!directoryVendors || directoryVendors.length === 0) ||
         (now - lastFetchTime.current > FETCH_STALE_MS);
 
       if (shouldFetch && !isInitialMount.current) {
-        console.log('🔄 [ShopListings] Fetching due to focus (stale or empty)');
-        fetchDirectoryVendors();
+        console.log('🔄 [ShopListings] Fetching all vendors due to focus (stale or empty)');
+        fetchDirectoryVendors({});
       } else {
         console.log('⏭️ [ShopListings] Skipping fetch – data is fresh');
       }
@@ -473,11 +597,13 @@ const ShopListings = () => {
         dispatch(fetchCategories());
       }
 
-      return () => {};
+      return () => {
+        isNavigatingAway.current = true;
+        console.log('📱 [ShopListings] Screen unfocused, setting isNavigatingAway=true');
+      };
     }, [fetchDirectoryVendors, directoryVendors, categories.length, categoriesLoading, dispatch])
   );
 
-  // ---------- Listen for location changes (now debounced with staleness check) ----------
   useEffect(() => {
     if (isInitialMount.current) return;
     const lat = userLocation?.latitude;
@@ -507,17 +633,23 @@ const ShopListings = () => {
     };
   }, []);
 
-  // ---------- Memoized categories (with limit) – with null safety ----------
   const { displayCategories, hasMoreCategories } = useMemo(() => {
+    console.log('🔷 [ShopListings] Computing displayCategories', { 
+      categoriesLength: categories?.length,
+      directoryVendorsLength: directoryVendors?.length 
+    });
+    
     if (!categories || categories.length === 0) {
       return { displayCategories: [], hasMoreCategories: false };
     }
 
     const shopCountMap = new Map<string, number>();
     const categoryNameMap = new Map<string, string>();
+    
     (directoryVendors || []).forEach((vendor) => {
-      if (vendor && vendor.categories && Array.isArray(vendor.categories)) {
-        vendor.categories.forEach((cat: string) => {
+      if (vendor) {
+        const vendorCategories = parseArrayField(vendor.categories);
+        vendorCategories.forEach((cat: string) => {
           if (cat) {
             const normalized = cat.toLowerCase();
             shopCountMap.set(normalized, (shopCountMap.get(normalized) || 0) + 1);
@@ -530,9 +662,10 @@ const ShopListings = () => {
     });
 
     const fullList = categories.map((category) => {
-      const normalizedName = category.name.toLowerCase();
+      const categoryName = typeof category.name === 'string' ? category.name : String(category.name || '');
+      const normalizedName = categoryName.toLowerCase();
       const count = shopCountMap.get(normalizedName) || 0;
-      const displayName = categoryNameMap.get(normalizedName) || category.name;
+      const displayName = categoryNameMap.get(normalizedName) || categoryName;
       return {
         name: displayName,
         count: count,
@@ -546,16 +679,22 @@ const ShopListings = () => {
 
     const display = fullList.slice(0, CATEGORY_DISPLAY_LIMIT);
     const hasMore = fullList.length > CATEGORY_DISPLAY_LIMIT;
+    console.log('✅ [ShopListings] Categories computed:', display.length, 'displayed, hasMore:', hasMore);
     return { displayCategories: display, hasMoreCategories: hasMore };
   }, [categories, directoryVendors]);
 
-  // ---------- Filter vendors – ensure we have only valid vendors ----------
   const filteredVendors = useMemo(() => {
-    return (directoryVendors || []).filter(v => v && v._id);
+    const filtered = (directoryVendors || []).filter(v => v && v._id);
+    console.log('🔷 [ShopListings] filteredVendors:', filtered.length);
+    return filtered;
   }, [directoryVendors]);
 
-  // ---------- Enhance vendors with distance & range ----------
   const vendorsWithDetails = useMemo(() => {
+    console.log('🔷 [ShopListings] Computing vendorsWithDetails', { 
+      filteredVendorsLength: filteredVendors.length,
+      allProductsLength: allProducts?.length 
+    });
+    
     const vendors = filteredVendors;
     const userLat = userLocation?.latitude;
     const userLng = userLocation?.longitude;
@@ -563,6 +702,8 @@ const ShopListings = () => {
     const result = vendors.map((vendor) => {
       const vendorProducts = (allProducts || []).filter((p) => p.vendorId === vendor._id);
       const productImages = vendorProducts.map((p) => p.images && p.images[0]).filter(Boolean);
+
+      const vendorCategories = parseArrayField(vendor.categories);
 
       let distance = vendor.distance;
       let isInRange = true;
@@ -583,6 +724,7 @@ const ShopListings = () => {
 
       return {
         ...vendor,
+        categories: vendorCategories,
         shopImage: vendor.shopImage || vendor.profileImage || vendor.coverImage,
         productsCount: vendorProducts.length,
         productImages,
@@ -591,37 +733,37 @@ const ShopListings = () => {
       };
     });
 
-    return result.sort((a, b) => {
+    const sorted = result.sort((a, b) => {
       if (a.isInRange && b.isInRange) return (a.distance || Infinity) - (b.distance || Infinity);
       if (a.isInRange && !b.isInRange) return -1;
       if (!a.isInRange && b.isInRange) return 1;
       return (a.distance || Infinity) - (b.distance || Infinity);
     });
+    
+    console.log('✅ [ShopListings] vendorsWithDetails computed:', sorted.length);
+    return sorted;
   }, [filteredVendors, allProducts, userLocation]);
 
   const handleCardPress = (shop: any) => {
+    console.log('🔷 [ShopListings] Navigating to ShopDetails:', shop.shopName);
     navigation.navigate("ShopDetails", { vendor: shop });
   };
 
-  // ---------- FIXED isLoading – categoriesLoading no longer blocks the list ----------
   const isLoading = 
     (isInitialLoading && (!directoryVendors || directoryVendors.length === 0)) || 
     isLocationLoading || 
     isAddressLoading;
-  // categoriesLoading removed – it only affects the categories header, not the shops list.
 
-  // Log loading state changes for debugging
   useEffect(() => {
     console.log('📊 [ShopListings] isLoading:', isLoading, {
       isInitialLoading,
       vendorCount: directoryVendors?.length || 0,
       isLocationLoading,
       isAddressLoading,
-      categoriesLoading, // still logged for info
+      categoriesLoading,
     });
   }, [isLoading, isInitialLoading, directoryVendors, isLocationLoading, isAddressLoading, categoriesLoading]);
 
-  // ---------- Render ----------
   const renderContent = () => {
     console.log('🎨 [ShopListings] renderContent called, isLoading:', isLoading, 'isRefreshing:', isRefreshing);
     if (isLoading && !isRefreshing) {
@@ -680,6 +822,7 @@ const ShopListings = () => {
                     <CategoryGridItem
                       category={item}
                       onPress={() => {
+                        console.log('🔷 [ShopListings] Navigating to category:', item.name);
                         navigation.navigate('CategoryShopsScreen', {
                           categoryName: item.name,
                           categoryImage: item.image,
@@ -699,7 +842,7 @@ const ShopListings = () => {
                   <Ionicons name="arrow-forward" size={scale(16)} color={Colors.accentGreen} />
                 </TouchableOpacity>
               )}
-              <AdCarousel limit={5} title="Sponsored" />
+              <AdCarouselWithNavigation limit={5} title="Sponsored" />
             </>
           ) : null
         }
@@ -779,7 +922,6 @@ const ShopListings = () => {
   );
 };
 
-// ------------------- Styles (unchanged) -------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF" },
   safeArea: { flex: 1, backgroundColor: "#FFFFFF" },

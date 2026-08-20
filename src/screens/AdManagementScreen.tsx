@@ -73,6 +73,7 @@ const AdFormModal: React.FC<{
   const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+  const [isProductAd, setIsProductAd] = useState(false);
 
   useEffect(() => {
     if (ad) {
@@ -81,6 +82,7 @@ const AdFormModal: React.FC<{
       setStartDate(new Date(ad.startDate));
       setEndDate(new Date(ad.endDate));
       setIsActive(ad.isActive !== undefined ? ad.isActive : true);
+      setIsProductAd(ad.isProductAd || false);
       setExistingImageUrl(ad.image || null);
       setImageUri(null);
     } else {
@@ -89,6 +91,7 @@ const AdFormModal: React.FC<{
       setStartDate(new Date());
       setEndDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
       setIsActive(true);
+      setIsProductAd(false);
       setExistingImageUrl(null);
       setImageUri(null);
     }
@@ -128,6 +131,7 @@ const AdFormModal: React.FC<{
       formData.append('startDate', startDate.toISOString());
       formData.append('endDate', endDate.toISOString());
       formData.append('isActive', isActive ? 'true' : 'false');
+      formData.append('isProductAd', isProductAd ? 'true' : 'false');
 
       if (imageUri) {
         const filename = imageUri.split('/').pop() || 'image.jpg';
@@ -168,6 +172,7 @@ const AdFormModal: React.FC<{
                 maxLength={100}
               />
             </View>
+
             <View style={formStyles.formGroup}>
               <Text style={formStyles.label}>Ad Image *</Text>
               <TouchableOpacity style={formStyles.imagePickerButton} onPress={handleImagePick}>
@@ -194,6 +199,7 @@ const AdFormModal: React.FC<{
                 </TouchableOpacity>
               )}
             </View>
+
             <View style={formStyles.formGroup}>
               <Text style={formStyles.label}>Link (Optional)</Text>
               <TextInput
@@ -205,6 +211,24 @@ const AdFormModal: React.FC<{
                 autoCapitalize="none"
               />
             </View>
+
+            <View style={formStyles.formGroup}>
+              <View style={formStyles.switchRow}>
+                <Text style={formStyles.label}>Product Ad</Text>
+                <Switch
+                  value={isProductAd}
+                  onValueChange={setIsProductAd}
+                  trackColor={{ false: "#333", true: Colors.accentBlue }}
+                  thumbColor={isProductAd ? Colors.cardWhite : Colors.textLightGray}
+                />
+              </View>
+              <Text style={formStyles.helperText}>
+                {isProductAd
+                  ? "This ad will be styled as a product promotion"
+                  : "This ad will be displayed as a generic banner"}
+              </Text>
+            </View>
+
             <View style={formStyles.formGroup}>
               <Text style={formStyles.label}>Start Date *</Text>
               <TouchableOpacity
@@ -228,6 +252,7 @@ const AdFormModal: React.FC<{
                 />
               )}
             </View>
+
             <View style={formStyles.formGroup}>
               <Text style={formStyles.label}>End Date *</Text>
               <TouchableOpacity
@@ -251,6 +276,7 @@ const AdFormModal: React.FC<{
                 />
               )}
             </View>
+
             <View style={formStyles.formGroup}>
               <View style={formStyles.switchRow}>
                 <Text style={formStyles.label}>Active</Text>
@@ -267,6 +293,7 @@ const AdFormModal: React.FC<{
                   : "Ad will be hidden from users"}
               </Text>
             </View>
+
             <TouchableOpacity
               style={formStyles.submitButton}
               onPress={handleSubmit}
@@ -443,6 +470,11 @@ const AdCard: React.FC<{
             {ad.title || "Untitled Ad"}
           </Text>
           <View style={cardStyles.metaRow}>
+            {ad.isProductAd && (
+              <View style={cardStyles.productBadge}>
+                <Text style={cardStyles.productBadgeText}>🛍️ Product</Text>
+              </View>
+            )}
             <View style={cardStyles.statusBadge}>
               <View style={[cardStyles.statusDot, { backgroundColor: getStatusColor() }]} />
               <Text style={[cardStyles.statusText, { color: getStatusColor() }]}>
@@ -516,7 +548,21 @@ const cardStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: scale(6),
+    flexWrap: "wrap",
     marginBottom: verticalScale(2),
+  },
+  productBadge: {
+    backgroundColor: "rgba(37, 99, 235, 0.2)",
+    paddingHorizontal: scale(8),
+    paddingVertical: verticalScale(2),
+    borderRadius: moderateScale(10),
+    borderWidth: 1,
+    borderColor: "rgba(37, 99, 235, 0.3)",
+  },
+  productBadgeText: {
+    color: Colors.accentBlue,
+    fontSize: moderateScale(9),
+    fontWeight: "600",
   },
   statusBadge: {
     flexDirection: "row",

@@ -148,17 +148,15 @@ export default function VendorDashboard() {
     }
   }, [subscriptionStatus, vendorAuthLoading, navigation]);
 
-  // Robust array parser: handles strings, arrays, and nested JSON
   const parseArrayField = useCallback((field: any): string[] => {
     if (!field) return [];
 
     if (Array.isArray(field)) {
-      // If the array contains a single string that looks like JSON, try to parse it
       if (field.length === 1 && typeof field[0] === 'string' && field[0].startsWith('[')) {
         try {
           const parsed = JSON.parse(field[0]);
           if (Array.isArray(parsed)) {
-            return parsed.map(item => String(item).trim());
+            return parsed.map(item => String(item).trim()).filter(Boolean);
           }
         } catch (_) {}
       }

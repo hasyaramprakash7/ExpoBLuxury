@@ -29,7 +29,7 @@ import { RootState } from "../app/store";
 
 const { width, height } = Dimensions.get("window");
 
-const PROFILE_IMAGE_ASSET = require("../../assets/WhatsApp Image 2026-01-19 at 2.30.39 AM.jpeg");
+const PROFILE_IMAGE_ASSET = require("../../assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png");
 
 // 🔥 ROYAL THEME COLORS 🔥
 const Colors = {

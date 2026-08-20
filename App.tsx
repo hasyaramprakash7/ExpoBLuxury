@@ -1,4 +1,4 @@
-// App.tsx - Updated with CategoryShopsScreen
+// App.tsx - Complete updated file
 import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
@@ -76,7 +76,7 @@ import CartScreen from "./src/screens/Cart";
 import Chatscreen from "./src/screens/ChatScreen";
 import ShopListings from "./src/screens/ShopListings";
 import ShopDetails from "./src/screens/ShopDetails";
-import CategoryShopsScreen from "./src/screens/CategoryShopsScreen"; // 🔥 ADD THIS IMPORT
+import CategoryShopsScreen from "./src/screens/CategoryShopsScreen";
 import CategoryProductsScreen from "./src/screens/CategoryProductsScreen";
 import ShopProductsScreen from "./src/screens/ShopProductsScreen";
 import BrandProductsScreen from "./src/screens/BrandProductsScreen";
@@ -537,7 +537,6 @@ const AppNavigator = () => {
         <Stack.Screen name="PropertyCRUDScreen" component={PropertyCRUDScreen} />
         <Stack.Screen name="VendorAppointmentsList" component={VendorAppointmentsList} />
         <Stack.Screen name="VendorLeads" component={VendorLeadsScreen} />
-        {/* 🔥 ADD CategoryShopsScreen here */}
         <Stack.Screen name="CategoryShopsScreen" component={CategoryShopsScreen} />
         {/* User-facing screens for vendor access */}
         <Stack.Screen name="HomeScreen" component={HomeScreen} />
@@ -548,9 +547,8 @@ const AppNavigator = () => {
         <Stack.Screen name="ChatScreen" component={Chatscreen} />
         <Stack.Screen name="ShopListings" component={ShopListings} />
         <Stack.Screen name="ShopDetails" component={ShopDetails} />
-        
-                <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />
-
+        <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />
+        <Stack.Screen name="AllCategoriesScreen" component={AllCategoriesScreen} />
       </Stack.Navigator>
     );
   } else if (deliveryBoy?._id) {
@@ -573,7 +571,6 @@ const AppNavigator = () => {
         <Stack.Screen name="UserOrderScreen" component={UserOrderScreen} />
         <Stack.Screen name="ShopListings" component={ShopListings} />
         <Stack.Screen name="ShopDetails" component={ShopDetails} />
-        {/* 🔥 ADD CategoryShopsScreen here */}
         <Stack.Screen name="CategoryShopsScreen" component={CategoryShopsScreen} />
         <Stack.Screen name="CategoryProducts" component={CategoryProductsScreen} />
         <Stack.Screen name="ShopProducts" component={ShopProductsScreen} />
@@ -587,10 +584,14 @@ const AppNavigator = () => {
         <Stack.Screen name="UserPropertyListScreen" component={UserPropertyListScreen} />
         <Stack.Screen name="RentalList" component={UserRentalListScreen} />
         <Stack.Screen name="RentalDetail" component={RentalDetailScreen} />
-          <Stack.Screen name="AdListScreen" component={AdListScreen} />
+        <Stack.Screen name="AdListScreen" component={AdListScreen} />
         <Stack.Screen name="WebViewScreen" component={WebViewScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AllCategoriesScreen" component={AllCategoriesScreen} />
-
+        <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />
+        
+        {/* ✅ ADD Vendor Login/Signup screens here for user to switch to vendor */}
+        <Stack.Screen name="VendorLogin" component={VendorLoginScreen} />
+        <Stack.Screen name="SignupVendor" component={SignupVendorScreen} />
       </Stack.Navigator>
     );
   } else {

@@ -831,7 +831,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    padding: moderateScale(16),
+      padding: moderateScale(6),
   },
   header: {
     flexDirection: "row",
@@ -863,7 +863,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(12),
     marginVertical: verticalScale(12),
     borderWidth: 1,
-    borderColor: "#333",
+      borderColor: "#333",
+    paddinTop:20
   },
   searchBarInput: {
     flex: 1,

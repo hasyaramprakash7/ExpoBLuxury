@@ -1,6 +1,4 @@
-// ---------------------------------------------------------------- //
 // FILE: ../screens/VendorLoginScreen.tsx
-// ---------------------------------------------------------------- //
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -33,6 +31,7 @@ type AuthStackParamList = {
   Login: undefined;
   SignupVendor: undefined;
   VendorLogin: undefined;
+  UserTabs: undefined;
 };
 type VendorLoginScreenNavigationProp = NativeStackNavigationProp<
   AuthStackParamList,
@@ -45,6 +44,7 @@ export default function VendorLoginScreen() {
   const { loading, error, vendor } = useSelector(
     (state: RootState) => state.vendorAuth,
   );
+  const { user } = useSelector((state: RootState) => state.auth);
 
   // --- STATE ---
   const [loginMethod, setLoginMethod] = useState<"otp" | "password">("otp");
@@ -110,6 +110,19 @@ export default function VendorLoginScreen() {
       const errorMessage =
         typeof result.payload === "string" ? result.payload : "Invalid OTP.";
       Alert.alert("Login Failed", errorMessage);
+    }
+  };
+
+  // ✅ Handle navigation based on user authentication state
+  const handleNavigateToUserLogin = () => {
+    if (user?.token) {
+      // ✅ User is already logged in, go to UserTabs
+      console.log('👤 [VendorLoginScreen] User already logged in, navigating to UserTabs');
+      navigation.navigate('UserTabs' as never);
+    } else {
+      // ✅ User is not logged in, go to Login screen
+      console.log('👤 [VendorLoginScreen] User not logged in, navigating to Login');
+      navigation.navigate('Login' as never);
     }
   };
 
@@ -282,10 +295,16 @@ export default function VendorLoginScreen() {
                 <Text style={styles.link}>Register here</Text>
               </TouchableOpacity>
             </View>
+            
+            {/* ✅ Updated: "Login as User" - checks if user is already logged in */}
             <View style={styles.linkContainer}>
-              <Text style={styles.linkText}>Not a vendor? </Text>
-              <TouchableOpacity onPress={() => navigation.navigate("Login")}>
-                <Text style={styles.link}>Login as User</Text>
+              <Text style={styles.linkText}>
+                {user?.token ? "Switch to User Mode? " : "Not a vendor? "}
+              </Text>
+              <TouchableOpacity onPress={handleNavigateToUserLogin}>
+                <Text style={styles.link}>
+                  {user?.token ? "Go to User Dashboard" : "Login as User"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>

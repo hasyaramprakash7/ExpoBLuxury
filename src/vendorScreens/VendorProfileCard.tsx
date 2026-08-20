@@ -123,7 +123,6 @@ export default function VendorProfileCard({
   const [searchServices, setSearchServices] = useState("");
   const [searchTags, setSearchTags] = useState("");
 
-  // For custom add in modals
   const [customCategoryInput, setCustomCategoryInput] = useState("");
   const [customServiceInput, setCustomServiceInput] = useState("");
   const [customTagInput, setCustomTagInput] = useState("");
@@ -380,7 +379,10 @@ export default function VendorProfileCard({
     Alert.alert("Success", "Address filled from selected map location.");
   }, [selectedCoords, mapAddressDetails, handleChange]);
 
-  const arrayDisplay = (arr: string[]) => arr?.join(", ") || "";
+  const arrayDisplay = (arr: string[]) => {
+    if (!arr || !Array.isArray(arr)) return "";
+    return arr.join(", ");
+  };
 
   const toggleSelection = useCallback((
     field: "categories" | "services" | "tags",
@@ -393,7 +395,6 @@ export default function VendorProfileCard({
     handleChange(field, newArray);
   }, [formData, handleChange]);
 
-  // Custom add function for modals
   const addCustomItem = useCallback((
     field: "categories" | "services" | "tags",
     inputValue: string,
@@ -410,31 +411,31 @@ export default function VendorProfileCard({
       return;
     }
     handleChange(field, [...current, trimmed]);
-    setInput(""); // clear input
+    setInput("");
   }, [formData, handleChange]);
 
-const renderChips = useCallback((field, values) => {
-  if (!values || values.length === 0) return null;
-  return (
-    <View style={styles.chipContainer}>
-      {values.map((v, index) => (
-        <View key={`${field}-${v}-${index}`} style={styles.chip}>
-          <Text style={styles.chipText}>{v}</Text>
-          <TouchableOpacity
-            onPress={() => {
-              const newValues = values.filter((item) => item !== v);
-              handleChange(field, newValues);
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="close-circle" size={18} color={LUXURY_COLORS.grayText} />
-          </TouchableOpacity>
-        </View>
-      ))}
-    </View>
-  );
-}, [handleChange]);
-  // Updated renderSearchableModal with custom add input
+  const renderChips = useCallback((field: string, values: string[]) => {
+    if (!values || !Array.isArray(values) || values.length === 0) return null;
+    return (
+      <View style={styles.chipContainer}>
+        {values.map((v, index) => (
+          <View key={`${field}-${v}-${index}`} style={styles.chip}>
+            <Text style={styles.chipText}>{v}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                const newValues = values.filter((item) => item !== v);
+                handleChange(field, newValues);
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close-circle" size={18} color={LUXURY_COLORS.grayText} />
+            </TouchableOpacity>
+          </View>
+        ))}
+      </View>
+    );
+  }, [handleChange]);
+
   const renderSearchableModal = useCallback((
     visible: boolean,
     onClose: () => void,
@@ -459,7 +460,6 @@ const renderChips = useCallback((field, values) => {
           <View style={[styles.modalContent, { backgroundColor: LUXURY_COLORS.white }]}>
             <Text style={[styles.modalTitle, { color: LUXURY_COLORS.primaryDark }]}>{title}</Text>
 
-            {/* Search + Add row */}
             <View style={[styles.modalSearchContainer, { backgroundColor: LUXURY_COLORS.inputBg, borderColor: LUXURY_COLORS.inputBorder }]}>
               <Ionicons name="search" size={20} color={LUXURY_COLORS.grayText} />
               <TextInput
@@ -470,12 +470,14 @@ const renderChips = useCallback((field, values) => {
                 onChangeText={setSearchText}
                 autoFocus
               />
-              <TouchableOpacity
-                onPress={onAddCustom}
-                style={{ paddingHorizontal: 8 }}
-              >
-                <Ionicons name="add-circle" size={28} color={LUXURY_COLORS.primary} />
-              </TouchableOpacity>
+              {multiSelect && (
+                <TouchableOpacity
+                  onPress={onAddCustom}
+                  style={{ paddingHorizontal: 8 }}
+                >
+                  <Ionicons name="add-circle" size={28} color={LUXURY_COLORS.primary} />
+                </TouchableOpacity>
+              )}
             </View>
 
             <FlatList
@@ -1042,32 +1044,22 @@ const renderChips = useCallback((field, values) => {
           </View>
           <View style={[styles.infoRow, { borderBottomColor: LUXURY_COLORS.inputBorder }]}>
             <Text style={[styles.label, { color: LUXURY_COLORS.grayText }]}>Categories:</Text>
-            <Text style={[styles.value, { color: LUXURY_COLORS.darkText }]}>{arrayDisplay(formData.categories)}</Text>
-          </View>
-          <View style={[styles.infoRow, { borderBottomColor: LUXURY_COLORS.inputBorder }]}>
-            <Text style={[styles.label, { color: LUXURY_COLORS.grayText }]}>Services:</Text>
-            <Text style={[styles.value, { color: LUXURY_COLORS.darkText }]}>{arrayDisplay(formData.services)}</Text>
-          </View>
-          <View style={[styles.infoRow, { borderBottomColor: LUXURY_COLORS.inputBorder }]}>
-            <Text style={[styles.label, { color: LUXURY_COLORS.grayText }]}>Tags:</Text>
-            <Text style={[styles.value, { color: LUXURY_COLORS.darkText }]}>{arrayDisplay(formData.tags)}</Text>
-          </View>
-          {/* <View style={[styles.infoRow, { borderBottomColor: LUXURY_COLORS.inputBorder }]}>
-            <Text style={[styles.label, { color: LUXURY_COLORS.grayText }]}>Operating Hours:</Text>
             <Text style={[styles.value, { color: LUXURY_COLORS.darkText }]}>
-              {formData.operatingHours
-                ? daysOfWeek.map(day => `${day}: ${formData.operatingHours[day]?.open || ""}-${formData.operatingHours[day]?.close || ""}`).join(" | ")
-                : "Not set"}
+              {Array.isArray(formData.categories) ? formData.categories.join(', ') : formData.categories || 'N/A'}
             </Text>
           </View>
           <View style={[styles.infoRow, { borderBottomColor: LUXURY_COLORS.inputBorder }]}>
-            <Text style={[styles.label, { color: LUXURY_COLORS.grayText }]}>Verified:</Text>
-            <Text style={[styles.value, { color: LUXURY_COLORS.darkText }]}>{formData.isVerified ? "✅ Yes" : "❌ No"}</Text>
+            <Text style={[styles.label, { color: LUXURY_COLORS.grayText }]}>Services:</Text>
+            <Text style={[styles.value, { color: LUXURY_COLORS.darkText }]}>
+              {Array.isArray(formData.services) ? formData.services.join(', ') : formData.services || 'N/A'}
+            </Text>
           </View>
           <View style={[styles.infoRow, { borderBottomColor: LUXURY_COLORS.inputBorder }]}>
-            <Text style={[styles.label, { color: LUXURY_COLORS.grayText }]}>Premium:</Text>
-            <Text style={[styles.value, { color: LUXURY_COLORS.darkText }]}>{formData.isPremium ? "⭐ Yes" : "No"}</Text>
-          </View> */}
+            <Text style={[styles.label, { color: LUXURY_COLORS.grayText }]}>Tags:</Text>
+            <Text style={[styles.value, { color: LUXURY_COLORS.darkText }]}>
+              {Array.isArray(formData.tags) ? formData.tags.join(', ') : formData.tags || 'N/A'}
+            </Text>
+          </View>
         </View>
       ) : (
         <ScrollView style={styles.editForm} showsVerticalScrollIndicator={false}>
@@ -1256,7 +1248,6 @@ const renderChips = useCallback((field, values) => {
 
           <Text style={[styles.sectionTitle, { color: LUXURY_COLORS.primaryDark, borderBottomColor: LUXURY_COLORS.inputBorder }]}>Directory Information</Text>
 
-          {/* Categories */}
           <DropdownField
             label="Categories"
             value=""
@@ -1268,7 +1259,6 @@ const renderChips = useCallback((field, values) => {
           />
           {renderChips("categories", formData.categories)}
 
-          {/* Services */}
           <DropdownField
             label="Services"
             value=""
@@ -1280,7 +1270,6 @@ const renderChips = useCallback((field, values) => {
           />
           {renderChips("services", formData.services)}
 
-          {/* Tags */}
           <DropdownField
             label="Tags"
             value=""
@@ -1320,15 +1309,6 @@ const renderChips = useCallback((field, values) => {
             </View>
           )}
 
-          {/* <View style={[styles.readOnlyRow, { borderBottomColor: LUXURY_COLORS.inputBorder }]}>
-            <Text style={[styles.inputLabel, { color: LUXURY_COLORS.grayText }]}>Verified (Admin only)</Text>
-            <Text style={[styles.readOnlyValue, { color: LUXURY_COLORS.darkText }]}>{formData.isVerified ? "✅ Yes" : "❌ No"}</Text>
-          </View>
-          <View style={[styles.readOnlyRow, { borderBottomColor: LUXURY_COLORS.inputBorder }]}>
-            <Text style={[styles.inputLabel, { color: LUXURY_COLORS.grayText }]}>Premium (Admin only)</Text>
-            <Text style={[styles.readOnlyValue, { color: LUXURY_COLORS.darkText }]}>{formData.isPremium ? "⭐ Yes" : "No"}</Text>
-          </View> */}
-
           <View style={styles.saveButtonContainer}>
             <TouchableOpacity onPress={handleSave} disabled={loading} style={[styles.saveButton, { backgroundColor: LUXURY_COLORS.primary }]}>
               {loading ? (
@@ -1341,7 +1321,6 @@ const renderChips = useCallback((field, values) => {
         </ScrollView>
       )}
 
-      {/* Business Type Modal (single select) */}
       {renderSearchableModal(
         showBusinessTypeModal,
         () => setShowBusinessTypeModal(false),
@@ -1351,15 +1330,13 @@ const renderChips = useCallback((field, values) => {
         (value) => handleChange("businessType", value),
         searchBusinessType,
         setSearchBusinessType,
-        "", // customInput not used for single select
-        () => {}, // no-op
+        "",
+        () => {},
         false
       )}
 
-      {/* Categories Modal (custom handled separately) */}
       {renderCategoriesModal()}
 
-      {/* Services Modal (with custom add) */}
       {renderSearchableModal(
         showServicesModal,
         () => setShowServicesModal(false),
@@ -1375,7 +1352,6 @@ const renderChips = useCallback((field, values) => {
         true
       )}
 
-      {/* Tags Modal (with custom add) */}
       {renderSearchableModal(
         showTagsModal,
         () => setShowTagsModal(false),
@@ -1397,7 +1373,6 @@ const renderChips = useCallback((field, values) => {
   );
 }
 
-// Styles (unchanged)
 const styles = StyleSheet.create({
   card: {
     backgroundColor: LUXURY_COLORS.white,

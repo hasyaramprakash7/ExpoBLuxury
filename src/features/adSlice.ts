@@ -10,6 +10,7 @@ export interface Ad {
   startDate: string;
   endDate: string;
   isActive: boolean;
+  isProductAd: boolean; // NEW
   createdAt: string;
 }
 
@@ -57,6 +58,7 @@ export const fetchActiveAds = createAsyncThunk(
   }
 );
 
+// createAd and updateAd now expect FormData with 'isProductAd' appended
 export const createAd = createAsyncThunk(
   'ads/create',
   async (data: FormData, { rejectWithValue }) => {
@@ -194,7 +196,6 @@ const adSlice = createSlice({
             if (idx !== -1) arr[idx] = action.payload;
           };
           update(state.ads);
-          // activeAds: if now inactive, remove; if active, add or update
           const activeIdx = state.activeAds.findIndex(a => a?._id === action.payload._id);
           if (activeIdx !== -1) {
             if (action.payload.isActive) {
@@ -209,6 +210,18 @@ const adSlice = createSlice({
       });
   },
 });
+
+// ---------- Selectors ----------
+export const selectAllAds = (state: RootState) => state.ads.ads;
+export const selectActiveAds = (state: RootState) => state.ads.activeAds;
+export const selectAdsLoading = (state: RootState) => state.ads.loading;
+export const selectAdsError = (state: RootState) => state.ads.error;
+
+// Optional: separate selectors for product ads and generic ads
+export const selectProductAds = (state: RootState) =>
+  state.ads.activeAds.filter(ad => ad.isProductAd);
+export const selectGenericAds = (state: RootState) =>
+  state.ads.activeAds.filter(ad => !ad.isProductAd);
 
 export const { clearAds, resetAds } = adSlice.actions;
 export default adSlice.reducer;

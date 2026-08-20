@@ -31,7 +31,7 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import NewProductCard from "../components/NewProductCard10";
 import { fetchVendorReviews, createReview, clearReviews } from "../features/reviewSlice";
 import { createViewLead, createCallLead, createWhatsAppLead } from "../features/leadSlice";
-import VendorHorizontalScroll from "../components/VendorHorizontalScroll"; // ✅ NEW
+import VendorHorizontalScroll from "../components/VendorHorizontalScroll";
 
 const { width, height } = Dimensions.get("window");
 
@@ -61,6 +61,40 @@ const Colors = {
   starGray: "#D1D5DB",
   shadow: "rgba(0,0,0,0.08)",
   shadowDark: "rgba(0,0,0,0.12)",
+};
+
+// ✅ Helper to parse array fields (categories, tags, services)
+const parseArrayField = (field: any): string[] => {
+  if (!field) return [];
+  
+  if (Array.isArray(field)) {
+    if (field.length === 1 && typeof field[0] === 'string' && field[0].startsWith('[')) {
+      try {
+        const parsed = JSON.parse(field[0]);
+        if (Array.isArray(parsed)) {
+          return parsed.map(item => String(item).trim()).filter(Boolean);
+        }
+      } catch (_) {}
+    }
+    return field.map(item => String(item).trim()).filter(Boolean);
+  }
+  
+  if (typeof field === 'string') {
+    try {
+      const parsed = JSON.parse(field);
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => String(item).trim()).filter(Boolean);
+      }
+      return [String(parsed).trim()].filter(Boolean);
+    } catch (_) {
+      if (field.includes(',')) {
+        return field.split(',').map(s => s.trim()).filter(Boolean);
+      }
+      return [field.trim()].filter(Boolean);
+    }
+  }
+  
+  return [];
 };
 
 // --- Helper to check if shop is currently open ---
@@ -525,6 +559,11 @@ const ShopDetails = () => {
   const fullHours = formatFullHours(vendorData?.operatingHours);
   const hoursDisplay = fullHours ? fullHours.split('\n').filter(Boolean) : [];
 
+  // ✅ Parse categories, tags, services using helper
+  const parsedCategories = parseArrayField(vendorData?.categories);
+  const parsedTags = parseArrayField(vendorData?.tags);
+  const parsedServices = parseArrayField(vendorData?.services);
+
   const viewTracked = useRef<boolean>(false);
   const isMounted = useRef<boolean>(true);
 
@@ -716,7 +755,7 @@ const ShopDetails = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       
       <ScrollView
         style={styles.container}
@@ -746,11 +785,12 @@ const ShopDetails = () => {
           {/* White Gradient Overlay at Bottom - 50% */}
           <View style={styles.imageGradientOverlay} />
           
+          {/* ✅ Transparent back button with white icon - no background change */}
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={scale(24)} color={Colors.textPrimary} />
+            <Ionicons name="arrow-back" size={scale(24)} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
@@ -826,19 +866,47 @@ const ShopDetails = () => {
             </TouchableOpacity>
           )}
 
-          {/* Categories */}
-          {vendorData?.categories && vendorData.categories.length > 0 && (
+          {/* ✅ Categories - Using parsed categories */}
+          {parsedCategories && parsedCategories.length > 0 && (
             <View style={styles.tagsContainer}>
-              {vendorData.categories.slice(0, 5).map((cat: string, idx: number) => (
+              {parsedCategories.slice(0, 5).map((cat: string, idx: number) => (
                 <View key={idx} style={styles.tagPill}>
                   <Text style={styles.tagText}>{cat}</Text>
                 </View>
               ))}
-              {vendorData.categories.length > 5 && (
+              {parsedCategories.length > 5 && (
                 <Text style={styles.moreTag}>
-                  +{vendorData.categories.length - 5}
+                  +{parsedCategories.length - 5}
                 </Text>
               )}
+            </View>
+          )}
+
+          {/* ✅ Tags Section - Using parsed tags */}
+          {parsedTags && parsedTags.length > 0 && (
+            <View style={styles.tagsContainer}>
+              <Text style={styles.sectionSubtitle}>Tags</Text>
+              <View style={styles.tagsList}>
+                {parsedTags.map((tag: string, idx: number) => (
+                  <View key={idx} style={styles.tagPill}>
+                    <Text style={styles.tagText}>#{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* ✅ Services Section - Using parsed services */}
+          {parsedServices && parsedServices.length > 0 && (
+            <View style={styles.servicesContainer}>
+              <Text style={styles.sectionSubtitle}>Services</Text>
+              <View style={styles.servicesList}>
+                {parsedServices.map((service: string, idx: number) => (
+                  <View key={idx} style={styles.servicePill}>
+                    <Text style={styles.serviceText}>{service}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
           )}
 
@@ -965,36 +1033,8 @@ const ShopDetails = () => {
             <Text style={styles.sectionTitle}>Products</Text>
             <Text style={styles.productCount}>{products.length} items</Text>
           </View>
-          
-          {/* {productsLoading ? (
-            <View style={styles.loadingProducts}>
-              <ActivityIndicator size="large" color={Colors.accentGreen} />
-              <Text style={styles.loadingProductsText}>Loading products...</Text>
-            </View>
-          ) : products.length === 0 ? (
-            <View style={styles.emptyProducts}>
-              <Ionicons name="cube-outline" size={moderateScale(40)} color={Colors.textTertiary} />
-              <Text style={styles.emptyProductsText}>No products available</Text>
-              <Text style={styles.emptyProductsSubtext}>Check back later for updates</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={products}
-              keyExtractor={(item) => item._id}
-              renderItem={({ item }) => (
-                <View style={styles.productCardWrapper}>
-                  <NewProductCard
-                    product={item}
-                    isVendorOffline={!vendorData?.isOnline}
-                  />
-                </View>
-              )}
-              scrollEnabled={false}
-              showsVerticalScrollIndicator={false}
-            />
-          )} */}
 
-          {/* ✅ NEW: Horizontal scroll of all vendor listings (properties, rentals, products) */}
+          {/* ✅ VendorHorizontalScroll – shows all listings (products, properties, rentals) */}
           <View style={styles.divider} />
           <View style={styles.horizontalScrollSection}>
             <Text style={styles.sectionTitle}>More from {vendorData.shopName}</Text>
@@ -1057,20 +1097,14 @@ const styles = StyleSheet.create({
     right: 0,
     height: "50%",
     backgroundColor: "transparent",
-    backgroundImage: "linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.98) 100%)",
   },
   backButton: {
     position: "absolute",
-    top: verticalScale(12),
+    top: Platform.OS === 'ios' ? verticalScale(50) : verticalScale(40),
     left: scale(16),
-    backgroundColor: "rgba(255,255,255,0.95)",
+    backgroundColor: "transparent",
     padding: scale(10),
     borderRadius: moderateScale(24),
-    shadowColor: Colors.shadowDark,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 4,
   },
   infoContainer: {
     padding: moderateScale(20),
@@ -1193,10 +1227,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   tagsContainer: {
+    marginVertical: verticalScale(8),
+  },
+  tagsList: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginVertical: verticalScale(8),
     gap: scale(6),
+    marginTop: verticalScale(4),
   },
   tagPill: {
     backgroundColor: Colors.backgroundSecondary,
@@ -1215,6 +1252,33 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     paddingHorizontal: scale(12),
     paddingVertical: verticalScale(6),
+  },
+  sectionSubtitle: {
+    fontSize: moderateScale(16),
+    fontWeight: "600",
+    color: Colors.textPrimary,
+    marginBottom: verticalScale(6),
+  },
+  servicesContainer: {
+    marginVertical: verticalScale(8),
+  },
+  servicesList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: scale(6),
+    marginTop: verticalScale(4),
+  },
+  servicePill: {
+    backgroundColor: "rgba(37, 99, 235, 0.08)",
+    borderRadius: moderateScale(20),
+    paddingHorizontal: scale(14),
+    paddingVertical: verticalScale(6),
+    borderWidth: 1,
+    borderColor: "rgba(37, 99, 235, 0.2)",
+  },
+  serviceText: {
+    fontSize: moderateScale(13),
+    color: Colors.accentBlue,
   },
   hoursContainer: {
     backgroundColor: Colors.backgroundSecondary,
@@ -1408,7 +1472,6 @@ const styles = StyleSheet.create({
   productCardWrapper: {
     marginBottom: verticalScale(12),
   },
-  // ✅ New style for horizontal scroll section
   horizontalScrollSection: {
     marginTop: verticalScale(4),
   },

@@ -1,5 +1,5 @@
 // src/components/ShopCard.tsx
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -11,6 +11,40 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Vendor } from "../types";
 import { Colors, getFullAddress, scale, verticalScale, moderateScale } from "../constants/colors";
 import VendorHorizontalScroll from "./VendorHorizontalScroll";
+
+// 🔥 Helper to parse array fields (categories, services, tags)
+const parseArrayField = (field: any): string[] => {
+  if (!field) return [];
+  
+  if (Array.isArray(field)) {
+    if (field.length === 1 && typeof field[0] === 'string' && field[0].startsWith('[')) {
+      try {
+        const parsed = JSON.parse(field[0]);
+        if (Array.isArray(parsed)) {
+          return parsed.map(item => String(item).trim()).filter(Boolean);
+        }
+      } catch (_) {}
+    }
+    return field.map(item => String(item).trim()).filter(Boolean);
+  }
+  
+  if (typeof field === 'string') {
+    try {
+      const parsed = JSON.parse(field);
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => String(item).trim()).filter(Boolean);
+      }
+      return [String(parsed).trim()].filter(Boolean);
+    } catch (_) {
+      if (field.includes(',')) {
+        return field.split(',').map(s => s.trim()).filter(Boolean);
+      }
+      return [field.trim()].filter(Boolean);
+    }
+  }
+  
+  return [];
+};
 
 interface ShopCardProps {
   shop: Vendor & {
@@ -68,9 +102,8 @@ const formatAllDays = (hours: any): Array<{ day: string; hours: string; isToday:
     };
     const daysOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     
-    // Get current day index
     const now = new Date();
-    const currentDayIndex = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const currentDayIndex = now.getDay();
     const currentDayName = daysOrder[currentDayIndex === 0 ? 6 : currentDayIndex - 1];
     
     const result = daysOrder.map((day) => {
@@ -94,6 +127,11 @@ const formatAllDays = (hours: any): Array<{ day: string; hours: string; isToday:
 export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
   const [showFullHours, setShowFullHours] = useState(false);
   
+  // 🔥 Parse categories, services, and tags using the helper
+  const categories = useMemo(() => parseArrayField(shop.categories), [shop.categories]);
+  const services = useMemo(() => parseArrayField(shop.services), [shop.services]);
+  const tags = useMemo(() => parseArrayField(shop.tags), [shop.tags]);
+  
   const fullAddress = getFullAddress(shop.address);
   
   const isOpen = isShopCurrentlyOpen(shop.operatingHours);
@@ -101,6 +139,16 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
   const todayHours = allDays.find(d => d.isToday);
   const displayDays = showFullHours ? allDays : allDays.slice(0, 2);
   const hasMoreDays = allDays.length > 2;
+
+  // 🔥 Get category tags only
+  const categoryTags = useMemo(() => {
+    return categories.slice(0, 3);
+  }, [categories]);
+
+  // 🔥 Get service tags only
+  const serviceTags = useMemo(() => {
+    return services.slice(0, 3);
+  }, [services]);
 
   return (
     <TouchableOpacity
@@ -209,32 +257,47 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
           </Text>
         </View>
 
-        {shop.categories && shop.categories.length > 0 && (
+        {/* 🔥 FIXED: Display Categories as chips */}
+        {categoryTags.length > 0 && (
           <View style={shopCardStyles.tagsContainer}>
-            {shop.categories.slice(0, 3).map((cat, idx) => (
-              <View key={idx} style={shopCardStyles.tagPill}>
+            {categoryTags.map((cat, idx) => (
+              <View key={`cat-${idx}`} style={[shopCardStyles.tagPill, shopCardStyles.categoryTag]}>
                 <Text style={shopCardStyles.tagText}>{cat}</Text>
               </View>
             ))}
-            {shop.categories.length > 3 && (
-              <Text style={shopCardStyles.moreTag}>+{shop.categories.length - 3}</Text>
+            {categories.length > 3 && (
+              <Text style={shopCardStyles.moreTag}>+{categories.length - 3}</Text>
             )}
           </View>
         )}
 
-        {(shop.services && shop.services.length > 0) || (shop.tags && shop.tags.length > 0) ? (
-          <View style={shopCardStyles.smallTagsContainer}>
-            {shop.services?.slice(0, 2).map((s, idx) => (
-              <Text key={idx} style={shopCardStyles.smallTag}>{s}</Text>
+        {/* 🔥 FIXED: Display Services as chips */}
+        {serviceTags.length > 0 && (
+          <View style={shopCardStyles.tagsContainer}>
+            {serviceTags.map((service, idx) => (
+              <View key={`service-${idx}`} style={[shopCardStyles.tagPill, shopCardStyles.serviceTag]}>
+                <Text style={shopCardStyles.tagText}>{service}</Text>
+              </View>
             ))}
-            {shop.tags?.slice(0, 2).map((t, idx) => (
-              <Text key={idx} style={shopCardStyles.smallTag}>{t}</Text>
-            ))}
-            {(shop.services?.length > 2 || shop.tags?.length > 2) && (
-              <Text style={shopCardStyles.smallTag}>+more</Text>
+            {services.length > 3 && (
+              <Text style={shopCardStyles.moreTag}>+{services.length - 3}</Text>
             )}
           </View>
-        ) : null}
+        )}
+
+        {/* 🔥 FIXED: Display Tags as chips (only if no categories or services) */}
+        {categories.length === 0 && services.length === 0 && tags.length > 0 && (
+          <View style={shopCardStyles.tagsContainer}>
+            {tags.slice(0, 4).map((tag, idx) => (
+              <View key={`tag-${idx}`} style={[shopCardStyles.tagPill, shopCardStyles.tagTag]}>
+                <Text style={shopCardStyles.tagText}>{tag}</Text>
+              </View>
+            ))}
+            {tags.length > 4 && (
+              <Text style={shopCardStyles.moreTag}>+{tags.length - 4}</Text>
+            )}
+          </View>
+        )}
 
         {/* Delivery Range */}
         {shop.deliveryRange !== undefined && shop.deliveryRange > 0 && (
@@ -253,14 +316,14 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
         )}
       </View>
 
-      {/* ✅ Horizontal Scroll – now with onSeeAll prop */}
+      {/* Horizontal Scroll */}
       {shop._id && (
         <View style={shopCardStyles.horizontalScrollContainer}>
           <VendorHorizontalScroll
             vendorId={shop._id}
             vendorName={shop.shopName}
-            isVendorOffline={!shop.isOnline}   // pass vendor online status if available
-            onSeeAll={onPress}                 // when "See All" is pressed, navigate to ShopDetails
+            isVendorOffline={!shop.isOnline}
+            onSeeAll={onPress}
           />
         </View>
       )}
@@ -299,8 +362,6 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
     </TouchableOpacity>
   );
 };
-
-
 
 const shopCardStyles = StyleSheet.create({
   cardContainer: {
@@ -474,12 +535,20 @@ const shopCardStyles = StyleSheet.create({
     marginTop: verticalScale(6),
   },
   tagPill: {
-    backgroundColor: '#F0F0F0',
     borderRadius: moderateScale(12),
     paddingHorizontal: scale(8),
     paddingVertical: verticalScale(4),
     marginRight: scale(6),
     marginBottom: verticalScale(4),
+  },
+  categoryTag: {
+    backgroundColor: '#E8F5E9',
+  },
+  serviceTag: {
+    backgroundColor: '#E3F2FD',
+  },
+  tagTag: {
+    backgroundColor: '#FCE4EC',
   },
   tagText: {
     fontSize: moderateScale(12),
@@ -490,23 +559,8 @@ const shopCardStyles = StyleSheet.create({
     fontSize: moderateScale(12),
     color: Colors.textLightGray,
     marginLeft: scale(4),
+    alignSelf: 'center',
   },
-  smallTagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: verticalScale(4),
-  },
-  smallTag: {
-    fontSize: moderateScale(11),
-    color: Colors.textGray,
-    backgroundColor: '#F0F0F0',
-    borderRadius: moderateScale(10),
-    paddingHorizontal: scale(6),
-    paddingVertical: verticalScale(2),
-    marginRight: scale(4),
-    marginBottom: verticalScale(4),
-  },
-  // 🔥 Hours Styles
   hoursContainer: {
     marginTop: verticalScale(6),
     marginBottom: verticalScale(4),
@@ -571,7 +625,6 @@ const shopCardStyles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  // ✅ New style for horizontal scroll container
   horizontalScrollContainer: {
     marginTop: verticalScale(4),
     marginBottom: verticalScale(4),
@@ -652,3 +705,5 @@ const shopCardStyles = StyleSheet.create({
     backgroundColor: Colors.dividerGray,
   },
 });
+
+export default ShopCard;

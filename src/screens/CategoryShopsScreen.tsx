@@ -13,7 +13,6 @@ import {
   Platform,
   Animated,
   StatusBar,
-  BackHandler,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -25,6 +24,7 @@ import { searchDirectoryVendors } from "../features/vendor/vendorAuthSlice";
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
 import { Colors, getFullAddress, calculateDistance, scale, verticalScale, moderateScale } from "../constants/colors";
 import { ShopCard } from "../components/ShopCard";
+import { MapPickerModal } from "../components/MapPickerModal";
 import { AddressModal } from "../components/AddressModal";
 import AddAddressScreen from "./AddAddressScreen";
 import {
@@ -40,6 +40,41 @@ import * as Location from "expo-location";
 
 const { width, height } = Dimensions.get("window");
 const HEADER_HEIGHT = height * 0.28;
+const AnimatedIcon = Animated.createAnimatedComponent(Ionicons);
+
+// ✅ Helper to parse categories from vendor - handles all formats
+const parseVendorCategories = (categories: any): string[] => {
+  if (!categories) return [];
+  
+  if (Array.isArray(categories)) {
+    if (categories.length === 1 && typeof categories[0] === 'string') {
+      try {
+        const parsed = JSON.parse(categories[0]);
+        if (Array.isArray(parsed)) {
+          return parsed.map(item => String(item).trim());
+        }
+      } catch (_) {}
+    }
+    return categories.map(item => String(item).trim()).filter(Boolean);
+  }
+  
+  if (typeof categories === 'string') {
+    try {
+      const parsed = JSON.parse(categories);
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => String(item).trim()).filter(Boolean);
+      }
+      return [String(parsed).trim()].filter(Boolean);
+    } catch (_) {
+      if (categories.includes(',')) {
+        return categories.split(',').map(s => s.trim()).filter(Boolean);
+      }
+      return [categories.trim()].filter(Boolean);
+    }
+  }
+  
+  return [];
+};
 
 const CategoryShopsScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -47,6 +82,7 @@ const CategoryShopsScreen = () => {
   const route = useRoute<any>();
 
   const { categoryName, categoryImage } = route.params || {};
+  console.log('🔷 [CategoryShops] Screen initialized with category:', categoryName);
 
   const { location: userLocation, selectedAddress, loading: isLocationLoading } = useSelector(
     (state: RootState) => state.location,
@@ -64,14 +100,48 @@ const CategoryShopsScreen = () => {
   const [searchText, setSearchText] = useState<string>("");
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [showAddressModal, setShowAddressModal] = useState<boolean>(false);
+  const [showMapPicker, setShowMapPicker] = useState<boolean>(false);
   const [showAddAddress, setShowAddAddress] = useState<boolean>(false);
   const [isAddressLoading, setIsAddressLoading] = useState<boolean>(false);
+  const [mapPickerCoords, setMapPickerCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState<boolean>(false);
 
   const scrollY = useRef(new Animated.Value(0)).current;
 
-  // ─── Refs & fetch logic ──────────────────────────────────────────
+  // ─── Animated interpolations ──────────────────────────
+  const titleColor = scrollY.interpolate({
+    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
+    outputRange: ['#FFFFFF', '#777777', '#1A1A1A'],
+    extrapolate: 'clamp',
+  });
+
+  const subtitleColor = scrollY.interpolate({
+    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
+    outputRange: ['rgba(255,255,255,0.9)', Colors.textGray, Colors.textGray],
+    extrapolate: 'clamp',
+  });
+
+  const iconColor = scrollY.interpolate({
+    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
+    outputRange: ['#FFFFFF', '#777777', '#1A1A1A'],
+    extrapolate: 'clamp',
+  });
+
+  // ✅ Keep icon background transparent with white icon always
+  const iconBgColor = scrollY.interpolate({
+    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
+    outputRange: ['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.2)'],
+    extrapolate: 'clamp',
+  });
+
+  const iconBorderColor = scrollY.interpolate({
+    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
+    outputRange: ['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.1)', 'rgba(255,255,255,0.1)'],
+    extrapolate: 'clamp',
+  });
+
+  // ─── Refs & fetch logic ──────────────────
   const initialLocationRequested = useRef(false);
   const isFetchingLocation = useRef(false);
   const isInitialMount = useRef(true);
@@ -96,34 +166,49 @@ const CategoryShopsScreen = () => {
   }, [categories, categoryName, categoryImage]);
 
   const fetchCategoryVendors = useCallback(async (force = false) => {
-    if (isFetching.current) return;
-    if (!force && hasFetched.current && directoryVendors.length > 0) return;
+    console.log('🔷 [CategoryShops] fetchCategoryVendors called', { categoryName, force, hasFetched: hasFetched.current, isFetching: isFetching.current });
+    
+    if (isFetching.current) {
+      console.log('⏭️ [CategoryShops] Fetch already in progress, skipping');
+      return;
+    }
+    if (!force && hasFetched.current && directoryVendors.length > 0) {
+      console.log('⏭️ [CategoryShops] Already fetched, skipping');
+      return;
+    }
 
     const { lat, lng } = currentLocation;
     isFetching.current = true;
     setIsLoading(true);
+    console.log('🔄 [CategoryShops] Fetching vendors for category:', categoryName, { lat, lng });
 
     try {
+      const params: any = { category: categoryName };
       if (lat && lng) {
-        await dispatch(searchDirectoryVendors({ lat, lng, category: categoryName }));
-      } else {
-        await dispatch(searchDirectoryVendors({ category: categoryName }));
+        params.lat = lat;
+        params.lng = lng;
       }
+      console.log('📤 [CategoryShops] Dispatching searchDirectoryVendors with params:', params);
+      await dispatch(searchDirectoryVendors(params));
 
       if (!allProducts || allProducts.length === 0) {
+        console.log('📤 [CategoryShops] Fetching products...');
         await dispatch(fetchAllVendorProducts());
       }
       hasFetched.current = true;
       setHasLoadedOnce(true);
+      console.log('✅ [CategoryShops] Fetch completed, vendors count:', directoryVendors.length);
     } catch (error) {
       console.error('❌ [CategoryShops] Error fetching vendors:', error);
     } finally {
       isFetching.current = false;
       setIsLoading(false);
+      console.log('🏁 [CategoryShops] Fetch finished, isLoading set to false');
     }
   }, [dispatch, currentLocation, categoryName, allProducts, directoryVendors.length]);
 
   const debouncedFetch = useCallback((force = false) => {
+    console.log('🔷 [CategoryShops] debouncedFetch called', { force });
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     fetchTimeout.current = setTimeout(() => {
       fetchCategoryVendors(force);
@@ -132,45 +217,60 @@ const CategoryShopsScreen = () => {
   }, [fetchCategoryVendors]);
 
   const immediateFetch = useCallback((force = false) => {
+    console.log('🔷 [CategoryShops] immediateFetch called', { force });
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     fetchCategoryVendors(force);
   }, [fetchCategoryVendors]);
 
-  // ─── Location Permission & auto‑request ──────────────────────────
   useEffect(() => {
+    console.log('🔷 [CategoryShops] useEffect - checking location request', { 
+      token: !!token, 
+      initialLocationRequested: initialLocationRequested.current,
+      addressesLength: addresses.length,
+      hasLocation: !!userLocation?.latitude,
+      isLocationLoading 
+    });
+    
     if (token && !initialLocationRequested.current && addresses.length === 0 && !userLocation?.latitude && !isLocationLoading) {
+      console.log('🔷 [CategoryShops] Requesting location...');
       initialLocationRequested.current = true;
       handleRequestLocation();
     }
   }, [token, addresses.length, userLocation, isLocationLoading]);
 
   const handleRequestLocation = async () => {
-    if (isFetchingLocation.current) return;
+    console.log('🔷 [CategoryShops] handleRequestLocation called');
+    if (isFetchingLocation.current) {
+      console.log('⏭️ [CategoryShops] Location fetch already in progress');
+      return;
+    }
     isFetchingLocation.current = true;
     dispatch(fetchLocationStart());
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
+      console.log('📍 [CategoryShops] Location permission status:', status);
       if (status !== "granted") {
         dispatch(fetchLocationFailure("Permission denied."));
         isFetchingLocation.current = false;
         return;
       }
       let locationData = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      console.log('📍 [CategoryShops] Got location:', locationData.coords);
       dispatch(fetchLocationSuccess({ latitude: locationData.coords.latitude, longitude: locationData.coords.longitude }));
       immediateFetch(true);
     } catch (locError) {
+      console.error('❌ [CategoryShops] Error getting location:', locError);
       dispatch(fetchLocationFailure("Could not get location."));
     } finally {
       isFetchingLocation.current = false;
     }
   };
 
-  // ─── Address handling (same as ShopListings) ──────────────────────
+  // ✅ Handle map location select from AddAddressScreen
   const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
-    if (fetchTimeout.current) {
-      clearTimeout(fetchTimeout.current);
-      fetchTimeout.current = null;
-    }
+    console.log('🔷 [CategoryShops] handleMapLocationSelect called', { lat, lng });
+    if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
+    hasFetched.current = false;
     dispatch(fetchLocationSuccess({ latitude: lat, longitude: lng }));
 
     const addressString = [
@@ -207,47 +307,47 @@ const CategoryShopsScreen = () => {
     immediateFetch(true);
   }, [dispatch, token, addresses.length, immediateFetch]);
 
-  const handleOpenAddAddress = () => {
-    setShowAddressModal(false);
-    setShowAddAddress(true);
-  };
-
-  const handleSelectAddress = (address: any) => {
-    if (selectedAddress?.id === address.id || selectedAddress?.addressString === address.addressString) {
-      setShowAddressModal(false);
-      return;
-    }
+  // ✅ Handle map picker location select (existing)
+  const handleMapPickerSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
+    console.log('🔷 [CategoryShops] handleMapPickerSelect called', { lat, lng });
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
-    dispatch(setSelectedAddress(address));
-    setShowAddressModal(false);
+    hasFetched.current = false;
+    dispatch(fetchLocationSuccess({ latitude: lat, longitude: lng }));
+    const addressString = [
+      addressDetails.street, addressDetails.colony, addressDetails.city,
+      addressDetails.district, addressDetails.state, addressDetails.pincode, addressDetails.country
+    ].filter(Boolean).join(", ");
+
+    const addressData = {
+      type: "Home" as "Home" | "Work" | "Other",
+      addressString: addressString || "Selected location",
+      landmark: "", city: addressDetails.city || "", pincode: addressDetails.pincode || "",
+      latitude: lat, longitude: lng, isDefault: addresses.length === 0,
+    };
+
+    if (token) dispatch(saveUserAddress({ token, addressData })).unwrap().then(() => dispatch(fetchUserAddresses(token)));
+    dispatch(setSelectedAddress(addressData));
+    setShowMapPicker(false);
     immediateFetch(true);
-  };
+  }, [dispatch, token, addresses.length, immediateFetch]);
 
-  const handleOpenAddressModal = () => {
-    if (token) dispatch(fetchUserAddresses(token));
-    setShowAddressModal(true);
-  };
-
-  const handleAddAddress = async () => {
-    // This is called from AddressModal's "Add Address" button – we open the AddAddressScreen
-    setShowAddressModal(false);
-    setShowAddAddress(true);
-  };
-
-  // ─── Refresh ──────────────────────────────────────────────────────
   const onRefresh = useCallback(async () => {
+    console.log('🔄 [CategoryShops] Pull-to-refresh triggered');
     setIsRefreshing(true);
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     hasFetched.current = false;
     try {
       await Promise.all([ fetchCategoryVendors(true), dispatch(fetchAllVendorProducts()) ]);
-    } catch (error) {} finally {
+      console.log('✅ [CategoryShops] Refresh completed');
+    } catch (error) {
+      console.error('❌ [CategoryShops] Refresh error:', error);
+    } finally {
       setIsRefreshing(false);
     }
   }, [fetchCategoryVendors, dispatch]);
 
-  // ─── Lifecycle ────────────────────────────────────────────────────
   useEffect(() => {
+    console.log('🔷 [CategoryShops] Initial mount effect');
     if (isInitialMount.current) {
       isInitialMount.current = false;
       immediateFetch(true);
@@ -258,47 +358,42 @@ const CategoryShopsScreen = () => {
 
   useEffect(() => {
     if (isInitialMount.current) return;
-    if (userLocation?.latitude && userLocation?.longitude) {
-      hasFetched.current = false;
-      debouncedFetch(true);
+    console.log('📍 [CategoryShops] userLocation changed:', userLocation?.latitude, userLocation?.longitude);
+    if (userLocation?.latitude && userLocation?.longitude) { 
+      hasFetched.current = false; 
+      debouncedFetch(true); 
     }
   }, [userLocation?.latitude, userLocation?.longitude]);
 
   useEffect(() => {
     if (isInitialMount.current) return;
-    if (selectedAddress?.latitude && selectedAddress?.longitude) {
-      hasFetched.current = false;
-      debouncedFetch(true);
+    console.log('📍 [CategoryShops] selectedAddress changed:', selectedAddress?.latitude, selectedAddress?.longitude);
+    if (selectedAddress?.latitude && selectedAddress?.longitude) { 
+      hasFetched.current = false; 
+      debouncedFetch(true); 
     }
   }, [selectedAddress?.latitude, selectedAddress?.longitude]);
 
   useFocusEffect(
     useCallback(() => {
-      if (directoryVendors.length === 0 && hasLoadedOnce) {
-        hasFetched.current = false;
-        immediateFetch(true);
+      console.log('📱 [CategoryShops] Screen focused, directoryVendors length:', directoryVendors.length, 'hasLoadedOnce:', hasLoadedOnce);
+      if (directoryVendors.length === 0 && hasLoadedOnce) { 
+        console.log('🔄 [CategoryShops] Refetching due to empty vendors');
+        hasFetched.current = false; 
+        immediateFetch(true); 
       }
     }, [directoryVendors.length, hasLoadedOnce, immediateFetch])
   );
 
-  // ─── Back Handler for modals ────────────────────────────────────
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (showAddAddress) {
-        setShowAddAddress(false);
-        return true;
-      }
-      if (showAddressModal) {
-        setShowAddressModal(false);
-        return true;
-      }
-      return false;
-    });
-    return () => backHandler.remove();
-  }, [showAddAddress, showAddressModal]);
-
-  // ─── Vendors with details ────────────────────────────────────────
+  // ✅ Filter vendors by category and search text with proper category parsing
   const vendorsWithDetails = useMemo(() => {
+    console.log('🔷 [CategoryShops] Computing vendorsWithDetails', { 
+      directoryVendorsLength: directoryVendors?.length,
+      categoryName,
+      searchText,
+      allProductsLength: allProducts?.length
+    });
+    
     const vendors = directoryVendors || [];
     const userLat = userLocation?.latitude;
     const userLng = userLocation?.longitude;
@@ -316,6 +411,9 @@ const CategoryShopsScreen = () => {
       }
       if (!vendor.deliveryRange || vendor.deliveryRange === 0) isInRange = true;
 
+      // ✅ Parse categories properly
+      const parsedCategories = parseVendorCategories(vendor.categories);
+
       return {
         ...vendorCopy,
         shopImage: vendor.shopImage || vendor.profileImage || vendor.coverImage,
@@ -323,39 +421,108 @@ const CategoryShopsScreen = () => {
         productImages,
         distance,
         isInRange,
+        categories: parsedCategories, // ✅ Use parsed categories
       };
     });
 
+    // Filter by category name (client-side fallback)
     let filtered = result;
+    if (categoryName) {
+      const categoryLower = categoryName.toLowerCase();
+      filtered = filtered.filter((v) => {
+        const vendorCategories = v.categories || [];
+        const matches = vendorCategories.some((c: string) => 
+          String(c).toLowerCase().includes(categoryLower) || 
+          categoryLower.includes(String(c).toLowerCase())
+        );
+        console.log('🔍 [CategoryShops] Vendor', v.shopName, 'categories:', vendorCategories, 'matches:', matches);
+        return matches;
+      });
+      console.log('🔷 [CategoryShops] After category filter:', filtered.length, 'vendors');
+    }
+
+    // Filter by search text
     if (searchText) {
       const lower = searchText.toLowerCase();
       filtered = filtered.filter((v) =>
         v.shopName?.toLowerCase().includes(lower) ||
         v.businessType?.toLowerCase().includes(lower) ||
         getFullAddress(v.address).toLowerCase().includes(lower) ||
-        v.categories?.some((c) => c.toLowerCase().includes(lower)) ||
-        v.tags?.some((t) => t.toLowerCase().includes(lower))
+        v.categories?.some((c: string) => String(c).toLowerCase().includes(lower)) ||
+        v.tags?.some((t: string) => String(t).toLowerCase().includes(lower))
       );
+      console.log('🔷 [CategoryShops] After search filter:', filtered.length, 'vendors');
     }
 
-    return filtered.sort((a, b) => {
+    const sorted = filtered.sort((a, b) => {
       if (a.isInRange && b.isInRange) return (a.distance || Infinity) - (b.distance || Infinity);
       if (a.isInRange && !b.isInRange) return -1;
       if (!a.isInRange && b.isInRange) return 1;
       return (a.distance || Infinity) - (b.distance || Infinity);
     });
-  }, [directoryVendors, allProducts, userLocation, searchText]);
+    
+    console.log('✅ [CategoryShops] Final vendors count:', sorted.length);
+    return sorted;
+  }, [directoryVendors, allProducts, userLocation, searchText, categoryName]);
 
-  const handleCardPress = (shop: any) => navigation.navigate("ShopDetails", { vendor: shop });
+  const handleCardPress = (shop: any) => {
+    console.log('🔷 [CategoryShops] Navigating to ShopDetails:', shop.shopName);
+    navigation.navigate("ShopDetails", { vendor: shop });
+  };
+  
+  const handleOpenAddressModal = () => { 
+    console.log('🔷 [CategoryShops] Opening address modal');
+    if (token) dispatch(fetchUserAddresses(token)); 
+    setShowAddressModal(true); 
+  };
+  
+  const handleSelectAddress = (address: any) => {
+    console.log('🔷 [CategoryShops] Selecting address:', address.addressString);
+    if (selectedAddress?.id === address.id) { 
+      setShowAddressModal(false); 
+      return; 
+    }
+    hasFetched.current = false;
+    dispatch(setSelectedAddress(address));
+    setShowAddressModal(false);
+    immediateFetch(true);
+  };
+
+  // ✅ Handle opening AddAddress screen from AddressModal
+  const handleOpenAddAddress = () => {
+    console.log('🔷 [CategoryShops] Opening add address screen');
+    setShowAddressModal(false);
+    setShowAddAddress(true);
+  };
+
+  // ✅ Handle closing AddAddress screen
+  const handleCloseAddAddress = () => {
+    console.log('🔷 [CategoryShops] Closing add address screen');
+    setShowAddAddress(false);
+  };
+
+  const handleOpenMapPicker = () => {
+    console.log('🔷 [CategoryShops] Opening map picker');
+    setShowAddressModal(false);
+    setMapPickerCoords(userLocation?.latitude ? { lat: userLocation.latitude, lng: userLocation.longitude } : 
+                       selectedAddress?.latitude ? { lat: selectedAddress.latitude, lng: selectedAddress.longitude } : null);
+    setShowMapPicker(true);
+  };
+
+  const handleAddAddress = async () => {
+    console.log('🔷 [CategoryShops] Add address');
+    setShowAddressModal(false);
+  };
 
   const isLoadingState = isLoading || vendorsLoading || isLocationLoading || isAddressLoading;
+  console.log('📊 [CategoryShops] isLoadingState:', isLoadingState, { isLoading, vendorsLoading, isLocationLoading, isAddressLoading });
 
   return (
     <View style={styles.container}>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
 
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
-        {/* ─── BACKGROUND IMAGE (Fixed) ─────────────────── */}
+        
         <View style={styles.headerBackground}>
           <Image
             source={{ uri: categoryData?.image || 'https://via.placeholder.com/800x400?text=Category' }}
@@ -369,29 +536,36 @@ const CategoryShopsScreen = () => {
           />
         </View>
 
-        {/* ─── STICKY HEADER (transparent, white text) ── */}
         <Animated.View style={[styles.stickyHeader, { backgroundColor: 'transparent' }]}>
           <View style={styles.topBar}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtnWrapper}>
-              <Ionicons name="arrow-back" size={scale(24)} color="#FFFFFF" />
+              {/* ✅ Transparent background with white icon */}
+              <Animated.View style={[styles.iconBtn, { backgroundColor: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.1)' }]}>
+                <Ionicons name="arrow-back" size={scale(22)} color="#FFFFFF" />
+              </Animated.View>
             </TouchableOpacity>
+
             <View style={styles.topBarRight}>
               <TouchableOpacity style={styles.iconBtnWrapper}>
-                <Ionicons name="heart-outline" size={scale(24)} color="#FFFFFF" />
+                <Animated.View style={[styles.iconBtn, { backgroundColor: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.1)' }]}>
+                  <Ionicons name="heart-outline" size={scale(22)} color="#FFFFFF" />
+                </Animated.View>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.iconBtnWrapper, { marginLeft: scale(12) }]}>
-                <Ionicons name="notifications-outline" size={scale(24)} color="#FFFFFF" />
+              <TouchableOpacity style={[styles.iconBtnWrapper, { marginLeft: scale(8) }]}>
+                <Animated.View style={[styles.iconBtn, { backgroundColor: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.1)' }]}>
+                  <Ionicons name="notifications-outline" size={scale(22)} color="#FFFFFF" />
+                </Animated.View>
               </TouchableOpacity>
             </View>
           </View>
 
           <View style={styles.categoryTitleContainer}>
-            <Text style={styles.categoryTitle}>
+            <Animated.Text style={[styles.categoryTitle, { color: '#FFFFFF' }]}>
               {categoryData?.name || 'Category'}
-            </Text>
-            <Text style={styles.categorySubtitle}>
+            </Animated.Text>
+            <Animated.Text style={[styles.categorySubtitle, { color: 'rgba(255,255,255,0.9)' }]}>
               {vendorsWithDetails.length} {vendorsWithDetails.length === 1 ? 'shop' : 'shops'} available
-            </Text>
+            </Animated.Text>
           </View>
 
           <TouchableOpacity style={styles.locationBar} onPress={handleOpenAddressModal} activeOpacity={0.7}>
@@ -421,12 +595,11 @@ const CategoryShopsScreen = () => {
           </View>
         </Animated.View>
 
-        {/* ─── SCROLL VIEW ────────────────────────────── */}
         <Animated.ScrollView
           style={styles.scrollView}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingTop: HEADER_HEIGHT + verticalScale(20) }
+            { paddingTop: HEADER_HEIGHT + verticalScale(20) } 
           ]}
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={16}
@@ -435,12 +608,7 @@ const CategoryShopsScreen = () => {
             { useNativeDriver: true }
           )}
           refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={onRefresh}
-              tintColor={Colors.accentGreen}
-              colors={[Colors.accentGreen]}
-            />
+            <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={Colors.accentGreen} colors={[Colors.accentGreen]} />
           }
         >
           <View style={styles.whiteSection}>
@@ -474,9 +642,10 @@ const CategoryShopsScreen = () => {
             <View style={{ height: verticalScale(40) }} />
           </View>
         </Animated.ScrollView>
+
       </SafeAreaView>
 
-      {/* ─── MODALS ────────────────────────────────── */}
+      {/* ✅ Address Modal with Open Map option */}
       <AddressModal
         visible={showAddressModal}
         onClose={() => setShowAddressModal(false)}
@@ -485,13 +654,14 @@ const CategoryShopsScreen = () => {
         selectedAddress={selectedAddress}
         addresses={addresses}
         isLoading={isAddressLoading}
-        onOpenMap={handleOpenAddAddress}   // opens AddAddressScreen
+        onOpenMap={handleOpenAddAddress}
       />
 
+      {/* ✅ Add Address Screen with Map Picker */}
       {showAddAddress && (
         <View style={styles.modalOverlay}>
           <AddAddressScreen
-            onClose={() => setShowAddAddress(false)}
+            onClose={handleCloseAddAddress}
             onLocationSelect={handleMapLocationSelect}
             onSave={() => {
               setShowAddAddress(false);
@@ -499,11 +669,19 @@ const CategoryShopsScreen = () => {
           />
         </View>
       )}
+
+      {/* ✅ Map Picker Modal */}
+      <MapPickerModal
+        visible={showMapPicker}
+        onClose={() => setShowMapPicker(false)}
+        onLocationSelect={handleMapPickerSelect}
+        initialLat={mapPickerCoords?.lat}
+        initialLng={mapPickerCoords?.lng}
+      />
     </View>
   );
 };
 
-// ─── Styles ──────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
   safeArea: { flex: 1, backgroundColor: 'transparent' },
@@ -516,7 +694,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     zIndex: 1000,
   },
-
   headerBackground: {
     position: 'absolute',
     top: 0,
@@ -536,7 +713,6 @@ const styles = StyleSheet.create({
     right: 0,
     height: '100%',
   },
-
   stickyHeader: {
     position: 'absolute',
     top: 0,
@@ -546,9 +722,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(16),
     paddingBottom: verticalScale(12),
     zIndex: 50,
-    backgroundColor: 'transparent',
   },
-
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -562,9 +736,15 @@ const styles = StyleSheet.create({
     height: scale(40),
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'transparent',
   },
-
+  iconBtn: {
+    width: '100%',
+    height: '100%',
+    borderRadius: moderateScale(20),
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 0.5,
+  },
   categoryTitleContainer: {
     paddingHorizontal: scale(4),
     paddingTop: verticalScale(6),
@@ -574,7 +754,6 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(32),
     fontWeight: '800',
     letterSpacing: 0.5,
-    color: '#FFFFFF',
     textShadowColor: 'rgba(0,0,0,0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
@@ -583,9 +762,7 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(13),
     marginTop: verticalScale(2),
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.9)',
   },
-
   locationBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -618,7 +795,6 @@ const styles = StyleSheet.create({
     marginRight: scale(8),
     fontWeight: '500',
   },
-
   searchBarContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -642,7 +818,6 @@ const styles = StyleSheet.create({
     color: Colors.textDark,
   },
   clearSearchBtn: { padding: scale(4) },
-
   scrollView: {
     flex: 1,
     zIndex: 5,
@@ -650,7 +825,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: verticalScale(20),
   },
-
   whiteSection: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: moderateScale(30),
@@ -659,7 +833,6 @@ const styles = StyleSheet.create({
     paddingTop: verticalScale(8),
     minHeight: height * 0.5,
   },
-
   resultsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -673,12 +846,10 @@ const styles = StyleSheet.create({
     color: Colors.textGray,
     fontWeight: '500',
   },
-
   shopListContainer: {
     paddingHorizontal: scale(8),
     paddingTop: verticalScale(4),
   },
-
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -691,7 +862,6 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
     color: Colors.textGray,
   },
-
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
