@@ -31,6 +31,7 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import NewProductCard from "../components/NewProductCard10";
 import { fetchVendorReviews, createReview, clearReviews } from "../features/reviewSlice";
 import { createViewLead, createCallLead, createWhatsAppLead } from "../features/leadSlice";
+import VendorHorizontalScroll from "../components/VendorHorizontalScroll"; // ✅ NEW
 
 const { width, height } = Dimensions.get("window");
 
@@ -965,7 +966,7 @@ const ShopDetails = () => {
             <Text style={styles.productCount}>{products.length} items</Text>
           </View>
           
-          {productsLoading ? (
+          {/* {productsLoading ? (
             <View style={styles.loadingProducts}>
               <ActivityIndicator size="large" color={Colors.accentGreen} />
               <Text style={styles.loadingProductsText}>Loading products...</Text>
@@ -991,7 +992,19 @@ const ShopDetails = () => {
               scrollEnabled={false}
               showsVerticalScrollIndicator={false}
             />
-          )}
+          )} */}
+
+          {/* ✅ NEW: Horizontal scroll of all vendor listings (properties, rentals, products) */}
+          <View style={styles.divider} />
+          <View style={styles.horizontalScrollSection}>
+            <Text style={styles.sectionTitle}>More from {vendorData.shopName}</Text>
+            <VendorHorizontalScroll
+              vendorId={vendorData._id}
+              vendorName={vendorData.shopName}
+              isVendorOffline={!vendorData.isOnline}
+            />
+          </View>
+
         </View>
         <View style={styles.bottomSpacer} />
       </ScrollView>
@@ -1394,6 +1407,10 @@ const styles = StyleSheet.create({
   },
   productCardWrapper: {
     marginBottom: verticalScale(12),
+  },
+  // ✅ New style for horizontal scroll section
+  horizontalScrollSection: {
+    marginTop: verticalScale(4),
   },
   bottomSpacer: {
     height: verticalScale(40),

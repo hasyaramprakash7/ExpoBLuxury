@@ -1,5 +1,5 @@
 // screens/WebViewScreen.tsx
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -9,6 +9,9 @@ import {
   Alert,
   Share,
   Linking,
+  StatusBar,
+  SafeAreaView,
+  BackHandler,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -22,6 +25,20 @@ const WebViewScreen = () => {
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [currentUrl, setCurrentUrl] = useState(url);
+  const [loading, setLoading] = useState(true);
+  const [progress, setProgress] = useState(0);
+
+  // Handle hardware back button on Android
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (canGoBack) {
+        webViewRef.current?.goBack();
+        return true;
+      }
+      return false;
+    });
+    return () => backHandler.remove();
+  }, [canGoBack]);
 
   const handleBack = () => {
     if (canGoBack) {
@@ -57,144 +74,126 @@ const WebViewScreen = () => {
     setCanGoBack(navState.canGoBack);
     setCanGoForward(navState.canGoForward);
     setCurrentUrl(navState.url);
+    setLoading(navState.loading);
+  };
+
+  const onLoadProgress = (event: any) => {
+    setProgress(event.nativeEvent.progress);
   };
 
   return (
-    <View style={styles.container}>
-      {/* Custom header with navigation controls */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.headerButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {title || 'Browser'}
-        </Text>
-        
-        <View style={styles.headerActions}>
-          <TouchableOpacity onPress={handleOpenInBrowser} style={styles.headerButton}>
-            <Ionicons name="open-outline" size={22} color="#007AFF" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleShare} style={styles.headerButton}>
-            <Ionicons name="share-outline" size={22} color="#007AFF" />
-          </TouchableOpacity>
-        </View>
-      </View>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* Navigation controls */}
-      <View style={styles.navBar}>
-        <TouchableOpacity 
-          onPress={() => webViewRef.current?.goBack()} 
-          disabled={!canGoBack}
-          style={[styles.navButton, !canGoBack && styles.navButtonDisabled]}
-        >
-          <Ionicons name="chevron-back" size={24} color={canGoBack ? '#007AFF' : '#CCCCCC'} />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          onPress={() => webViewRef.current?.goForward()} 
-          disabled={!canGoForward}
-          style={[styles.navButton, !canGoForward && styles.navButtonDisabled]}
-        >
-          <Ionicons name="chevron-forward" size={24} color={canGoForward ? '#007AFF' : '#CCCCCC'} />
-        </TouchableOpacity>
-        
-        <TouchableOpacity onPress={() => webViewRef.current?.reload()} style={styles.navButton}>
-          <Ionicons name="refresh-outline" size={22} color="#007AFF" />
-        </TouchableOpacity>
-        
-        <View style={styles.urlContainer}>
-          <Text style={styles.urlText} numberOfLines={1}>
-            {currentUrl.replace(/^https?:\/\//, '')}
-          </Text>
-        </View>
-      </View>
-
-      <WebView
-        ref={webViewRef}
-        source={{ uri: url }}
-        startInLoadingState={true}
-        renderLoading={() => (
-          <View style={styles.loaderContainer}>
-            <ActivityIndicator size="large" color="#007AFF" />
+      {/* WebView – fills entire space */}
+      <View style={styles.webViewContainer}>
+        {/* Progress bar at top */}
+        {loading && (
+          <View style={styles.progressBarContainer}>
+            <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
           </View>
         )}
-        onNavigationStateChange={onNavigationStateChange}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
-        allowsBackForwardNavigationGestures={true}
-        onError={(error) => {
-          Alert.alert('Error', 'Failed to load page');
-          console.error('WebView error:', error);
-        }}
-      />
-    </View>
+        
+        <WebView
+          ref={webViewRef}
+          source={{ uri: url }}
+          startInLoadingState={true}
+          renderLoading={() => (
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator size="large" color="#007AFF" />
+            </View>
+          )}
+          onNavigationStateChange={onNavigationStateChange}
+          onLoadProgress={onLoadProgress}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          allowsBackForwardNavigationGestures={true}
+          onError={(error) => {
+            Alert.alert('Error', 'Failed to load page');
+            console.error('WebView error:', error);
+          }}
+        />
+      </View>
+
+      {/* Bottom Toolbar */}
+      <View style={styles.bottomBar}>
+        <TouchableOpacity onPress={handleBack} style={styles.toolButton}>
+          <Ionicons name="arrow-back" size={24} color="#0f141a" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => webViewRef.current?.goForward()}
+          disabled={!canGoForward}
+          style={[styles.toolButton, !canGoForward && styles.disabled]}
+        >
+          <Ionicons name="arrow-forward" size={24} color={canGoForward ? '#0f141a' : '#CCCCCC'} />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => webViewRef.current?.reload()} style={styles.toolButton}>
+          <Ionicons name="refresh" size={24} color="#0f141a" />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={handleShare} style={styles.toolButton}>
+          <Ionicons name="share-outline" size={24} color="#0f141a" />
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={handleOpenInBrowser} style={styles.toolButton}>
+          <Ionicons name="open-outline" size={24} color="#0f141a" />
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: '#F8F8F8',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  headerButton: {
-    padding: 6,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#000',
-    textAlign: 'center',
-    marginHorizontal: 8,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  navBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8F8F8',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  navButton: {
-    padding: 6,
-    marginRight: 4,
-  },
-  navButtonDisabled: {
-    opacity: 0.4,
-  },
-  urlContainer: {
+  webViewContainer: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginLeft: 4,
-  },
-  urlText: {
-    fontSize: 12,
-    color: '#666666',
+    marginTop:30
   },
   loaderContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  progressBarContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: '#E0E0E0',
+    zIndex: 10,
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#0f141a',
+  },
+  bottomBar: {
+    height: 56,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: 'rgba(248, 248, 248, 0.95)',
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginBottom: 30,
+  },
+  toolButton: {
+    padding: 8,
+    borderRadius: 24,
+    minWidth: 44,
+    alignItems: 'center',
+  },
+  disabled: {
+    opacity: 0.4,
   },
 });
 

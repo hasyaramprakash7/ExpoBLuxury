@@ -10,6 +10,7 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Vendor } from "../types";
 import { Colors, getFullAddress, scale, verticalScale, moderateScale } from "../constants/colors";
+import VendorHorizontalScroll from "./VendorHorizontalScroll";
 
 interface ShopCardProps {
   shop: Vendor & {
@@ -70,7 +71,7 @@ const formatAllDays = (hours: any): Array<{ day: string; hours: string; isToday:
     // Get current day index
     const now = new Date();
     const currentDayIndex = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const currentDayName = daysOrder[currentDayIndex === 0 ? 6 : currentDayIndex - 1]; // Convert to our format
+    const currentDayName = daysOrder[currentDayIndex === 0 ? 6 : currentDayIndex - 1];
     
     const result = daysOrder.map((day) => {
       const dayData = parsed[day];
@@ -95,14 +96,9 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
   
   const fullAddress = getFullAddress(shop.address);
   
-  // 🔥 Use time-based open/close
   const isOpen = isShopCurrentlyOpen(shop.operatingHours);
   const allDays = formatAllDays(shop.operatingHours);
-  
-  // Get today's hours
   const todayHours = allDays.find(d => d.isToday);
-  
-  // Get days to show (first 2 or all if expanded)
   const displayDays = showFullHours ? allDays : allDays.slice(0, 2);
   const hasMoreDays = allDays.length > 2;
 
@@ -141,7 +137,7 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
           )}
         </View>
 
-        {/* 🔥 Online Status Overlay - Based on operating hours */}
+        {/* Online Status Overlay */}
         <View style={shopCardStyles.onlineStatusOverlay}>
           <View
             style={[
@@ -240,8 +236,6 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
           </View>
         ) : null}
 
-    
-
         {/* Delivery Range */}
         {shop.deliveryRange !== undefined && shop.deliveryRange > 0 && (
           <View style={shopCardStyles.deliveryRow}>
@@ -258,6 +252,18 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
           </View>
         )}
       </View>
+
+      {/* ✅ Horizontal Scroll – now with onSeeAll prop */}
+      {shop._id && (
+        <View style={shopCardStyles.horizontalScrollContainer}>
+          <VendorHorizontalScroll
+            vendorId={shop._id}
+            vendorName={shop.shopName}
+            isVendorOffline={!shop.isOnline}   // pass vendor online status if available
+            onSeeAll={onPress}                 // when "See All" is pressed, navigate to ShopDetails
+          />
+        </View>
+      )}
 
       <View style={shopCardStyles.divider} />
 
@@ -293,6 +299,8 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
     </TouchableOpacity>
   );
 };
+
+
 
 const shopCardStyles = StyleSheet.create({
   cardContainer: {
@@ -498,7 +506,7 @@ const shopCardStyles = StyleSheet.create({
     marginRight: scale(4),
     marginBottom: verticalScale(4),
   },
-  // 🔥 New Hours Styles
+  // 🔥 Hours Styles
   hoursContainer: {
     marginTop: verticalScale(6),
     marginBottom: verticalScale(4),
@@ -562,6 +570,11 @@ const shopCardStyles = StyleSheet.create({
     color: Colors.accentBlue,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  // ✅ New style for horizontal scroll container
+  horizontalScrollContainer: {
+    marginTop: verticalScale(4),
+    marginBottom: verticalScale(4),
   },
   deliveryRow: {
     flexDirection: 'row',

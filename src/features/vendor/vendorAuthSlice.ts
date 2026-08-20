@@ -6,6 +6,8 @@ import api from "../../userScreens/utils/api";
 import * as SecureStore from 'expo-secure-store';
 import { registerForPushNotificationsAsync } from '../../userScreens/utils/NotificationHelper';
 
+// ❌ REMOVED: import { logoutUser } from '../user/authSlice'; // NOT NEEDED
+
 const getVendorToken = () => AsyncStorage.getItem("vendorToken");
 
 export interface VendorWithSubscription extends Vendor {
@@ -35,7 +37,7 @@ interface AuthState {
 }
 
 // =====================================================================
-// EXISTING THUNKS (with debug logs)
+// THUNKS – all remove the USER TOKEN DELETION
 // =====================================================================
 
 export const registerVendor = createAsyncThunk<
@@ -48,13 +50,7 @@ export const registerVendor = createAsyncThunk<
     console.log('📝 [registerVendor] Starting registration...');
     try {
       const pushToken = await registerForPushNotificationsAsync();
-      console.log('📱 [registerVendor] Push token:', pushToken);
       if (pushToken) formData.append('pushToken', pushToken);
-
-      console.log('📤 [registerVendor] Sending FormData:');
-      for (const pair of (formData as any)._parts) {
-        console.log(`  ${pair[0]}: ${pair[1]?.uri || pair[1]}`);
-      }
 
       const res = await api.post(`/vendors/register`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -64,7 +60,8 @@ export const registerVendor = createAsyncThunk<
       await AsyncStorage.setItem("vendorToken", res.data.token);
       await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
       await SecureStore.deleteItemAsync("deliveryBoyToken");
-      await AsyncStorage.removeItem("token");
+      // ✅ KEEP user token – DO NOT REMOVE
+      // AsyncStorage.removeItem("token"); // ❌ REMOVED
       return { vendor: res.data.vendor, token: res.data.token };
     } catch (err: any) {
       console.error('❌ [registerVendor] Error:', err.response?.data || err.message);
@@ -83,13 +80,7 @@ export const registerVendorWithOtp = createAsyncThunk<
     console.log('📝 [registerVendorWithOtp] Starting OTP registration...');
     try {
       const pushToken = await registerForPushNotificationsAsync();
-      console.log('📱 [registerVendorWithOtp] Push token:', pushToken);
       if (pushToken) formData.append('pushToken', pushToken);
-
-      console.log('📤 [registerVendorWithOtp] Sending FormData:');
-      for (const pair of (formData as any)._parts) {
-        console.log(`  ${pair[0]}: ${pair[1]?.uri || pair[1]}`);
-      }
 
       const res = await api.post(`/vendors/register-with-otp`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -99,7 +90,7 @@ export const registerVendorWithOtp = createAsyncThunk<
       await AsyncStorage.setItem("vendorToken", res.data.token);
       await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
       await SecureStore.deleteItemAsync("deliveryBoyToken");
-      await AsyncStorage.removeItem("token");
+      // ✅ KEEP user token
       return { vendor: res.data.vendor, token: res.data.token };
     } catch (err: any) {
       console.error('❌ [registerVendorWithOtp] Error:', err.response?.data || err.message);
@@ -118,13 +109,12 @@ export const loginVendor = createAsyncThunk<
     console.log('🔐 [loginVendor] Logging in with:', identifier);
     try {
       const pushToken = await registerForPushNotificationsAsync();
-      console.log('📱 [loginVendor] Push token:', pushToken);
       const res = await api.post(`/vendors/login`, { identifier, password, pushToken });
       console.log('✅ [loginVendor] Response:', res.data);
       await AsyncStorage.setItem("vendorToken", res.data.token);
       await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
       await SecureStore.deleteItemAsync("deliveryBoyToken");
-      await AsyncStorage.removeItem("token");
+      // ✅ KEEP user token
       return { vendor: res.data.vendor, token: res.data.token };
     } catch (err: any) {
       console.error('❌ [loginVendor] Error:', err.response?.data || err.message);
@@ -143,7 +133,6 @@ export const loginVendorWithOtp = createAsyncThunk<
     console.log('🔐 [loginVendorWithOtp] Logging in with phone:', phone);
     try {
       const pushToken = await registerForPushNotificationsAsync();
-      console.log('📱 [loginVendorWithOtp] Push token:', pushToken);
       const res = await api.post(`/vendors/login-with-otp`, { phone, otp, pushToken });
       console.log('✅ [loginVendorWithOtp] Response:', res.data);
       const vendor = res.data.vendor;
@@ -153,7 +142,7 @@ export const loginVendorWithOtp = createAsyncThunk<
       await AsyncStorage.setItem("vendorToken", res.data.token);
       await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
       await SecureStore.deleteItemAsync("deliveryBoyToken");
-      await AsyncStorage.removeItem("token");
+      // ✅ KEEP user token
       return { vendor, token: res.data.token };
     } catch (err: any) {
       console.error('❌ [loginVendorWithOtp] Error:', err.response?.data || err.message);
@@ -265,13 +254,6 @@ export const fetchAllVendors = createAsyncThunk<
     try {
       const res = await api.get(`/vendors/all`);
       console.log('✅ [fetchAllVendors] Found', res.data.vendors?.length, 'vendors');
-
-      if (res.data.vendors && res.data.vendors.length > 0) {
-        console.log('📍 [fetchAllVendors] Vendor locations:');
-        res.data.vendors.forEach((v: any, index: number) => {
-          console.log(`  ${index + 1}. ${v.shopName || v.name} - ${v.address?.city || v.address?.district || 'N/A'}, ${v.address?.state || 'N/A'} (${v.address?.latitude || 'N/A'}, ${v.address?.longitude || 'N/A'})`);
-        });
-      }
       return res.data.vendors;
     } catch (err: any) {
       console.error('❌ [fetchAllVendors] Error:', err.response?.data || err.message);
@@ -291,16 +273,6 @@ export const fetchNearbyVendors = createAsyncThunk<
     try {
       const res = await api.get(`/vendors/nearby?lat=${lat}&lng=${lng}`);
       console.log('✅ [fetchNearbyVendors] Found', res.data.vendors?.length, 'vendors');
-
-      if (res.data.vendors && res.data.vendors.length > 0) {
-        console.log('📍 [fetchNearbyVendors] Nearby vendor details:');
-        res.data.vendors.forEach((v: any, index: number) => {
-          const distance = v.distance !== undefined ? v.distance.toFixed(2) : 'N/A';
-          console.log(`  ${index + 1}. ${v.shopName || v.name} - ${distance}km away - ${v.address?.city || v.address?.district || 'N/A'}`);
-        });
-      } else {
-        console.log('⚠️ [fetchNearbyVendors] No nearby vendors found within delivery range.');
-      }
       return res.data.vendors;
     } catch (err: any) {
       console.error('❌ [fetchNearbyVendors] Error:', err.response?.data || err.message);
@@ -333,27 +305,34 @@ export const fetchVendorConversations = createAsyncThunk<
   }
 );
 
+// =====================================================================
+// 🔥 UPDATED logoutVendor – clears vendor only, keeps user token
+// =====================================================================
 export const logoutVendor = createAsyncThunk(
   "vendorAuth/logoutVendor",
-  async (_, { rejectWithValue }) => {
-    console.log('🚪 [logoutVendor] Logging out...');
+  async (_, { dispatch, rejectWithValue }) => {
+    console.log('🚪 [logoutVendor] Logging out vendor...');
     try {
       await api.post(`/vendors/logout`).catch(() => console.log("Failed to set offline"));
       await api.post(`/auth/remove-push-token`).catch(() => console.log("Failed to remove push token"));
     } catch (error) {
       console.error("Logout cleanup error", error);
     } finally {
+      // Clear ONLY vendor data
       await AsyncStorage.removeItem("vendorToken");
       await AsyncStorage.removeItem("vendor");
       await SecureStore.deleteItemAsync("deliveryBoyToken");
-      await AsyncStorage.removeItem("token");
+      // ✅ DO NOT REMOVE USER TOKEN
+      // await AsyncStorage.removeItem("token"); // ❌ REMOVED
+      // ❌ DO NOT LOG OUT USER
+      // dispatch(logoutUser()); // ❌ REMOVED
     }
     return true;
   }
 );
 
 // =====================================================================
-// SUBSCRIPTION THUNKS
+// SUBSCRIPTION THUNKS (unchanged)
 // =====================================================================
 
 export const fetchSubscriptionStatus = createAsyncThunk<
@@ -498,9 +477,6 @@ export const verifySubscription = createAsyncThunk<
   }
 );
 
-// =====================================================================
-// 🔥 FETCH VENDOR STATS (for real-time updates)
-// =====================================================================
 export const fetchVendorStats = createAsyncThunk<
   { totalViews: number; totalCalls: number; totalLeads: number },
   void,
@@ -525,9 +501,6 @@ export const fetchVendorStats = createAsyncThunk<
   }
 );
 
-// =====================================================================
-// DIRECTORY SEARCH THUNK
-// =====================================================================
 export const searchDirectoryVendors = createAsyncThunk<
   Vendor[],
   { lat?: number; lng?: number; q?: string; category?: string; minRating?: number; premium?: boolean; page?: number; limit?: number },
@@ -547,33 +520,9 @@ export const searchDirectoryVendors = createAsyncThunk<
       if (params.page) query.append('page', String(params.page));
       if (params.limit) query.append('limit', String(params.limit));
 
-      console.log('🌐 [searchDirectoryVendors] URL:', `/vendors/directory?${query.toString()}`);
       const res = await api.get(`/vendors/directory?${query.toString()}`);
-
       const vendors = res.data.data || [];
       console.log('✅ [searchDirectoryVendors] Found', vendors.length, 'vendors');
-
-      if (vendors.length > 0) {
-        console.log('📍 [searchDirectoryVendors] Vendor details:');
-        vendors.forEach((v: any, index: number) => {
-          const distance = v.distance !== undefined ? v.distance.toFixed(2) : 'N/A';
-          const isInRange = v.deliveryRange !== undefined ? (v.distance <= v.deliveryRange ? '✅ In Range' : '❌ Out of Range') : '❓ Unknown';
-          console.log(`  ${index + 1}. ${v.shopName || v.name}`);
-          console.log(`     📍 Location: ${v.address?.city || v.address?.district || 'N/A'}, ${v.address?.state || 'N/A'}`);
-          console.log(`     📏 Distance: ${distance} km ${isInRange}`);
-          console.log(`     🚚 Delivery Range: ${v.deliveryRange || 'N/A'} km`);
-          console.log(`     📊 Rating: ${v.averageRating || 'N/A'} ⭐`);
-          console.log(`     🏷️ Categories: ${v.categories?.join(', ') || 'N/A'}`);
-        });
-
-        const inRangeCount = vendors.filter((v: any) => v.distance !== undefined && v.deliveryRange !== undefined && v.distance <= v.deliveryRange).length;
-        const outOfRangeCount = vendors.length - inRangeCount;
-        console.log(`📊 [searchDirectoryVendors] Summary: ${vendors.length} total, ${inRangeCount} in range, ${outOfRangeCount} out of range`);
-        console.log('🔍 [searchDirectoryVendors] First vendor fields:', Object.keys(vendors[0] || {}));
-      } else {
-        console.log('⚠️ [searchDirectoryVendors] No vendors found');
-      }
-
       return vendors;
     } catch (err: any) {
       console.error('❌ [searchDirectoryVendors] Error:', err.response?.data || err.message);
@@ -637,7 +586,6 @@ const vendorAuthSlice = createSlice({
         state.trialEndDate = action.payload.trialEndDate || state.trialEndDate;
       }
     },
-    // 🔥 NEW: Update vendor stats directly in Redux
     updateVendorStats: (state, action) => {
       if (state.vendor) {
         state.vendor.totalViews = action.payload.totalViews;
@@ -648,7 +596,6 @@ const vendorAuthSlice = createSlice({
           totalCalls: state.vendor.totalCalls,
           totalLeads: state.vendor.totalLeads,
         });
-        // Update AsyncStorage
         AsyncStorage.setItem("vendor", JSON.stringify(state.vendor)).catch(() => {});
       }
     },
@@ -779,6 +726,7 @@ const vendorAuthSlice = createSlice({
         state.error = action.payload ?? "Failed to fetch conversations";
         state.conversations = [];
       })
+      // 🔥 logoutVendor – clears vendor state only
       .addCase(logoutVendor.fulfilled, (state) => {
         state.vendor = null;
         state.token = null;
@@ -833,18 +781,11 @@ const vendorAuthSlice = createSlice({
       .addCase(verifySubscription.rejected, (state, action) => {
         state.error = action.payload || "Verification failed";
       })
-      // 🔥 FIX: Update vendor stats when fetchVendorStats is fulfilled
       .addCase(fetchVendorStats.fulfilled, (state, action) => {
         if (state.vendor) {
           state.vendor.totalViews = action.payload.totalViews;
           state.vendor.totalCalls = action.payload.totalCalls;
           state.vendor.totalLeads = action.payload.totalLeads;
-          console.log('📊 [fetchVendorStats] Updated vendor stats in Redux:', {
-            totalViews: state.vendor.totalViews,
-            totalCalls: state.vendor.totalCalls,
-            totalLeads: state.vendor.totalLeads,
-          });
-          // Update AsyncStorage
           AsyncStorage.setItem("vendor", JSON.stringify(state.vendor)).catch(() => {});
         }
       })
@@ -872,7 +813,7 @@ export const {
   clearNearbyVendors,
   clearDirectoryVendors,
   updateSubscriptionStatus,
-  updateVendorStats, // 🔥 Export this
+  updateVendorStats,
 } = vendorAuthSlice.actions;
 
 export const vendorAuthReducer = vendorAuthSlice.reducer;

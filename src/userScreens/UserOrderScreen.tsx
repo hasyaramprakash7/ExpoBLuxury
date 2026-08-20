@@ -1,5 +1,5 @@
 // src/screens/OrderScreen.tsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,9 +10,11 @@ import {
   Image,
   Alert,
   Platform,
+  RefreshControl,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import dayjs from "dayjs";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   fetchUserOrders,
   cancelUserOrder,
@@ -72,15 +74,47 @@ const UserOrderScreen: React.FC = () => {
   );
 
   const [activeFilter, setActiveFilter] = useState<string>("All");
+  const [refreshing, setRefreshing] = useState<boolean>(false);
 
+  // --- Fetch orders ---
+  const fetchOrders = useCallback(async () => {
+    if (!userId) {
+      console.warn("User ID not found.");
+      return;
+    }
+    try {
+      await dispatch(fetchUserOrders(userId)).unwrap();
+    } catch (err) {
+      Toast.show({
+        type: "error",
+        text1: "Failed to refresh orders",
+        text2: err as string,
+      });
+    }
+  }, [dispatch, userId]);
+
+  // Initial fetch
   useEffect(() => {
     if (userId) {
-      dispatch(fetchUserOrders(userId));
-    } else {
-      console.warn("User ID not found.");
+      fetchOrders();
     }
-  }, [userId, dispatch]);
+  }, [userId, fetchOrders]);
 
+  // --- Pull-to-refresh handler ---
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchOrders();
+    setRefreshing(false);
+  }, [fetchOrders]);
+
+  // --- Manual refresh button handler ---
+  const handleRefreshPress = useCallback(() => {
+    if (!loading && !refreshing) {
+      onRefresh();
+    }
+  }, [loading, refreshing, onRefresh]);
+
+  // --- Cancel order ---
   const handleCancelOrder = (orderId: string) => {
     Alert.alert(
       "Cancel Order",
@@ -162,11 +196,30 @@ const UserOrderScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollViewContent}>
-        <Text style={styles.header}>
-          Your Orders <Text style={{ color: rolexGreen }}>•</Text>{" "}
-          <Text style={{ color: rolexGold }}>History</Text>
-        </Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollViewContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[rolexGreen]} />
+        }
+      >
+        {/* Header with Refresh Button */}
+        <View style={styles.headerRow}>
+          <Text style={styles.header}>
+            Your Orders <Text style={{ color: rolexGreen }}>•</Text>{" "}
+            <Text style={{ color: rolexGold }}>History</Text>
+          </Text>
+          <TouchableOpacity
+            onPress={handleRefreshPress}
+            disabled={loading || refreshing}
+            style={styles.refreshButton}
+          >
+            <Ionicons
+              name="refresh-outline"
+              size={24}
+              color={loading || refreshing ? "#aaa" : rolexGreen}
+            />
+          </TouchableOpacity>
+        </View>
 
         {/* Filter Buttons */}
         <View style={styles.filterContainer}>
@@ -193,7 +246,7 @@ const UserOrderScreen: React.FC = () => {
           ))}
         </View>
 
-        {loading && <ActivityIndicator size="large" color={rolexGreen} style={styles.messageText} />}
+        {loading && !refreshing && <ActivityIndicator size="large" color={rolexGreen} style={styles.messageText} />}
         {error && <Text style={styles.errorText}>❌ Error: {error}</Text>}
         {!loading && orders.length === 0 && (
           <Text style={styles.messageText}>No orders yet. Start shopping!</Text>
@@ -326,11 +379,28 @@ const UserOrderScreen: React.FC = () => {
   );
 };
 
-// --- Styles (unchanged, but kept for completeness) ---
+// --- Styles ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8F5F0", paddingTop: Platform.OS === "android" ? 50 : 0 },
   scrollViewContent: { paddingVertical: 10, paddingHorizontal: 15, paddingBottom: 180 },
-  header: { fontSize: 28, fontWeight: "bold", marginBottom: 20, textAlign: "center", color: "#1F2937" },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  header: { fontSize: 28, fontWeight: "bold", color: "#1F2937" },
+  refreshButton: {
+    padding: 8,
+    borderRadius: 30,
+    backgroundColor: "white",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
   filterContainer: {
     flexDirection: "row",
     flexWrap: "wrap",

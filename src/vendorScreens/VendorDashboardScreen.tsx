@@ -8,9 +8,9 @@ import {
   toggleVendorStatus,
   fetchSubscriptionStatus,
   verifySubscription,
+  fetchVendorStats,
 } from "../features/vendor/vendorAuthSlice";
 import { fetchVendorOrders } from "../features/vendor/vendorOrderSlice";
-import { fetchVendorStats } from "../features/vendor/vendorAuthSlice";
 import { RootState, AppDispatch } from "../app/store";
 import {
   View,
@@ -35,11 +35,18 @@ import {
   Receipt,
   MessageCircle,
 } from "lucide-react-native";
-import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
-import axios from "axios";
-import { Vendor, Order, Address } from "../types/models";
+import { Vendor, Order } from "../types/models";
 import { Ionicons } from "@expo/vector-icons";
+
+interface VendorFormData extends Vendor {
+  categories: string[];
+  services: string[];
+  tags: string[];
+  operatingHours: any;
+  isVerified: boolean;
+  isPremium: boolean;
+}
 
 type RootStackParamList = {
   VendorLogin: undefined;
@@ -71,17 +78,16 @@ export default function VendorDashboard() {
     orders: vendorOrders,
     loading: vendorOrdersLoading,
   } = useSelector((state: RootState) => state.vendorOrders);
+  const { categories, loading: categoriesLoading } = useSelector(
+    (state: RootState) => state.categories
+  );
 
   const [isEditing, setIsEditing] = useState(false);
   const [shopImageFile, setShopImageFile] =
     useState<ImagePicker.ImagePickerAsset | null>(null);
-  const [loadingAddress, setLoadingAddress] = useState(false);
-  const [signupError, setSignupError] = useState<string | null>(null);
-  
-  // 🔥 NEW: Refresh/Reload state
   const [refreshing, setRefreshing] = useState(false);
 
-  const [formData, setFormData] = useState<Vendor>({
+  const [formData, setFormData] = useState<VendorFormData>({
     _id: "",
     name: "",
     email: "",
@@ -98,29 +104,30 @@ export default function VendorDashboard() {
       state: "",
       district: "",
       country: "India",
+      street: "",
+      colony: "",
     },
     isOnline: false,
     isApproved: false,
+    categories: [],
+    services: [],
+    tags: [],
+    operatingHours: null,
+    isVerified: false,
+    isPremium: false,
   });
 
-  console.log('📱 [VendorDashboard] Mounted, subscriptionStatus:', subscriptionStatus);
-
-  // 🔥 NEW: Handle refresh/reload
   const onRefresh = useCallback(async () => {
-    console.log('🔄 [VendorDashboard] Manual refresh triggered...');
     setRefreshing(true);
     try {
-      // Fetch all data in parallel
       await Promise.all([
         dispatch(fetchVendorProfile()),
         dispatch(fetchVendorStats()),
         dispatch(fetchSubscriptionStatus()),
         dispatch(fetchVendorOrders(vendor?._id || "")),
       ]);
-      console.log('✅ [VendorDashboard] Refresh completed successfully');
     } catch (error) {
-      console.error('❌ [VendorDashboard] Refresh error:', error);
-      Alert.alert('Refresh Failed', 'Could not refresh dashboard data.');
+      Alert.alert("Refresh Failed", "Could not refresh dashboard data.");
     } finally {
       setRefreshing(false);
     }
@@ -128,38 +135,60 @@ export default function VendorDashboard() {
 
   useFocusEffect(
     useCallback(() => {
-      console.log('🔄 [VendorDashboard] useFocusEffect triggered – fetching subscription status...');
-      const checkSubscription = async () => {
-        const result = await dispatch(fetchSubscriptionStatus());
-        console.log('📦 [VendorDashboard] fetchSubscriptionStatus result:', result);
-      };
-      checkSubscription();
+      dispatch(fetchSubscriptionStatus());
     }, [dispatch])
   );
 
-  // ---- Redirect if inactive or expired ----
   useEffect(() => {
-    console.log('🔍 [VendorDashboard] useEffect redirect check: vendorAuthLoading=', vendorAuthLoading, ', subscriptionStatus=', subscriptionStatus);
     if (!vendorAuthLoading) {
-      const effectiveStatus = subscriptionStatus || 'inactive';
-      console.log('📊 [VendorDashboard] Effective status:', effectiveStatus);
-      if (effectiveStatus === 'inactive' || effectiveStatus === 'expired') {
-        console.log('🚀 [VendorDashboard] Redirecting to SubscriptionChoice');
-        navigation.replace('SubscriptionChoice');
-      } else {
-        console.log('✅ [VendorDashboard] Status is', effectiveStatus, '– no redirect needed');
+      const effectiveStatus = subscriptionStatus || "inactive";
+      if (effectiveStatus === "inactive" || effectiveStatus === "expired") {
+        navigation.replace("SubscriptionChoice");
       }
     }
   }, [subscriptionStatus, vendorAuthLoading, navigation]);
 
+  // Robust array parser: handles strings, arrays, and nested JSON
+  const parseArrayField = useCallback((field: any): string[] => {
+    if (!field) return [];
+
+    if (Array.isArray(field)) {
+      // If the array contains a single string that looks like JSON, try to parse it
+      if (field.length === 1 && typeof field[0] === 'string' && field[0].startsWith('[')) {
+        try {
+          const parsed = JSON.parse(field[0]);
+          if (Array.isArray(parsed)) {
+            return parsed.map(item => String(item).trim());
+          }
+        } catch (_) {}
+      }
+      return field.map(item => String(item).trim()).filter(Boolean);
+    }
+
+    if (typeof field === 'string') {
+      try {
+        const parsed = JSON.parse(field);
+        if (Array.isArray(parsed)) {
+          return parsed.map(item => String(item).trim()).filter(Boolean);
+        }
+        return [String(parsed).trim()].filter(Boolean);
+      } catch (_) {
+        if (field.includes(',')) {
+          return field.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        return [field.trim()].filter(Boolean);
+      }
+    }
+
+    return [];
+  }, []);
+
   useEffect(() => {
     if (vendor) {
-      console.log('👤 [VendorDashboard] Vendor loaded:', vendor._id);
-      console.log('📋 [VendorDashboard] Vendor subscription fields:', {
-        subscriptionStatus: vendor.subscriptionStatus,
-        trialEndDate: vendor.trialEndDate,
-        razorpaySubscriptionId: vendor.razorpaySubscriptionId,
-      });
+      const parsedCategories = parseArrayField(vendor.categories);
+      const parsedServices = parseArrayField(vendor.services);
+      const parsedTags = parseArrayField(vendor.tags);
+
       setFormData({
         _id: vendor._id,
         name: vendor.name || "",
@@ -177,19 +206,25 @@ export default function VendorDashboard() {
           state: vendor.address?.state || "",
           district: vendor.address?.district || "",
           country: vendor.address?.country || "India",
+          street: vendor.address?.street || "",
+          colony: vendor.address?.colony || "",
         },
         isOnline: vendor.isOnline || false,
         isApproved: vendor.isApproved || false,
+        categories: parsedCategories,
+        services: parsedServices,
+        tags: parsedTags,
+        operatingHours: vendor.operatingHours || null,
+        isVerified: vendor.isVerified || false,
+        isPremium: vendor.isPremium || false,
       });
       setIsEditing(false);
       setShopImageFile(null);
     }
-  }, [vendor]);
+  }, [vendor, parseArrayField]);
 
   useEffect(() => {
-    if (vendor?._id) {
-      dispatch(fetchVendorOrders(vendor._id));
-    }
+    if (vendor?._id) dispatch(fetchVendorOrders(vendor._id));
   }, [dispatch, vendor?._id]);
 
   const totalOrders = vendorOrders.length;
@@ -203,19 +238,44 @@ export default function VendorDashboard() {
     return sum;
   }, 0);
 
-  const showModal = (message: string) => Alert.alert("Information", message);
-
-  const handleChange = useCallback((name: string, value: string) => {
-    if (name.startsWith("address.")) {
-      const key = name.split(".")[1] as keyof Address;
+  const handleChange = useCallback((name: string, value: any) => {
+    if (name === "address") {
+      const sanitized = Object.keys(value).reduce((acc, key) => {
+        const val = value[key];
+        acc[key] = Array.isArray(val) ? val.filter(Boolean).join(', ') : String(val || '');
+        return acc;
+      }, {} as any);
+      setFormData((prev) => ({ ...prev, address: sanitized }));
+    } else if (name.startsWith("address.")) {
+      const key = name.split(".")[1];
+      const sanitized = Array.isArray(value) ? value.filter(Boolean).join(', ') : String(value || '');
       setFormData((prev) => ({
         ...prev,
-        address: { ...prev.address, [key]: value },
+        address: { ...prev.address, [key]: sanitized },
       }));
+    } else if (name === "categories" || name === "services" || name === "tags") {
+      const arr = Array.isArray(value) ? value.map(v => String(v).trim()).filter(Boolean) : [];
+      setFormData((prev) => ({ ...prev, [name]: arr }));
+    } else if (name.startsWith("operatingHours.")) {
+      const parts = name.split(".");
+      const day = parts[1];
+      const field = parts[2];
+      setFormData((prev) => {
+        const currentHours = prev.operatingHours || {};
+        return {
+          ...prev,
+          operatingHours: {
+            ...currentHours,
+            [day]: {
+              ...currentHours[day],
+              [field]: value,
+            },
+          },
+        };
+      });
     } else {
       setFormData((prev) => ({ ...prev, [name]: value }));
     }
-    setSignupError(null);
   }, []);
 
   const handleImageChange = useCallback(async () => {
@@ -237,98 +297,20 @@ export default function VendorDashboard() {
     }
   }, []);
 
-  const handleFetchLocation = useCallback(async () => {
-    setLoadingAddress(true);
-    setSignupError(null);
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        showModal("Location permission denied. Please enable it in settings.");
-        setLoadingAddress(false);
-        return;
-      }
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-      const { latitude, longitude } = location.coords;
-      setFormData((prev) => ({
-        ...prev,
-        address: {
-          ...prev.address,
-          latitude: latitude.toString(),
-          longitude: longitude.toString(),
-        },
-      }));
-      const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
-      if (geocode.length > 0) {
-        const geo = geocode[0];
-        setFormData((prev) => ({
-          ...prev,
-          address: {
-            ...prev.address,
-            pincode: geo.postalCode || prev.address.pincode,
-            state: geo.region || prev.address.state,
-            district: geo.district || prev.address.district,
-            country: geo.country || prev.address.country,
-          },
-        }));
-        showModal("Address auto-filled from your location.");
-      } else {
-        showModal("Could not get address details. Please enter manually.");
-      }
-    } catch (error: any) {
-      console.error("Location fetch error:", error);
-      showModal("Failed to fetch location: " + error.message);
-    } finally {
-      setLoadingAddress(false);
-    }
-  }, [showModal]);
-
-  const handlePincodeBlur = useCallback(async () => {
-    const pincode = formData.address.pincode;
-    if (!pincode || pincode.length !== 6 || isNaN(Number(pincode))) {
-      setSignupError("Please enter a valid 6-digit pincode.");
-      return;
-    }
-    setSignupError(null);
-    setLoadingAddress(true);
-    try {
-      const response = await axios.get(`https://api.postalpincode.in/pincode/${pincode}`);
-      const data = response.data;
-      if (data && data[0]?.Status === "Success") {
-        const postOffice = data[0].PostOffice[0];
-        if (postOffice) {
-          setFormData((prev) => ({
-            ...prev,
-            address: {
-              ...prev.address,
-              state: postOffice.State || prev.address.state,
-              district: postOffice.District || prev.address.district,
-              country: postOffice.Country || prev.address.country,
-            },
-          }));
-          showModal("Address details updated from pincode.");
-        } else {
-          showModal("No address found for this pincode.");
-        }
-      } else {
-        showModal("Invalid pincode or no data found.");
-      }
-    } catch (error: any) {
-      console.error("Pincode fetch error:", error);
-      showModal("Failed to fetch pincode details: " + error.message);
-    } finally {
-      setLoadingAddress(false);
-    }
-  }, [formData.address.pincode, showModal]);
-
   const handleSave = useCallback(async () => {
     const dataToUpdate = new FormData();
+    const adminOnlyFields = ['isVerified', 'isPremium', 'isApproved'];
+
     Object.entries(formData).forEach(([key, value]) => {
-      if (key !== "address" && key !== "shopImage" && value !== undefined && value !== null) {
+      if (key === "address" || key === "operatingHours" || key === "shopImage") return;
+      if (adminOnlyFields.includes(key)) return;
+      if (Array.isArray(value)) {
+        dataToUpdate.append(key, JSON.stringify(value));
+      } else if (value !== undefined && value !== null) {
         dataToUpdate.append(key, String(value));
       }
     });
+
     if (formData.address) {
       Object.entries(formData.address).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
@@ -336,6 +318,14 @@ export default function VendorDashboard() {
         }
       });
     }
+
+    if (formData.operatingHours) {
+      const hoursValue = typeof formData.operatingHours === 'string'
+        ? formData.operatingHours
+        : JSON.stringify(formData.operatingHours);
+      dataToUpdate.append("operatingHours", hoursValue);
+    }
+
     if (shopImageFile) {
       const uriParts = shopImageFile.uri.split(".");
       const fileType = uriParts[uriParts.length - 1];
@@ -346,17 +336,16 @@ export default function VendorDashboard() {
         type: `image/${fileType}`,
       } as any);
     }
+
     if (!formData.name || !formData.email || !formData.shopName) {
-      Alert.alert("Validation Error", "Please fill all required fields.");
+      Alert.alert("Validation Error", "Fill all required fields.");
       return;
     }
     if (!formData.address.latitude || !formData.address.longitude || !formData.address.pincode) {
-      Alert.alert(
-        "Validation Error",
-        "Please provide complete address (latitude, longitude, pincode). Use 'Fetch Location' or enter pincode."
-      );
+      Alert.alert("Validation Error", "Complete address is required.");
       return;
     }
+
     const result = await dispatch(updateVendorProfile(dataToUpdate));
     if (result.meta.requestStatus === "fulfilled") {
       Alert.alert("Success", "Profile updated!");
@@ -371,13 +360,7 @@ export default function VendorDashboard() {
   const handleLogout = useCallback(() => {
     Alert.alert("Logout", "Are you sure?", [
       { text: "Cancel", style: "cancel" },
-      {
-        text: "Yes",
-        onPress: () => {
-          dispatch(logoutVendor());
-          Alert.alert("Success", "Logged out!");
-        },
-      },
+      { text: "Yes", onPress: () => dispatch(logoutVendor()) },
     ]);
   }, [dispatch]);
 
@@ -422,7 +405,6 @@ export default function VendorDashboard() {
     []
   );
 
-  // ---- Loading state ----
   if (vendorAuthLoading) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -456,42 +438,30 @@ export default function VendorDashboard() {
     );
   }
 
-  // ---- PENDING STATE HANDLER (UPDATED with Verify Payment) ----
-  if (subscriptionStatus === 'pending') {
+  if (subscriptionStatus === "pending") {
     const [verifying, setVerifying] = useState(false);
-
     const handleVerifyPayment = async () => {
       setVerifying(true);
       try {
         const result = await dispatch(verifySubscription()).unwrap();
         Alert.alert(
-          'Verification Result',
+          "Verification Result",
           `Status: ${result.subscriptionStatus}\nRazorpay: ${result.razorpayStatus}`
         );
-        if (result.subscriptionStatus === 'active') {
-          navigation.replace('VendorDashboard');
-        }
+        if (result.subscriptionStatus === "active") navigation.replace("VendorDashboard");
       } catch (error) {
-        Alert.alert('Error', error as string || 'Verification failed');
+        Alert.alert("Error", error as string || "Verification failed");
       } finally {
         setVerifying(false);
       }
     };
-
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.pendingContainer}>
           <ActivityIndicator size="large" color="#009632" />
           <Text style={styles.pendingTitle}>Payment Pending</Text>
           <Text style={styles.pendingSubtitle}>Your subscription is being processed.</Text>
-          <Text style={styles.pendingSubtitle}>You will be notified once it's active.</Text>
-          <TouchableOpacity
-            style={styles.pendingButton}
-            onPress={() => {
-              dispatch(fetchSubscriptionStatus());
-              Alert.alert('Status Check', 'Checking subscription status...');
-            }}
-          >
+          <TouchableOpacity style={styles.pendingButton} onPress={() => dispatch(fetchSubscriptionStatus())}>
             <Text style={styles.pendingButtonText}>Check Status</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -500,12 +470,12 @@ export default function VendorDashboard() {
             disabled={verifying}
           >
             <Text style={styles.pendingButtonText}>
-              {verifying ? 'Verifying...' : 'Verify Payment'}
+              {verifying ? "Verifying..." : "Verify Payment"}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.pendingButton, styles.pendingCancelButton]}
-            onPress={() => navigation.replace('SubscriptionChoice')}
+            onPress={() => navigation.replace("SubscriptionChoice")}
           >
             <Text style={styles.pendingButtonText}>Go Back</Text>
           </TouchableOpacity>
@@ -514,7 +484,6 @@ export default function VendorDashboard() {
     );
   }
 
-  // ---- Normal dashboard with refresh control ----
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
@@ -526,22 +495,12 @@ export default function VendorDashboard() {
             onRefresh={onRefresh}
             tintColor="#009632"
             colors={["#009632"]}
-            progressBackgroundColor="#ffffff"
           />
         }
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerCard}>
-          <View style={styles.headerTopRow}>
-            <Text style={styles.headerTitle}>Vendor Dashboard</Text>
-            <TouchableOpacity onPress={onRefresh} style={styles.reloadButton} disabled={refreshing}>
-              {refreshing ? (
-                <ActivityIndicator size="small" color="#009632" />
-              ) : (
-                <Ionicons name="refresh-outline" size={22} color="#009632" />
-              )}
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.headerTitle}>Vendor Dashboard</Text>
           <Text style={styles.headerWelcome}>Welcome, {vendor.name || vendor.shopName}!</Text>
         </View>
 
@@ -557,11 +516,8 @@ export default function VendorDashboard() {
               handleImageChange={handleImageChange}
               handleSave={handleSave}
               getStatusDisplay={getStatusDisplay}
-              handleFetchLocation={handleFetchLocation}
-              handlePincodeBlur={handlePincodeBlur}
-              loadingAddress={loadingAddress}
-              signupError={signupError}
-              showModal={showModal}
+              categories={categories}
+              categoriesLoading={categoriesLoading}
             />
           </View>
           <VendorDashboardSidePanel
@@ -578,10 +534,9 @@ export default function VendorDashboard() {
           />
         </View>
 
-        {/* --- "Manage Subscription" button --- */}
         <TouchableOpacity
           style={styles.subscriptionButton}
-          onPress={() => navigation.navigate('SubscriptionManagement')}
+          onPress={() => navigation.navigate("SubscriptionManagement")}
         >
           <Ionicons name="card-outline" size={20} color="#fff" />
           <Text style={styles.subscriptionButtonText}>Manage Subscription</Text>
@@ -596,12 +551,10 @@ export default function VendorDashboard() {
           <MessageCircle size={24} color="#6c757d" />
           <Text style={styles.navText}>Chat</Text>
         </TouchableOpacity>
-
         <TouchableOpacity style={styles.navItem}>
           <Home size={24} color="#005612" />
           <Text style={[styles.navText, { color: "#005612" }]}>Home</Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => navigation.navigate("VendorProductCRUD")}
@@ -609,7 +562,6 @@ export default function VendorDashboard() {
           <Ionicons name="add-circle-outline" size={24} color="#6c757d" />
           <Text style={styles.navText}>Add Product</Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => navigation.navigate("VendorOrderList")}
@@ -622,10 +574,9 @@ export default function VendorDashboard() {
   );
 }
 
-// ---------- STYLES ----------
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#0c0d0e" },
-  container: { flex: 1, backgroundColor: "#07090b" },
+  container: { flex: 1, backgroundColor: "#f8fafc" },
   contentContainer: { paddingVertical: 32, paddingHorizontal: 16, paddingBottom: 80 },
   headerCard: {
     backgroundColor: "#ffffff",
@@ -638,21 +589,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  headerTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  headerTitle: { fontSize: 28, fontWeight: "bold", color: "#1e293b" },
+  headerTitle: { fontSize: 28, fontWeight: "bold", color: "#1e293b", marginBottom: 8 },
   headerWelcome: { fontSize: 16, color: "#475569" },
-  reloadButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: "#f0fdf4",
-    borderWidth: 1,
-    borderColor: "#dcfce7",
-  },
   dashboardGrid: { flexDirection: "column", gap: 32 },
   profileSection: { flex: 2 },
   statusBase: {
@@ -740,41 +678,23 @@ const styles = StyleSheet.create({
   },
   pendingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8fafc",
     padding: 20,
   },
-  pendingTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginTop: 20,
-  },
-  pendingSubtitle: {
-    fontSize: 16,
-    color: '#475569',
-    marginTop: 10,
-    textAlign: 'center',
-  },
+  pendingTitle: { fontSize: 24, fontWeight: "bold", color: "#1e293b", marginTop: 20 },
+  pendingSubtitle: { fontSize: 16, color: "#475569", marginTop: 10, textAlign: "center" },
   pendingButton: {
-    backgroundColor: '#009632',
+    backgroundColor: "#009632",
     paddingVertical: 12,
     paddingHorizontal: 30,
     borderRadius: 8,
     marginTop: 20,
     minWidth: 200,
-    alignItems: 'center',
+    alignItems: "center",
   },
-  pendingVerifyButton: {
-    backgroundColor: '#2563eb',
-  },
-  pendingCancelButton: {
-    backgroundColor: '#64748b',
-  },
-  pendingButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  pendingVerifyButton: { backgroundColor: "#2563eb" },
+  pendingCancelButton: { backgroundColor: "#64748b" },
+  pendingButtonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });

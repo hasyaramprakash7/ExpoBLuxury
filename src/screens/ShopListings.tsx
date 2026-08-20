@@ -41,6 +41,7 @@ import AddAddressScreen from "./AddAddressScreen";
 
 const { width, height } = Dimensions.get("window");
 const CATEGORY_DISPLAY_LIMIT = 30;
+const FETCH_STALE_MS = 5 * 60 * 1000; // 5 minutes
 
 // ---------- Category Grid Item ----------
 const CategoryGridItem = ({
@@ -123,19 +124,20 @@ const ShopListings = () => {
   const isInitialMount = useRef(true);
   const fetchTimeout = useRef<NodeJS.Timeout | null>(null);
   const isFetching = useRef(false);
+  const lastFetchTime = useRef<number>(0);
 
   // ---------- Back Handler for AddAddress modal ----------
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (showAddAddress) {
         setShowAddAddress(false);
-        return true; // Prevent default back behavior
+        return true;
       }
       if (showAddressModal) {
         setShowAddressModal(false);
-        return true; // Prevent default back behavior
+        return true;
       }
-      return false; // Let default back behavior work
+      return false;
     });
 
     return () => backHandler.remove();
@@ -181,32 +183,56 @@ const ShopListings = () => {
       if (categories.length === 0 && !categoriesLoading) {
         await dispatch(fetchCategories());
       }
+      // ✅ Update last fetch time on success
+      lastFetchTime.current = Date.now();
+      console.log('✅ [ShopListings] Fetch completed, lastFetchTime updated');
     } catch (error) {
       console.error('❌ [ShopListings] Error fetching vendors:', error);
     } finally {
       isFetching.current = false;
       setIsInitialLoading(false);
+      console.log('🏁 [ShopListings] isInitialLoading set to false');
     }
   }, [dispatch, getCurrentLocation, allProducts, categories.length, categoriesLoading]);
 
+  // ✅ Modified immediateFetch with staleness check
   const immediateFetch = useCallback(() => {
     if (fetchTimeout.current) {
       clearTimeout(fetchTimeout.current);
       fetchTimeout.current = null;
     }
-    fetchDirectoryVendors();
-  }, [fetchDirectoryVendors]);
+    const now = Date.now();
+    const shouldFetch = 
+      (!directoryVendors || directoryVendors.length === 0) ||
+      (now - lastFetchTime.current > FETCH_STALE_MS);
+    if (shouldFetch) {
+      console.log('🔄 [ShopListings] immediateFetch – fetching');
+      fetchDirectoryVendors();
+    } else {
+      console.log('⏭️ [ShopListings] immediateFetch skipped – data is fresh');
+    }
+  }, [fetchDirectoryVendors, directoryVendors]);
 
+  // ✅ Modified debouncedFetch with staleness check
   const debouncedFetch = useCallback(() => {
     if (fetchTimeout.current) {
       clearTimeout(fetchTimeout.current);
       fetchTimeout.current = null;
     }
     fetchTimeout.current = setTimeout(() => {
-      fetchDirectoryVendors();
+      const now = Date.now();
+      const shouldFetch = 
+        (!directoryVendors || directoryVendors.length === 0) ||
+        (now - lastFetchTime.current > FETCH_STALE_MS);
+      if (shouldFetch) {
+        console.log('🔄 [ShopListings] debouncedFetch – fetching');
+        fetchDirectoryVendors();
+      } else {
+        console.log('⏭️ [ShopListings] debouncedFetch skipped – data is fresh');
+      }
       fetchTimeout.current = null;
     }, 300);
-  }, [fetchDirectoryVendors]);
+  }, [fetchDirectoryVendors, directoryVendors]);
 
   // ---------- Location permission ----------
   const handleRequestLocation = async () => {
@@ -407,6 +433,7 @@ const ShopListings = () => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       const loadInitialData = async () => {
+        console.log('🚀 [ShopListings] Initial load started');
         if (!directoryVendors || directoryVendors.length === 0) {
           await fetchDirectoryVendors();
         }
@@ -420,38 +447,55 @@ const ShopListings = () => {
           await dispatch(fetchCategories());
         }
         setIsInitialLoading(false);
+        console.log('✅ [ShopListings] Initial load completed');
       };
       loadInitialData();
     }
   }, []);
 
-  // ---------- Focus effect ----------
+  // ---------- Focus effect – only fetch if stale or empty ----------
   useFocusEffect(
     useCallback(() => {
-      console.log('📱 [ShopListings] Screen focused, refreshing data');
-      if (!isInitialMount.current) {
+      console.log('📱 [ShopListings] Screen focused');
+      const now = Date.now();
+      const shouldFetch = 
+        (!directoryVendors || directoryVendors.length === 0) ||
+        (now - lastFetchTime.current > FETCH_STALE_MS);
+
+      if (shouldFetch && !isInitialMount.current) {
+        console.log('🔄 [ShopListings] Fetching due to focus (stale or empty)');
         fetchDirectoryVendors();
-        if (categories.length === 0 && !categoriesLoading) {
-          dispatch(fetchCategories());
-        }
+      } else {
+        console.log('⏭️ [ShopListings] Skipping fetch – data is fresh');
       }
+
+      if (categories.length === 0 && !categoriesLoading) {
+        dispatch(fetchCategories());
+      }
+
       return () => {};
-    }, [fetchDirectoryVendors, categories.length, categoriesLoading, dispatch])
+    }, [fetchDirectoryVendors, directoryVendors, categories.length, categoriesLoading, dispatch])
   );
 
-  // ---------- Listen for location changes ----------
+  // ---------- Listen for location changes (now debounced with staleness check) ----------
   useEffect(() => {
     if (isInitialMount.current) return;
     const lat = userLocation?.latitude;
     const lng = userLocation?.longitude;
-    if (lat && lng) debouncedFetch();
+    if (lat && lng) {
+      console.log('📍 [ShopListings] Location changed, triggering debouncedFetch');
+      debouncedFetch();
+    }
   }, [userLocation?.latitude, userLocation?.longitude]);
 
   useEffect(() => {
     if (isInitialMount.current) return;
     const lat = selectedAddress?.latitude;
     const lng = selectedAddress?.longitude;
-    if (lat && lng) debouncedFetch();
+    if (lat && lng) {
+      console.log('📍 [ShopListings] Selected address changed, triggering debouncedFetch');
+      debouncedFetch();
+    }
   }, [selectedAddress?.latitude, selectedAddress?.longitude]);
 
   useEffect(() => {
@@ -463,7 +507,7 @@ const ShopListings = () => {
     };
   }, []);
 
-  // ---------- Memoized categories (with limit) ----------
+  // ---------- Memoized categories (with limit) – with null safety ----------
   const { displayCategories, hasMoreCategories } = useMemo(() => {
     if (!categories || categories.length === 0) {
       return { displayCategories: [], hasMoreCategories: false };
@@ -472,12 +516,14 @@ const ShopListings = () => {
     const shopCountMap = new Map<string, number>();
     const categoryNameMap = new Map<string, string>();
     (directoryVendors || []).forEach((vendor) => {
-      if (vendor.categories && Array.isArray(vendor.categories)) {
+      if (vendor && vendor.categories && Array.isArray(vendor.categories)) {
         vendor.categories.forEach((cat: string) => {
-          const normalized = cat.toLowerCase();
-          shopCountMap.set(normalized, (shopCountMap.get(normalized) || 0) + 1);
-          if (!categoryNameMap.has(normalized)) {
-            categoryNameMap.set(normalized, cat);
+          if (cat) {
+            const normalized = cat.toLowerCase();
+            shopCountMap.set(normalized, (shopCountMap.get(normalized) || 0) + 1);
+            if (!categoryNameMap.has(normalized)) {
+              categoryNameMap.set(normalized, cat);
+            }
           }
         });
       }
@@ -503,19 +549,19 @@ const ShopListings = () => {
     return { displayCategories: display, hasMoreCategories: hasMore };
   }, [categories, directoryVendors]);
 
-  // ---------- Filter vendors ----------
+  // ---------- Filter vendors – ensure we have only valid vendors ----------
   const filteredVendors = useMemo(() => {
-    return directoryVendors || [];
+    return (directoryVendors || []).filter(v => v && v._id);
   }, [directoryVendors]);
 
   // ---------- Enhance vendors with distance & range ----------
   const vendorsWithDetails = useMemo(() => {
-    const vendors = filteredVendors || [];
+    const vendors = filteredVendors;
     const userLat = userLocation?.latitude;
     const userLng = userLocation?.longitude;
 
     const result = vendors.map((vendor) => {
-      const vendorProducts = allProducts.filter((p) => p.vendorId === vendor._id);
+      const vendorProducts = (allProducts || []).filter((p) => p.vendorId === vendor._id);
       const productImages = vendorProducts.map((p) => p.images && p.images[0]).filter(Boolean);
 
       let distance = vendor.distance;
@@ -557,10 +603,27 @@ const ShopListings = () => {
     navigation.navigate("ShopDetails", { vendor: shop });
   };
 
-  const isLoading = isInitialLoading || vendorsLoading || isLocationLoading || isAddressLoading || categoriesLoading;
+  // ---------- FIXED isLoading – categoriesLoading no longer blocks the list ----------
+  const isLoading = 
+    (isInitialLoading && (!directoryVendors || directoryVendors.length === 0)) || 
+    isLocationLoading || 
+    isAddressLoading;
+  // categoriesLoading removed – it only affects the categories header, not the shops list.
+
+  // Log loading state changes for debugging
+  useEffect(() => {
+    console.log('📊 [ShopListings] isLoading:', isLoading, {
+      isInitialLoading,
+      vendorCount: directoryVendors?.length || 0,
+      isLocationLoading,
+      isAddressLoading,
+      categoriesLoading, // still logged for info
+    });
+  }, [isLoading, isInitialLoading, directoryVendors, isLocationLoading, isAddressLoading, categoriesLoading]);
 
   // ---------- Render ----------
   const renderContent = () => {
+    console.log('🎨 [ShopListings] renderContent called, isLoading:', isLoading, 'isRefreshing:', isRefreshing);
     if (isLoading && !isRefreshing) {
       return (
         <View style={styles.loadingContainer}>
@@ -716,7 +779,7 @@ const ShopListings = () => {
   );
 };
 
-// ------------------- Styles -------------------
+// ------------------- Styles (unchanged) -------------------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF" },
   safeArea: { flex: 1, backgroundColor: "#FFFFFF" },

@@ -24,6 +24,9 @@ import ShopListings from "../screens/ShopListings";
 import AdManagementScreen from "../screens/AdManagementScreen";
 import AdListScreen from "../screens/AdListScreen";
 
+// ✅ Import your new Vendor screens here (update paths as needed)
+import VendorLoginScreen from "../vendorScreens/VendorLoginScreen";
+
 const { width } = Dimensions.get("window");
 
 // --- Layout & Color Config ---
@@ -74,7 +77,6 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
 
   const routeCount = state.routes.length;
   const SCROLL_ZONE_WIDTH = width - CART_ZONE_WIDTH;
-  // ✅ Use a flexible width: at least 65px per item, but distribute remaining space
   const ITEM_WIDTH = Math.max(65, SCROLL_ZONE_WIDTH / routeCount);
 
   useEffect(() => {
@@ -146,7 +148,7 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
                 activeOpacity={0.6}
                 style={[
                   tabStyles.tabItem,
-                  { width: ITEM_WIDTH, minWidth: 60 }, // ✅ ensure minimum width
+                  { width: ITEM_WIDTH, minWidth: 60 },
                 ]}
               >
                 <View style={tabStyles.iconWrapper}>
@@ -190,6 +192,9 @@ const getIcon = (name, focused) => {
     AdList: focused ? "list" : "list-outline",
     Home: focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline",
     AdManagement: focused ? "settings" : "settings-outline",
+    // ✅ Added Icons for Vendor and VendorLogin
+    Vendor: focused ? "business" : "business-outline", 
+    VendorLogin: focused ? "log-in" : "log-in-outline",
   };
   return icons[name] || "apps-outline";
 };
@@ -205,6 +210,9 @@ const getLabel = (name) => {
     AdList: "Brands",
     Home: "Chat",
     AdManagement: "Ad Mgt",
+    // ✅ Added Labels for the new screens
+    Vendor: "Vendor",
+    VendorLogin: "V-Login", 
   };
   return labels[name] || name;
 };
@@ -224,13 +232,13 @@ const UserTabNavigator = () => {
   const baseScreens = [
     { name: "Shops", component: ShopListings },
     { name: "Rental", component: Search },
-            { name: "AdList", component: AdListScreen },
-
+    { name: "AdList", component: AdListScreen },
     { name: "RealEstate", component: ProductSearchScreen },
     { name: "Order", component: HomeScreen },
-
     { name: "POS", component: InsuranceProductsAndDetails },
     { name: "Pay", component: UserOrderScreen },
+    // ✅ Added new screens to base list so everyone gets them
+    { name: "VendorLogin", component: VendorLoginScreen },
   ];
 
   const extraScreens = isSpecialUser
@@ -354,7 +362,7 @@ const tabStyles = StyleSheet.create({
     letterSpacing: 0.2,
     marginTop: 8,
     textAlign: "center",
-    flexShrink: 0, // ✅ prevents text from compressing
+    flexShrink: 0,
   },
 });
 
