@@ -136,7 +136,7 @@ export default function LoginScreen() {
             <View style={[styles.logo, { backgroundColor: colors.primary }]}>
               <Text style={styles.logoText}>UT</Text>
             </View>
-            <Text style={styles.title}>UsmanTrading</Text>
+            <Text style={styles.title}>BLuxury</Text>
           </View>
 
           <Text style={[styles.subtitle, { color: colors.text }]}>

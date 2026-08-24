@@ -109,6 +109,8 @@ import AdListScreen from "./src/screens/AdListScreen";
 import WebViewScreen from "./src/screens/WebViewScreen";
 import AllCategoriesScreen from './src/screens/AllCategoriesScreen';
 import AddAddressScreen from './src/screens/AddAddressScreen';
+import AdGroupDetailScreen from "./src/screens/AdGroupDetailScreen";
+
 
 import VendorLeadsScreen from "./src/vendorScreens/VendorLeadsScreen";
 import { navigationRef, RootStackParamList } from "./src/userScreens/utils/navigationRef";
@@ -585,6 +587,9 @@ const AppNavigator = () => {
         <Stack.Screen name="RentalList" component={UserRentalListScreen} />
         <Stack.Screen name="RentalDetail" component={RentalDetailScreen} />
         <Stack.Screen name="AdListScreen" component={AdListScreen} />
+
+        <Stack.Screen name="AdGroupDetail" component={AdGroupDetailScreen} />
+
         <Stack.Screen name="WebViewScreen" component={WebViewScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AllCategoriesScreen" component={AllCategoriesScreen} />
         <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />

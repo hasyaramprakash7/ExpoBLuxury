@@ -11,6 +11,11 @@ import {
   Dimensions,
   RefreshControl,
   ScrollView,
+  TextInput,
+  SafeAreaView,
+  StatusBar,
+  Animated,
+  Alert,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
@@ -19,16 +24,27 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 
+// ---------- Dynamically load speech recognition (fallback for Expo Go) ----------
+let SpeechRecognition: any = null;
+try {
+  SpeechRecognition = require('expo-speech-recognition');
+} catch (e) {
+  console.warn('🔇 Speech recognition not available', e);
+}
+
 interface AdListScreenProps {
   products?: any[];
   title?: string;
 }
 
 const { width } = Dimensions.get('window');
-const CARD_MARGIN = 10;
-const CATEGORY_WIDTH = 80;
+const TAB_WIDTH = 80;
+const TAB_HEIGHT = 80;
+const TOP_BAR_HEIGHT = 130;
 
-// ----- Full Width Product Ad Card (for isProductAd === true) -----
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+// ----- Full Width Product Ad Card -----
 const FullWidthProductAdCard: React.FC<{
   ad: any;
   onPress: (ad: any) => void;
@@ -50,11 +66,7 @@ const FullWidthProductAdCard: React.FC<{
   };
 
   const handleCartPress = useCallback(() => {
-    if (ad.link && (ad.link.startsWith('http://') || ad.link.startsWith('https://'))) {
-      onPress(ad);
-    } else {
-      onPress(ad);
-    }
+    onPress(ad);
   }, [ad, onPress]);
 
   return (
@@ -86,13 +98,13 @@ const FullWidthProductAdCard: React.FC<{
         >
           <View style={styles.fullWidthOverlayContent}>
             <View style={styles.fullWidthTextContainer}>
-              {ad.price && (
-                <Text style={styles.fullWidthAdPrice}>₹{ad.price}</Text>
-              )}
               {ad.description && (
                 <Text style={styles.fullWidthAdDescription} numberOfLines={2}>
                   {ad.description}
                 </Text>
+              )}
+              {ad.category && (
+                <Text style={styles.fullWidthAdCategory}>{ad.category}</Text>
               )}
             </View>
             <TouchableOpacity 
@@ -108,7 +120,7 @@ const FullWidthProductAdCard: React.FC<{
   );
 };
 
-// ----- Generic Ad (full‑width banner) -----
+// ----- Generic Ad -----
 const GenericAdCard: React.FC<{
   ad: any;
   onPress: (ad: any) => void;
@@ -140,9 +152,19 @@ const GenericAdCard: React.FC<{
           style={styles.overlay}
         >
           <View style={styles.overlayContent}>
-            <Text style={styles.adTitle} numberOfLines={2}>
-              {ad.title || 'Sponsored'}
-            </Text>
+            <View style={styles.adTextContainer}>
+              <Text style={styles.adTitle} numberOfLines={2}>
+                {ad.title || 'Sponsored'}
+              </Text>
+              {ad.description && (
+                <Text style={styles.adDescription} numberOfLines={1}>
+                  {ad.description}
+                </Text>
+              )}
+              {ad.category && (
+                <Text style={styles.adCategory}>{ad.category}</Text>
+              )}
+            </View>
             <TouchableOpacity 
               style={styles.shopNowContainer}
               onPress={() => onPress(ad)}
@@ -157,7 +179,7 @@ const GenericAdCard: React.FC<{
   );
 };
 
-// ----- Product Card (for regular products) -----
+// ----- Product Card -----
 const ProductCard: React.FC<{
   product: any;
   onPress: (item: any) => void;
@@ -181,41 +203,6 @@ const ProductCard: React.FC<{
   );
 };
 
-// ----- Sidebar Ad Item Component (Rectangular with full background image) -----
-const SidebarAdItem: React.FC<{
-  ad: any;
-  isSelected: boolean;
-  onPress: (ad: any) => void;
-}> = ({ ad, isSelected, onPress }) => {
-  return (
-    <TouchableOpacity
-      style={[styles.sidebarAdItem, isSelected && styles.sidebarAdItemSelected]}
-      onPress={() => onPress(ad)}
-      activeOpacity={0.7}
-    >
-      <View style={[styles.sidebarAdImageContainer, isSelected && styles.sidebarAdImageContainerSelected]}>
-        {ad.image ? (
-          <Image
-            source={{ uri: ad.image }}
-            style={styles.sidebarAdImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={styles.sidebarAdPlaceholder}>
-            <Ionicons name="megaphone-outline" size={32} color="#0A3D2B" />
-          </View>
-        )}
-      </View>
-      <Text 
-        style={[styles.sidebarAdName, isSelected && styles.sidebarAdNameSelected]} 
-        numberOfLines={2}
-      >
-        {ad.title || 'Sponsored'}
-      </Text>
-    </TouchableOpacity>
-  );
-};
-
 // ----- Main Component -----
 const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts, title = '' }) => {
   const dispatch = useDispatch();
@@ -224,20 +211,28 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
   const isMounted = useRef(true);
   const initialLoadDone = useRef(false);
   const scrollViewRef = useRef<ScrollView>(null);
-  const paramsProcessed = useRef(false);
-
+  const flatListRef = useRef<FlatList>(null);
+  
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const isHeaderHidden = useRef(false);
+  
+  const indicatorPosition = useRef(new Animated.Value(0)).current;
+  const isHorizontalScrolling = useRef(false);
+  const horizontalScrollTimer = useRef<NodeJS.Timeout | null>(null);
+  
   const { activeAds, loading, error } = useSelector((state: RootState) => state.ads);
   const [refreshing, setRefreshing] = useState(false);
   const [displayData, setDisplayData] = useState<any[]>([]);
   const [selectedAd, setSelectedAd] = useState<any>(null);
   const [sidebarAds, setSidebarAds] = useState<any[]>([]);
-  const [hasInitialized, setHasInitialized] = useState(false);
-  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+
   // Get navigation params
   const selectedAdId = route.params?.selectedAdId || route.params?.adId;
   const selectedAdTitle = route.params?.selectedAdTitle;
 
-  // Log the params for debugging
   useEffect(() => {
     console.log('📋 [AdListScreen] Received params:', { 
       selectedAdId, 
@@ -252,23 +247,114 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       initialLoadDone.current = true;
       if (!externalProducts) {
         console.log('🔄 [AdListScreen] Fetching active ads');
-        dispatch(fetchActiveAds());
+        dispatch(fetchActiveAds(searchQuery || undefined));
       }
     }
-    return () => {
-      isMounted.current = false;
-    };
-  }, [dispatch, externalProducts]);
+  }, [dispatch, externalProducts, searchQuery]);
+
+  // Helper function to find ad by ID or title
+  const findAdByParams = useCallback((ads: any[]) => {
+    if (selectedAdId) {
+      const found = ads.find(ad => ad._id === selectedAdId);
+      if (found) {
+        console.log('🔍 [AdListScreen] Found ad by ID:', found.title);
+        return found;
+      }
+    }
+    if (selectedAdTitle) {
+      const found = ads.find(
+        ad => ad.title && ad.title.trim().toLowerCase() === selectedAdTitle.trim().toLowerCase()
+      );
+      if (found) {
+        console.log('🔍 [AdListScreen] Found ad by Title:', found.title);
+        return found;
+      }
+    }
+    return null;
+  }, [selectedAdId, selectedAdTitle]);
+
+  // ----- Voice Search Handler (only if module available) -----
+  const handleVoiceSearch = useCallback(async () => {
+    if (!SpeechRecognition) {
+      Alert.alert('Not Available', 'Voice search is not supported in this environment.');
+      return;
+    }
+
+    // If already recording, stop it
+    if (isRecording) {
+      try {
+        await SpeechRecognition.stopAsync();
+      } catch (e) {
+        console.warn('Stop error:', e);
+      }
+      setIsRecording(false);
+      return;
+    }
+
+    // Request permissions
+    const { status } = await SpeechRecognition.requestPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please allow speech recognition to use voice search.');
+      return;
+    }
+
+    setIsRecording(true);
+
+    try {
+      // Start listening
+      const subscription = SpeechRecognition.addListener('onResult', (event: any) => {
+        const transcript = event.results?.[0]?.transcript;
+        if (transcript) {
+          setSearchQuery(transcript);
+          setIsRecording(false);
+          SpeechRecognition.stopAsync().catch(console.warn);
+        }
+      });
+
+      const errorSub = SpeechRecognition.addListener('onError', (error: any) => {
+        console.error('Speech error:', error);
+        setIsRecording(false);
+        SpeechRecognition.stopAsync().catch(console.warn);
+      });
+
+      const endSub = SpeechRecognition.addListener('onEnd', () => {
+        setIsRecording(false);
+        subscription.remove();
+        errorSub.remove();
+        endSub.remove();
+      });
+
+      await SpeechRecognition.startAsync({
+        lang: 'en-US',
+        interimResults: true,
+        maxResults: 1,
+      });
+    } catch (error) {
+      console.error('Voice search error:', error);
+      setIsRecording(false);
+      Alert.alert('Error', 'Failed to start voice recognition. Please try again.');
+    }
+  }, [isRecording]);
 
   // Process ads and filter by selected generic ad
   useEffect(() => {
     const products = externalProducts || [];
-    const ads = activeAds || [];
+    let ads = activeAds || [];
 
     console.log('📊 [AdListScreen] Processing ads:', { 
       totalAds: ads.length,
       externalProducts: externalProducts?.length || 0 
     });
+
+    // Apply search filter on ads before separating
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toLowerCase();
+      ads = ads.filter(ad => 
+        (ad.title && ad.title.toLowerCase().includes(query)) ||
+        (ad.description && ad.description.toLowerCase().includes(query)) ||
+        (ad.category && ad.category.toLowerCase().includes(query))
+      );
+    }
 
     // Separate generic and product ads
     const genericAds = ads.filter(ad => ad.isProductAd === false);
@@ -276,36 +362,37 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
 
     console.log('📊 [AdListScreen] Generic ads:', genericAds.length, 'Product ads:', productAds.length);
 
-    // Set sidebar ads - only generic ads with title
-    const validGenericAds = genericAds.filter(ad => ad.title && ad.title.trim().length > 0);
+    // Filter sidebar ads (only generic with title)
+    let validGenericAds = genericAds.filter(ad => ad.title && ad.title.trim().length > 0);
     setSidebarAds(validGenericAds);
 
-    // ✅ ONLY use params if we haven't initialized yet OR if params changed
-    // and we haven't manually selected an ad
-    if (!hasInitialized) {
-      // Check if we have a selected ad from navigation params
-      let selectedAdFromParams = null;
-      if (selectedAdId) {
-        selectedAdFromParams = validGenericAds.find(ad => ad._id === selectedAdId);
-        console.log('🔍 [AdListScreen] Looking for ad by ID:', selectedAdId, 'Found:', !!selectedAdFromParams);
-      } else if (selectedAdTitle) {
-        selectedAdFromParams = validGenericAds.find(
-          ad => ad.title && ad.title.trim().toLowerCase() === selectedAdTitle.trim().toLowerCase()
-        );
-        console.log('🔍 [AdListScreen] Looking for ad by Title:', selectedAdTitle, 'Found:', !!selectedAdFromParams);
-      }
+    // Check if we should select an ad from params
+    let adToSelect = findAdByParams(validGenericAds);
+    
+    // If no ad found from params and we have no selected ad, select the first one
+    if (!adToSelect && validGenericAds.length > 0 && !selectedAd) {
+      console.log('✅ [AdListScreen] Selecting first generic ad:', validGenericAds[0].title);
+      adToSelect = validGenericAds[0];
+    }
 
-      // If we have a selected ad from params, use it
-      if (selectedAdFromParams) {
-        console.log('✅ [AdListScreen] Selected ad from params:', selectedAdFromParams.title);
-        setSelectedAd(selectedAdFromParams);
-      } 
-      // If no selected ad and we have generic ads, select the first one
-      else if (validGenericAds.length > 0 && !selectedAd) {
-        console.log('✅ [AdListScreen] Selecting first generic ad:', validGenericAds[0].title);
-        setSelectedAd(validGenericAds[0]);
+    // If search query changed and the selected ad is no longer in the filtered list, clear selection
+    if (selectedAd && searchQuery.trim()) {
+      const stillExists = validGenericAds.some(ad => ad._id === selectedAd._id);
+      if (!stillExists) {
+        console.log('🔍 [AdListScreen] Selected ad not in search results, clearing selection');
+        setSelectedAd(null);
+        navigation.setParams({ selectedAdId: undefined, selectedAdTitle: undefined, adId: undefined });
+        return;
       }
-      setHasInitialized(true);
+    }
+
+    // Update selected ad if we found one from params or first one
+    if (adToSelect) {
+      if (!selectedAd || selectedAd._id !== adToSelect._id) {
+        console.log('🔄 [AdListScreen] Setting selected ad to:', adToSelect.title);
+        setSelectedAd(adToSelect);
+        return;
+      }
     }
 
     // Build display data based on selected ad
@@ -315,10 +402,8 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       const title = selectedAd.title.trim();
       console.log('📊 [AdListScreen] Building display for selected ad:', title);
       
-      // First, add the selected generic ad (full width)
       merged.push({ type: 'ad', data: selectedAd });
       
-      // Then add all product ads with the same title
       const matchingProductAds = productAds.filter(pa => pa.title && pa.title.trim() === title);
       console.log('📊 [AdListScreen] Matching product ads:', matchingProductAds.length);
       
@@ -326,12 +411,10 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
         merged.push({ type: 'fullProductAd', data: pa });
       });
 
-      // If there are no product ads matching, show a message
       if (matchingProductAds.length === 0) {
         console.log('⚠️ [AdListScreen] No matching product ads found for:', title);
       }
     } else {
-      // No selected ad - show all generic ads and product ads separately
       console.log('📊 [AdListScreen] No selected ad, showing all');
       const allAds = [...genericAds, ...productAds];
       allAds.forEach(ad => {
@@ -345,32 +428,76 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
 
     console.log('📊 [AdListScreen] Display data items:', merged.length);
     setDisplayData(merged);
-  }, [externalProducts, activeAds, selectedAd, selectedAdId, selectedAdTitle, hasInitialized]);
+  }, [externalProducts, activeAds, selectedAd, findAdByParams, searchQuery, navigation]);
 
-  // ✅ Scroll to selected ad in sidebar
+  // Scroll the main list to the top whenever selectedAd or searchQuery changes
+  useEffect(() => {
+    if (displayData.length > 0) {
+      const timer = setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedAd, searchQuery, displayData.length]);
+
+  // Scroll to selected ad in horizontal scroll view with smooth indicator
   useEffect(() => {
     if (selectedAd && sidebarAds.length > 0) {
       const index = sidebarAds.findIndex(ad => ad._id === selectedAd._id);
       if (index !== -1) {
         console.log('📜 [AdListScreen] Scrolling to sidebar item:', index, selectedAd.title);
-        // Small delay to ensure layout is ready
+        const scrollToX = index * (TAB_WIDTH + 8) - (width / 2 - TAB_WIDTH / 2);
         setTimeout(() => {
           scrollViewRef.current?.scrollTo({
-            y: index * 90, // Approximate height of each sidebar item
+            x: Math.max(0, scrollToX),
             animated: true,
           });
-        }, 200);
+        }, 100);
+        
+        const targetPosition = index * (TAB_WIDTH + 8) + 8;
+        indicatorPosition.stopAnimation();
+        Animated.timing(indicatorPosition, {
+          toValue: targetPosition,
+          duration: 300,
+          useNativeDriver: false,
+        }).start();
       }
     }
   }, [selectedAd, sidebarAds]);
 
+  const handleHorizontalScroll = (event: any) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const tabIndex = Math.round(offsetX / (TAB_WIDTH + 8));
+    const clampedIndex = Math.max(0, Math.min(tabIndex, sidebarAds.length - 1));
+    const targetPosition = clampedIndex * (TAB_WIDTH + 8) + 8;
+    if (!isHorizontalScrolling.current) {
+      indicatorPosition.setValue(targetPosition);
+    }
+  };
+
+  const handleHorizontalScrollBeginDrag = () => {
+    isHorizontalScrolling.current = true;
+    if (horizontalScrollTimer.current) {
+      clearTimeout(horizontalScrollTimer.current);
+    }
+  };
+
+  const handleHorizontalScrollEndDrag = () => {
+    if (horizontalScrollTimer.current) {
+      clearTimeout(horizontalScrollTimer.current);
+    }
+    horizontalScrollTimer.current = setTimeout(() => {
+      isHorizontalScrolling.current = false;
+    }, 300);
+  };
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     if (!externalProducts) {
-      await dispatch(fetchActiveAds());
+      await dispatch(fetchActiveAds(searchQuery || undefined));
     }
     setRefreshing(false);
-  }, [dispatch, externalProducts]);
+  }, [dispatch, externalProducts, searchQuery]);
 
   const handleAdPress = useCallback((ad: any) => {
     if (ad.link && (ad.link.startsWith('http://') || ad.link.startsWith('https://'))) {
@@ -384,10 +511,8 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     navigation.navigate('ProductDetails', { productId: product._id });
   }, [navigation]);
 
-  // ✅ Handle sidebar ad press - clear route params to prevent override
   const handleSidebarAdPress = useCallback((ad: any) => {
     console.log('🔄 [AdListScreen] Sidebar ad pressed:', ad.title);
-    // Clear the route params so they don't override our selection
     navigation.setParams({ 
       selectedAdId: undefined,
       selectedAdTitle: undefined,
@@ -407,7 +532,44 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     }
   }, [handleAdPress, handleProductPress]);
 
-  // Loading / error / empty states
+  const handleScroll = (event: any) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const diff = currentScrollY - lastScrollY.current;
+    
+    if (currentScrollY > 20) {
+      if (diff > 3) {
+        if (!isHeaderHidden.current) {
+          isHeaderHidden.current = true;
+          Animated.timing(headerTranslateY, {
+            toValue: -TOP_BAR_HEIGHT,
+            duration: 200,
+            useNativeDriver: true,
+          }).start();
+        }
+      } else if (diff < -3) {
+        if (isHeaderHidden.current) {
+          isHeaderHidden.current = false;
+          Animated.timing(headerTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }).start();
+        }
+      }
+    } else {
+      if (isHeaderHidden.current) {
+        isHeaderHidden.current = false;
+        Animated.timing(headerTranslateY, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
+    }
+    lastScrollY.current = currentScrollY;
+  };
+
+  // Loading / error states (still show full screen for these)
   if (loading && !refreshing && displayData.length === 0 && !externalProducts) {
     return (
       <View style={styles.loaderContainer}>
@@ -428,172 +590,293 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     );
   }
 
-  if (sidebarAds.length === 0 && displayData.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>No content available</Text>
-        <Text style={styles.emptySubText}>Check back later</Text>
-      </View>
-    );
-  }
-
+  // ----------------------------------------------
+  // Always render the full UI with search bar visible
+  // ----------------------------------------------
   return (
-    <View style={styles.container}>
-      {/* Sidebar with Generic Ads */}
-      <View style={styles.sidebar}>
-        <ScrollView 
-          ref={scrollViewRef}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.sidebarList}
-        >
-          {sidebarAds.map((ad) => (
-            <SidebarAdItem
-              key={ad._id}
-              ad={ad}
-              isSelected={selectedAd?._id === ad._id}
-              onPress={handleSidebarAdPress}
-            />
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Main Content */}
-      <View style={styles.mainContent}>
-        <View style={styles.topSpacing} />
-        
-        {title && <Text style={styles.sectionTitle}>{title}</Text>}
-        
-        {/* Show selected ad name */}
-        {selectedAd && (
-          <View style={styles.selectedAdHeader}>
-            <Text style={styles.selectedAdHeaderTitle}>
-              {selectedAd.title}
-            </Text>
-            <Text style={styles.selectedAdHeaderCount}>
-              {displayData.filter(d => d.type === 'fullProductAd').length} products
-            </Text>
-          </View>
-        )}
-
-        <FlatList
-          data={displayData}
-          renderItem={renderItem}
-          keyExtractor={(item, index) => {
-            if (item.type === 'product') {
-              return `product-${item.data._id || index}`;
-            } else if (item.type === 'fullProductAd') {
-              return `fullProductAd-${item.data._id || index}`;
-            } else {
-              return `ad-${item.data._id || index}`;
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <View style={styles.container}>
+        <Animated.View 
+          style={[
+            styles.topBar,
+            {
+              transform: [{ translateY: headerTranslateY }],
             }
-          }}
-          numColumns={1}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContainer}
-          ListFooterComponent={
-            displayData.length > 0 ? (
-              <View style={styles.footer}>
-                <Text style={styles.footerText}>
-                  {displayData.filter(d => d.type === 'product').length} products · {displayData.filter(d => d.type === 'ad' || d.type === 'fullProductAd').length} ads
+          ]}
+        >
+          <View style={styles.searchBarContainer}>
+            <Ionicons name="search" size={20} color="#999" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search ads by title, description or category..."
+              placeholderTextColor="#999"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              clearButtonMode="while-editing"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color="#999" />
+              </TouchableOpacity>
+            )}
+            {/* 🎤 Voice search button – only if module is available */}
+            {SpeechRecognition && (
+              <TouchableOpacity
+                onPress={handleVoiceSearch}
+                style={styles.voiceButton}
+                disabled={isRecording}
+              >
+                <Ionicons
+                  name={isRecording ? "mic" : "mic-outline"}
+                  size={24}
+                  color={isRecording ? "#0A3D2B" : "#999"}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          <View style={styles.tabsWrapper}>
+            <ScrollView
+              ref={scrollViewRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.tabsScrollView}
+              contentContainerStyle={styles.tabsContent}
+              onScroll={handleHorizontalScroll}
+              onScrollBeginDrag={handleHorizontalScrollBeginDrag}
+              onScrollEndDrag={handleHorizontalScrollEndDrag}
+              scrollEventThrottle={16}
+            >
+              {sidebarAds.map((ad, index) => (
+                <TouchableOpacity
+                  key={ad._id}
+                  style={[
+                    styles.tabItem,
+                    selectedAd?._id === ad._id && styles.tabItemActive,
+                  ]}
+                  onPress={() => handleSidebarAdPress(ad)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.tabImageContainer}>
+                    <Image
+                      source={{ uri: ad.image || 'https://via.placeholder.com/80' }}
+                      style={styles.tabImage}
+                      resizeMode="cover"
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.tabText,
+                      selectedAd?._id === ad._id && styles.tabTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {ad.title}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            
+            <Animated.View 
+              style={[
+                styles.indicator,
+                {
+                  transform: [{ translateX: indicatorPosition }],
+                }
+              ]}
+            />
+          </View>
+        </Animated.View>
+
+        <View style={styles.mainContent}>
+          <AnimatedFlatList
+            ref={flatListRef}
+            data={displayData}
+            renderItem={renderItem}
+            keyExtractor={(item, index) => {
+              if (item.type === 'product') {
+                return `product-${item.data._id || index}`;
+              } else if (item.type === 'fullProductAd') {
+                return `fullProductAd-${item.data._id || index}`;
+              } else {
+                return `ad-${item.data._id || index}`;
+              }
+            }}
+            numColumns={1}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContainer}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            ListHeaderComponent={
+              <>
+                <View style={{ height: TOP_BAR_HEIGHT }} />
+                {title && <Text style={styles.sectionTitle}>{title}</Text>}
+                {selectedAd && (
+                  <View style={styles.selectedAdHeader}>
+                    <Text style={styles.selectedAdHeaderTitle}>
+                      {selectedAd.title}
+                    </Text>
+                    <Text style={styles.selectedAdHeaderCount}>
+                      {displayData.filter(d => d.type === 'fullProductAd').length} products
+                    </Text>
+                  </View>
+                )}
+              </>
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Ionicons 
+                  name={searchQuery.trim() ? "search-outline" : "megaphone-outline"} 
+                  size={60} 
+                  color="#CCCCCC" 
+                />
+                <Text style={styles.emptyText}>
+                  {searchQuery.trim() 
+                    ? `No results found for "${searchQuery.trim()}"` 
+                    : "No content available"}
+                </Text>
+                <Text style={styles.emptySubText}>
+                  {searchQuery.trim() ? "Try a different search term" : "Check back later"}
                 </Text>
               </View>
-            ) : null
-          }
-        />
+            }
+            ListFooterComponent={
+              displayData.length > 0 ? (
+                <View style={styles.footer}>
+                  <Text style={styles.footerText}>
+                    {displayData.filter(d => d.type === 'product').length} products · {displayData.filter(d => d.type === 'ad' || d.type === 'fullProductAd').length} ads
+                  </Text>
+                </View>
+              ) : null
+            }
+          />
+        </View>
       </View>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
   container: { 
     flex: 1, 
     backgroundColor: '#F8F8F8',
-    flexDirection: 'row',
-    paddingTop: 18,
   },
-  
-  // Sidebar for Ads
-  sidebar: {
-    width: CATEGORY_WIDTH,
+  topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     backgroundColor: '#FFFFFF',
-    borderRightWidth: 1,
-    borderRightColor: '#E5E5EA',
-    paddingTop: 8,
-  },
-  sidebarList: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5EA',
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    zIndex: 10,
+    paddingTop: StatusBar.currentHeight || 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  sidebarAdItem: {
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    width: CATEGORY_WIDTH,
-  },
-  sidebarAdItemSelected: {
-    backgroundColor: 'rgba(10, 61, 43, 0.08)',
-  },
-  sidebarAdImageContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 8,
     backgroundColor: '#F0F0F0',
-    justifyContent: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    height: 40,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#1C1C1E',
+    marginLeft: 8,
+    paddingVertical: 0,
+  },
+  voiceButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  tabsWrapper: {
+    position: 'relative',
+    paddingBottom: 4,
+  },
+  tabsScrollView: {
+    maxHeight: TAB_HEIGHT + 20,
+  },
+  tabsContent: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    gap: 8,
     alignItems: 'center',
-    marginBottom: 4,
+  },
+  tabItem: {
+    width: TAB_WIDTH,
+    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: '#F5F5F5',
     borderWidth: 2,
     borderColor: 'transparent',
-    overflow: 'hidden',
+    paddingVertical: 4,
+    paddingHorizontal: 4,
   },
-  sidebarAdImageContainerSelected: {
+  tabItemActive: {
     borderColor: '#0A3D2B',
+    backgroundColor: '#E8F5E9',
   },
-  sidebarAdImage: {
+  tabImageContainer: {
+    width: TAB_WIDTH - 16,
+    height: TAB_WIDTH - 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#E0E0E0',
+  },
+  tabImage: {
     width: '100%',
     height: '100%',
   },
-  sidebarAdPlaceholder: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#F0F0F0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sidebarAdName: {
-    fontSize: 10,
-    color: '#666666',
-    textAlign: 'center',
+  tabText: {
+    fontSize: 11,
+    color: '#666',
     fontWeight: '500',
-    lineHeight: 14,
-    marginTop: 2,
+    marginTop: 4,
+    textAlign: 'center',
+    maxWidth: TAB_WIDTH - 8,
   },
-  sidebarAdNameSelected: {
+  tabTextActive: {
     color: '#0A3D2B',
     fontWeight: '700',
   },
-
-  // Main Content
+  indicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: 8,
+    width: TAB_WIDTH,
+    height: 3,
+    backgroundColor: '#0A3D2B',
+    borderRadius: 2,
+  },
   mainContent: {
     flex: 1,
     backgroundColor: '#F8F8F8',
   },
-  
-  topSpacing: {
-    height: 12,
-  },
-  
   sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: '#1C1C1E',
     marginHorizontal: 16,
     marginBottom: 12,
-    marginTop: 4,
+    marginTop: 8,
   },
-  
   selectedAdHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -620,29 +903,11 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     fontWeight: '500',
   },
-
   listContainer: { 
     paddingBottom: 16, 
     paddingHorizontal: 12,
     gap: 12,
   },
-
-  headerContainer: {
-    marginBottom: 16,
-    paddingHorizontal: 12,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1C1C1E',
-    marginBottom: 12,
-    letterSpacing: 0.5,
-  },
-  groupContainer: {
-    marginBottom: 16,
-  },
-
-  // Full Width Product Ad
   fullWidthProductAdItem: {
     borderRadius: 16,
     overflow: 'hidden',
@@ -692,28 +957,19 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
-  fullWidthAdTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-    marginBottom: 4,
-  },
-  fullWidthAdPrice: {
-    color: '#FFD700',
-    fontSize: 20,
-    fontWeight: '700',
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-    marginBottom: 2,
-  },
   fullWidthAdDescription: {
     color: 'rgba(255,255,255,0.8)',
     fontSize: 14,
     fontWeight: '400',
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  fullWidthAdCategory: {
+    color: '#FFD700',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
     textShadowColor: 'rgba(0,0,0,0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -738,34 +994,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
-  fullWidthShopNowContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0A3D2B',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 30,
-    minWidth: 130,
-    justifyContent: 'center',
-    shadowColor: '#0A3D2B',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 3,
-    alignSelf: 'flex-start',
-  },
-  fullWidthShopNowText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-    marginRight: 6,
-    letterSpacing: 0.5,
-  },
-  fullWidthProductList: {
-    width: '100%',
-  },
-
-  // Generic Ad
   genericAdItem: {
     borderRadius: 16,
     overflow: 'hidden',
@@ -799,15 +1027,34 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-end',
   },
+  adTextContainer: {
+    flex: 1,
+    marginRight: 12,
+  },
   adTitle: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
-    flex: 1,
-    marginRight: 12,
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
+  },
+  adDescription: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    marginTop: 2,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  adCategory: {
+    color: '#FFD700',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   shopNowContainer: {
     flexDirection: 'row',
@@ -830,8 +1077,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginRight: 4,
   },
-
-  // Product Card
   productCard: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
@@ -864,20 +1109,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1B8C40',
   },
-
-  // Common
   loaderContainer: {
+    flex: 1,
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 100,
   },
   loadingText: { marginTop: 8, color: '#666666', fontSize: 14 },
   errorContainer: {
+    flex: 1,
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 100,
   },
   errorText: { color: '#FF3B30', fontSize: 14, marginBottom: 8 },
   retryButton: {
@@ -888,13 +1131,12 @@ const styles = StyleSheet.create({
   },
   retryText: { color: '#FFFFFF', fontWeight: '600' },
   emptyContainer: {
-    padding: 20,
+    padding: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 100,
   },
-  emptyText: { color: '#999999', fontSize: 14, fontWeight: '500' },
-  emptySubText: { color: '#CCCCCC', fontSize: 12, marginTop: 4 },
+  emptyText: { color: '#999999', fontSize: 16, fontWeight: '500', marginTop: 12 },
+  emptySubText: { color: '#CCCCCC', fontSize: 14, marginTop: 4 },
   footer: { paddingVertical: 16, alignItems: 'center' },
   footerText: { color: '#8E8E93', fontSize: 12 },
 });

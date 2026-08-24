@@ -24,6 +24,7 @@ import {
   ImageBackground,
   Modal,
   TextInput,
+  Animated,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -55,7 +56,6 @@ import {
 import NewProductCard1 from "../components/NewProductCard10";
 import NewProductCard2 from "../components/NewProductCard11";
 import ShopCard from "./ShopCard";
-import AddAddressScreen from "./AddAddressScreen"; // map picker
 
 // Local Assets
 const image = require("../../assets/b4.jpg");
@@ -83,8 +83,9 @@ const Colors = {
   successGreen: "#34C759",
   sheetOverlay: "rgba(0, 0, 0, 0.6)",
   sheetBackground: "#F9F9F9",
-  accentGreen: "#1B8C40",
 };
+
+const HEADER_HEIGHT = 140;
 
 // --- Type Definitions ---
 interface LocationData {
@@ -236,364 +237,31 @@ const ImageBanner: React.FC<ImageBannerProps> = ({ imageUrl, onPress }) => (
   </TouchableOpacity>
 );
 
-// ==============================================================
-// 🔥 LOCATION MODAL – exactly as in UserRentalListScreen
-// ==============================================================
-interface AddressModalProps {
-  visible: boolean;
-  onClose: () => void;
-  onSelectAddress: (address: any) => void;
-  onAddAddress: () => void;
-  selectedAddress: any;
-  addresses: any[];
-  isLoading: boolean;
-  onOpenMap: () => void;
-}
-
-const AddressModal: React.FC<AddressModalProps> = ({
-  visible,
-  onClose,
-  onSelectAddress,
-  onAddAddress,
-  selectedAddress,
-  addresses,
-  isLoading,
-  onOpenMap,
-}) => {
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onClose}
-    >
-      <View style={addressModalStyles.overlay}>
-        <TouchableOpacity
-          style={StyleSheet.absoluteFillObject}
-          activeOpacity={1}
-          onPress={onClose}
-        />
-        <View style={addressModalStyles.bottomSheet}>
-          <View style={addressModalStyles.bottomSheetHandle} />
-
-          <View style={addressModalStyles.sheetHeader}>
-            <Text style={addressModalStyles.sheetTitle}>Select Location</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color={Colors.darkText} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
-            {/* Use Current Location */}
-            <TouchableOpacity
-              style={addressModalStyles.currentLocationContainer}
-              onPress={onAddAddress}
-            >
-              <View style={addressModalStyles.currentLocationIcon}>
-                <Ionicons name="locate" size={22} color={Colors.swiggyOrange} />
-              </View>
-              <View style={addressModalStyles.addressInfo}>
-                <Text style={addressModalStyles.currentLocationTitle}>
-                  Use my current location
-                </Text>
-                <Text style={addressModalStyles.addressString} numberOfLines={1}>
-                  {selectedAddress
-                    ? selectedAddress.addressString
-                    : "Fetch GPS & find nearby shops"}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.grayText} />
-            </TouchableOpacity>
-
-            {/* Pick from Map */}
-            <TouchableOpacity
-              style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]}
-              onPress={onOpenMap}
-            >
-              <View style={[addressModalStyles.currentLocationIcon, { backgroundColor: 'rgba(27, 140, 64, 0.1)' }]}>
-                <Ionicons name="map" size={22} color={Colors.accentGreen} />
-              </View>
-              <View style={addressModalStyles.addressInfo}>
-                <Text style={[addressModalStyles.currentLocationTitle, { color: Colors.accentGreen }]}>
-                  Pick from Map
-                </Text>
-                <Text style={addressModalStyles.addressString} numberOfLines={1}>
-                  Search and select location on map
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.grayText} />
-            </TouchableOpacity>
-
-            <View style={addressModalStyles.sectionDivider} />
-
-            {addresses.length > 0 && (
-              <>
-                <Text style={addressModalStyles.savedAddressesHeader}>
-                  SAVED ADDRESSES
-                </Text>
-                {addresses.map((addr) => {
-                  const isSelected = selectedAddress?.id === addr.id;
-                  let iconName = "location";
-                  if (addr.type === "Home") iconName = "home";
-                  if (addr.type === "Work") iconName = "briefcase";
-                  if (addr.type === "Current Location") iconName = "locate";
-
-                  return (
-                    <TouchableOpacity
-                      key={addr.id}
-                      style={[
-                        addressModalStyles.addressItem,
-                        isSelected && addressModalStyles.addressItemSelected,
-                      ]}
-                      onPress={() => onSelectAddress(addr)}
-                    >
-                      <View style={addressModalStyles.iconContainer}>
-                        <Ionicons
-                          name={iconName as any}
-                          size={22}
-                          color={isSelected ? Colors.swiggyOrange : Colors.darkText}
-                        />
-                      </View>
-                      <View style={addressModalStyles.addressInfo}>
-                        <View style={addressModalStyles.addressTypeRow}>
-                          <Text
-                            style={[
-                              addressModalStyles.addressType,
-                              isSelected && { color: Colors.swiggyOrange },
-                            ]}
-                          >
-                            {addr.type}
-                          </Text>
-                          {isSelected && (
-                            <View style={addressModalStyles.selectedBadge}>
-                              <Text style={addressModalStyles.selectedBadgeText}>
-                                Selected
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={addressModalStyles.addressString} numberOfLines={2}>
-                          {addr.addressString}
-                        </Text>
-                        {addr.landmark && (
-                          <Text style={addressModalStyles.landmarkText}>
-                            📍 {addr.landmark}
-                          </Text>
-                        )}
-                      </View>
-                      {isSelected && (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={24}
-                          color={Colors.successGreen}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </>
-            )}
-            {isLoading && (
-              <View style={addressModalStyles.loadingContainer}>
-                <ActivityIndicator size="small" color={Colors.swiggyOrange} />
-              </View>
-            )}
-          </ScrollView>
-
-          <View style={addressModalStyles.addAddressFooter}>
-            <TouchableOpacity
-              style={addressModalStyles.addAddressButton}
-              onPress={onAddAddress}
-            >
-              <Ionicons name="add" size={20} color={Colors.swiggyOrange} />
-              <Text style={addressModalStyles.addAddressButtonText}>
-                Add new address
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-};
-
-const addressModalStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  bottomSheet: {
-    backgroundColor: Colors.sheetBackground,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
-    maxHeight: height * 0.8,
-    overflow: 'hidden',
-  },
-  bottomSheetHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: '#D1D5DB',
-    borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderGray,
-  },
-  sheetTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.darkText,
-    letterSpacing: -0.3,
-  },
-  addressList: {
-    maxHeight: height * 0.55,
-  },
-  currentLocationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: Colors.white,
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderGray,
-  },
-  currentLocationIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(252, 128, 25, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  currentLocationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.swiggyOrange,
-    marginBottom: 2,
-  },
-  addressInfo: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  addressString: {
-    fontSize: 13,
-    color: Colors.grayText,
-    lineHeight: 18,
-  },
-  landmarkText: {
-    fontSize: 12,
-    color: Colors.textLightGray,
-    marginTop: 2,
-  },
-  sectionDivider: {
-    height: 8,
-    backgroundColor: '#F0F0F0',
-    width: '100%',
-  },
-  savedAddressesHeader: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.grayText,
-    letterSpacing: 0.5,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
-  },
-  addressItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderGray,
-  },
-  addressItemSelected: {
-    backgroundColor: 'rgba(52, 199, 89, 0.04)',
-  },
-  iconContainer: {
-    width: 30,
-    alignItems: 'flex-start',
-  },
-  addressTypeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  addressType: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.darkText,
-  },
-  selectedBadge: {
-    marginLeft: 8,
-    backgroundColor: Colors.successGreen,
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  selectedBadgeText: {
-    color: Colors.white,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  addAddressFooter: {
-    padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-    backgroundColor: Colors.white,
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderGray,
-  },
-  addAddressButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.borderGray,
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  addAddressButtonText: {
-    color: Colors.swiggyOrange,
-    fontSize: 16,
-    fontWeight: '700',
-    marginLeft: 8,
-  },
-  loadingContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-});
-
-// ==============================================================
-// 🔥 MAIN HOME SCREEN
-// ==============================================================
+// ========================================================
+// 🔥 HOME SCREEN – WITH FLOATING HEADER & SCROLL PRESERVATION
+// ========================================================
 
 const HomeScreen: React.FC = () => {
   const dispatch: AppDispatch = useDispatch();
   const navigation = useNavigation<AppNavigationProp>();
 
   // --- UI State ---
+  const [isAddressModalVisible, setAddressModalVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [numRecommendedProducts, setNumRecommendedProducts] = useState(10);
   const [reentryTrigger, setReentryTrigger] = useState(0);
 
-  // --- Location Modal State ---
-  const [showAddressModal, setShowAddressModal] = useState(false);
-  const [showAddAddress, setShowAddAddress] = useState(false);
-  const [isLocating, setIsLocating] = useState(false);
-  const locationPickerShown = useRef(false);
+  // --- Address Form State ---
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const [addressForm, setAddressForm] = useState({
+    type: "Home" as "Home" | "Work" | "Other",
+    addressString: "",
+    landmark: "",
+    city: "",
+    pincode: "",
+    latitude: 0,
+    longitude: 0,
+  });
 
   // Redux State
   const {
@@ -631,42 +299,119 @@ const HomeScreen: React.FC = () => {
   const lastFetchedCoordsRef = useRef<string | null>(null);
   const initialLocationRequested = useRef(false);
 
-  // Reset and re‑fetch addresses on screen focus
+  // --- Floating header refs & animated values ---
+  const scrollViewRef = useRef<ScrollView>(null);
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const isHeaderHidden = useRef(false);
+  const savedState = useRef({
+    scrollOffset: 0,
+    isHeaderHidden: false,
+    headerTranslateYValue: 0,
+  });
+  const isNavigatingAway = useRef(false);
+
+  // Reset and re‑fetch addresses on screen focus + restore state
   useFocusEffect(
     useCallback(() => {
+      console.log('📱 [HomeScreen] Screen FOCUSED');
+      console.log('📱 [HomeScreen] Current saved scroll position:', savedState.current.scrollOffset);
+
       setReentryTrigger((prev) => prev + 1);
       initialLocationRequested.current = false;
       lastFetchedCoordsRef.current = null;
       productCache.current = [];
       vendorCache.current = [];
       categoryCache.current = [];
+      
       if (token) {
         dispatch(fetchUserAddresses(token));
       }
+
+      // ✅ RESTORE scroll position
+      if (savedState.current.scrollOffset > 10) {
+        console.log('📍 [HomeScreen] Restoring scroll to:', savedState.current.scrollOffset);
+        
+        // Restore header state
+        if (savedState.current.isHeaderHidden) {
+          isHeaderHidden.current = true;
+          headerTranslateY.setValue(-HEADER_HEIGHT);
+        } else {
+          isHeaderHidden.current = false;
+          headerTranslateY.setValue(0);
+        }
+        
+        // Restore scroll position with multiple attempts
+        const restoreScroll = (attempt = 0) => {
+          if (scrollViewRef.current) {
+            scrollViewRef.current.scrollTo({
+              y: savedState.current.scrollOffset,
+              animated: false,
+            });
+          }
+          if (attempt < 3) {
+            setTimeout(() => restoreScroll(attempt + 1), 100 * (attempt + 1));
+          }
+        };
+        restoreScroll(0);
+      } else {
+        console.log('🔄 [HomeScreen] No saved position, staying at top');
+        setTimeout(() => {
+          if (scrollViewRef.current) {
+            scrollViewRef.current.scrollTo({
+              y: 0,
+              animated: false,
+            });
+          }
+        }, 100);
+      }
+
+      // Reset the flag after restoring
+      isNavigatingAway.current = false;
+
+      return () => {
+        // ✅ SAVE current scroll position when leaving
+        console.log('💾 [HomeScreen] Saving scroll position:', lastScrollY.current);
+        savedState.current.scrollOffset = lastScrollY.current;
+        savedState.current.isHeaderHidden = isHeaderHidden.current;
+        isNavigatingAway.current = true;
+        console.log('📱 [HomeScreen] Screen UNFOCUSED - saved at:', savedState.current.scrollOffset);
+      };
     }, [dispatch, token]),
   );
+
+  // Add beforeRemove listener for better scroll saving
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      // Save scroll position before screen is removed
+      savedState.current.scrollOffset = lastScrollY.current;
+      savedState.current.isHeaderHidden = isHeaderHidden.current;
+      console.log('💾 [HomeScreen] Before remove, saving scroll:', savedState.current.scrollOffset);
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   useEffect(() => {
     console.log('📦 nearbyVendors in Redux:', nearbyVendors);
   }, [nearbyVendors]);
 
-  // 1. Auto‑request GPS if no saved addresses & no location – but only if we are not showing the map picker
+  // 1. Auto‑request GPS if no saved addresses & no location
   useEffect(() => {
     if (
       token &&
       !initialLocationRequested.current &&
       addresses.length === 0 &&
       !userLocation?.latitude &&
-      !isLocationLoading &&
-      !showAddAddress // prevent conflict with map picker
+      !isLocationLoading
     ) {
       console.log("[HomeScreen] No saved addresses & no location → auto‑requesting GPS");
       initialLocationRequested.current = true;
-      handleAddCurrentLocation(); // now uses the same logic as "Use my current location"
+      handleRequestLocation();
     }
-  }, [token, addresses.length, userLocation, isLocationLoading, showAddAddress]);
+  }, [token, addresses.length, userLocation, isLocationLoading]);
 
-  // 2. Fetch vendors & products when location changes (via selectedAddress or userLocation)
+  // 2. Fetch vendors & products when location changes
   useEffect(() => {
     if (userLocation?.latitude && userLocation?.longitude) {
       console.log('📍 Dispatching fetchNearbyVendors with:', userLocation);
@@ -677,133 +422,40 @@ const HomeScreen: React.FC = () => {
     }
   }, [userLocation]);
 
-  // --- NEW: Auto‑open map picker if no location exists on mount ---
-  useEffect(() => {
-    if (locationPickerShown.current) return;
-    if (isLocationLoading || productsLoading || vendorsLoading) return;
-
-    // If we have no selected address and no GPS location, open the map picker
-    if (!selectedAddress && !userLocation) {
-      console.log('[HomeScreen] No location – opening AddAddressScreen');
-      setShowAddAddress(true);
-      locationPickerShown.current = true;
+  // --- Open modal and refresh addresses every time ---
+  const onOpenAddressModal = useCallback(() => {
+    if (token) {
+      dispatch(fetchUserAddresses(token));
     }
-  }, [isLocationLoading, productsLoading, vendorsLoading, selectedAddress, userLocation]);
+    setAddressModalVisible(true);
+  }, [dispatch, token]);
 
-  // --- HANDLERS for location ---
-
-  // Handle "Use my current location"
-  const handleAddCurrentLocation = useCallback(async () => {
-    if (!token) {
-      Alert.alert("Authentication Required", "Please login to add an address.");
-      return;
-    }
-
-    setIsLocating(true);
+  const handleRequestLocation = async () => {
+    dispatch(fetchLocationStart());
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert("Permission Required", "We need location access to find nearby shops.");
-        setIsLocating(false);
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        dispatch(
+          fetchLocationFailure("Permission to access location was denied."),
+        );
+        Alert.alert("Permission Required", "This app needs location access.");
         return;
       }
-
-      const locationData = await Location.getCurrentPositionAsync({
+      let locationData = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      const { latitude, longitude } = locationData.coords;
-
-      const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
-      let city = '', locality = '', state = '', pincode = '', addressString = '';
-      if (geocode.length > 0) {
-        const g = geocode[0];
-        city = g.city || g.district || '';
-        locality = g.street || g.name || g.district || '';
-        state = g.region || '';
-        pincode = g.postalCode || '';
-        addressString = [locality, city, state, pincode].filter(Boolean).join(", ");
-      }
-
-      const addressData = {
-        type: "Current Location" as "Home" | "Work" | "Other" | "Current Location",
-        addressString: addressString || "Current Location",
-        landmark: "",
-        city,
-        pincode,
-        latitude,
-        longitude,
-        isDefault: addresses.length === 0,
-      };
-
-      const saved = await dispatch(saveUserAddress({ token, addressData })).unwrap();
-      dispatch(setSelectedAddress(saved));
-      setShowAddressModal(false);
-      // Refresh data with new location
-      onRefresh();
-      Alert.alert("Success", "Location saved!");
-    } catch (error) {
-      console.error("Error fetching location:", error);
-      Alert.alert("Error", "Could not get your location. Please try again.");
-    } finally {
-      setIsLocating(false);
+      dispatch(
+        fetchLocationSuccess({
+          latitude: locationData.coords.latitude,
+          longitude: locationData.coords.longitude,
+        }),
+      );
+    } catch (locError) {
+      console.error("Error fetching user location:", locError);
+      dispatch(fetchLocationFailure("Could not get your location."));
     }
-  }, [dispatch, token, addresses.length, onRefresh]);
+  };
 
-  // Handle selection from saved addresses
-  const handleSelectAddress = useCallback((address: SavedAddress) => {
-    dispatch(setSelectedAddress(address));
-    setShowAddressModal(false);
-    onRefresh(); // refresh with new address
-  }, [dispatch, onRefresh]);
-
-  // Open map picker (AddAddressScreen)
-  const handleOpenMapPicker = useCallback(() => {
-    setShowAddressModal(false);
-    setShowAddAddress(true);
-  }, []);
-
-  // Handle location selected from map (AddAddressScreen)
-  const handleLocationFromAddAddress = useCallback((lat: number, lng: number, addressDetails: any) => {
-    // Build full address string
-    const addressString = [
-      addressDetails.street,
-      addressDetails.colony,
-      addressDetails.city,
-      addressDetails.district,
-      addressDetails.state,
-      addressDetails.pincode,
-      addressDetails.country,
-    ].filter(Boolean).join(", ");
-
-    const addressData = {
-      type: "Home" as const,
-      addressString: addressString || "Selected location",
-      landmark: "",
-      city: addressDetails.city || "",
-      pincode: addressDetails.pincode || "",
-      latitude: lat,
-      longitude: lng,
-      isDefault: addresses.length === 0,
-    };
-
-    if (token) {
-      dispatch(saveUserAddress({ token, addressData }))
-        .unwrap()
-        .then((saved: any) => {
-          dispatch(setSelectedAddress(saved));
-          // Refresh data
-          onRefresh();
-        })
-        .catch(console.error);
-    } else {
-      // Fallback – just update selected address locally (should not happen)
-      dispatch(setSelectedAddress(addressData));
-      onRefresh();
-    }
-    setShowAddAddress(false);
-  }, [dispatch, token, addresses.length, onRefresh]);
-
-  // --- Refresh function ---
   const onRefresh = useCallback(async () => {
     console.log("[HomeScreen] Pull-to-Refresh Triggered");
     setIsRefreshing(true);
@@ -839,7 +491,7 @@ const HomeScreen: React.FC = () => {
     }
   }, [dispatch, token, userLocation]);
 
-  // --- Data transformation (same as before) ---
+  // --- Data transformation ---
   const inRangeVendors: (Vendor & { distance?: number })[] = useMemo(() => {
     if (vendorCache.current.length > 0 && !isRefreshing)
       return vendorCache.current as any;
@@ -857,14 +509,13 @@ const HomeScreen: React.FC = () => {
 
     const inRangeVendorIds = inRangeVendors.map((vendor) => vendor._id);
     const filteredProducts: Product[] = (allProducts || [])
-      .filter((product: Product) => {
-        const isInRange = inRangeVendorIds.includes(product.vendorId);
-        const hasStock = product.stock > 0;
-        return isInRange && hasStock;
-      });
+      .filter(
+        (product: Product) => 
+          inRangeVendorIds.includes(product.vendorId) && 
+          product.stock > 0
+      );
 
     productCache.current = filteredProducts;
-    console.log(`📊 [HomeScreen] Filtered products: ${filteredProducts.length}`);
     return filteredProducts;
   }, [allProducts, inRangeVendors, isRefreshing]);
 
@@ -910,15 +561,18 @@ const HomeScreen: React.FC = () => {
 
   const uniqueBrands = useMemo(() => {
     if (!inRangeProducts || inRangeProducts.length === 0) return [];
+    
     const brandsMap = new Map<string, { name: string; imageUrl?: string }>();
+    
     inRangeProducts.forEach((product) => {
       if (product.brandName && !brandsMap.has(product.brandName)) {
         const firstImageProduct = inRangeProducts.find(
           (p) =>
             p.brandName === product.brandName &&
-            p.images &&
-            p.images.length > 0
+            p.images && 
+            p.images.length > 0 
         );
+        
         brandsMap.set(product.brandName, {
           name: product.brandName,
           imageUrl: firstImageProduct?.images?.[0] || "https://via.placeholder.com/50",
@@ -952,6 +606,129 @@ const HomeScreen: React.FC = () => {
     categoryCache.current = finalCategories;
     return finalCategories;
   }, [inRangeProducts, isRefreshing]);
+
+  // --- Address selection ---
+  const handleSelectAddress = (address: SavedAddress) => {
+    lastFetchedCoordsRef.current = null;
+    dispatch(setSelectedAddress(address));
+    setAddressModalVisible(false);
+  };
+
+  const handleInitiateAddAddress = async () => {
+    if (!token) {
+      Alert.alert("Authentication Required", "Please login to add an address.");
+      return;
+    }
+
+    try {
+      dispatch(fetchLocationStart());
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        dispatch(fetchLocationFailure("Permission denied"));
+        Alert.alert(
+          "Permission Required",
+          "We need location access to fetch your address.",
+        );
+        return;
+      }
+
+      console.log("[HomeScreen] Fetching GPS Coordinates...");
+      let locationData = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Highest,
+      });
+
+      const exactLat = parseFloat(locationData.coords.latitude.toFixed(8));
+      const exactLng = parseFloat(locationData.coords.longitude.toFixed(8));
+
+      console.log("[HomeScreen] Reverse Geocoding Coordinates...");
+      let geocode = await Location.reverseGeocodeAsync({
+        latitude: exactLat,
+        longitude: exactLng,
+      });
+      let generatedAddressString = "";
+      let generatedCity = "";
+      let generatedPincode = "";
+
+      if (geocode.length > 0) {
+        const g = geocode[0];
+        generatedCity = g.city || g.district || "";
+        generatedPincode = g.postalCode || "";
+        generatedAddressString = [
+          g.name,
+          g.street,
+          generatedCity,
+          g.region,
+          generatedPincode,
+        ]
+          .filter(Boolean)
+          .join(", ");
+      }
+
+      setAddressForm({
+        type: "Home",
+        addressString: generatedAddressString,
+        landmark: "",
+        city: generatedCity,
+        pincode: generatedPincode,
+        latitude: exactLat,
+        longitude: exactLng,
+      });
+
+      dispatch(
+        fetchLocationSuccess({ latitude: exactLat, longitude: exactLng }),
+      );
+      setIsEditingAddress(true);
+    } catch (error) {
+      dispatch(fetchLocationFailure("Error fetching location"));
+      Alert.alert("Error", "Could not fetch your exact location.");
+      console.error(error);
+    }
+  };
+
+  const submitNewAddressForm = async () => {
+    if (!addressForm.addressString.trim()) {
+      Alert.alert("Required", "Address details cannot be empty.");
+      return;
+    }
+
+    try {
+      const isFirstAddress = addresses.length === 0;
+      const payload = {
+        ...addressForm,
+        isDefault: isFirstAddress,
+      };
+      await dispatch(
+        saveUserAddress({ token, addressData: payload }),
+      ).unwrap();
+      setIsEditingAddress(false);
+      if (token) {
+        dispatch(fetchUserAddresses(token));
+      }
+      setAddressModalVisible(false);
+    } catch (error) {
+      Alert.alert("Error", "Could not save address to the database.");
+      console.error(error);
+    }
+  };
+
+  const closeFormAndGoBack = () => {
+    setIsEditingAddress(false);
+  };
+
+  const sortedAddressList = useMemo(() => {
+    const uniqueMap = new Map<string, SavedAddress>();
+    addresses.forEach((addr) => uniqueMap.set(addr.id, addr));
+    const uniqueAddresses = Array.from(uniqueMap.values());
+
+    if (!selectedAddress) return uniqueAddresses;
+
+    const selected = uniqueAddresses.find((a) => a.id === selectedAddress.id);
+    if (!selected) {
+      return uniqueAddresses;
+    }
+    const others = uniqueAddresses.filter((a) => a.id !== selectedAddress.id);
+    return [selected, ...others];
+  }, [addresses, selectedAddress]);
 
   // --- Navigation handlers ---
   const handleShopPress = (shop: ShopDisplay) =>
@@ -1018,6 +795,356 @@ const HomeScreen: React.FC = () => {
     }
   };
 
+  // --- Scroll handler for header animation - UPDATED with state saving ---
+  const handleScroll = (event: any) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const diff = currentScrollY - lastScrollY.current;
+
+    // ✅ Save state continuously
+    savedState.current.scrollOffset = currentScrollY;
+    savedState.current.isHeaderHidden = isHeaderHidden.current;
+    savedState.current.headerTranslateYValue = currentScrollY > 20 ? -HEADER_HEIGHT : 0;
+
+    // Only trigger animation when scrolling significantly
+    if (currentScrollY > 20) {
+      if (diff > 5 && !isHeaderHidden.current) {
+        isHeaderHidden.current = true;
+        savedState.current.isHeaderHidden = true;
+        Animated.spring(headerTranslateY, {
+          toValue: -HEADER_HEIGHT,
+          useNativeDriver: true,
+          damping: 20,
+          mass: 0.5,
+          stiffness: 150,
+        }).start();
+      } else if (diff < -5 && isHeaderHidden.current) {
+        isHeaderHidden.current = false;
+        savedState.current.isHeaderHidden = false;
+        Animated.spring(headerTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 20,
+          mass: 0.5,
+          stiffness: 150,
+        }).start();
+      }
+    } else {
+      if (isHeaderHidden.current) {
+        isHeaderHidden.current = false;
+        savedState.current.isHeaderHidden = false;
+        Animated.spring(headerTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 20,
+          mass: 0.5,
+          stiffness: 150,
+        }).start();
+      }
+    }
+
+    lastScrollY.current = currentScrollY;
+  };
+
+  // --- Address Modal ---
+  const renderAddressModal = () => (
+    <Modal
+      visible={isAddressModalVisible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={() => {
+        if (addresses.length > 0) setAddressModalVisible(false);
+      }}
+    >
+      <View style={allStyles.modalOverlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFillObject}
+          activeOpacity={1}
+          onPress={() => {
+            if (addresses.length > 0) {
+              setAddressModalVisible(false);
+            } else {
+              Alert.alert(
+                "Required",
+                "Please add a delivery location to continue.",
+              );
+            }
+          }}
+        />
+
+        <View style={allStyles.bottomSheet}>
+          {(isLocationLoading || addressActionLoading) && (
+            <View style={allStyles.loadingOverlay}>
+              <ActivityIndicator size="large" color={Colors.swiggyOrange} />
+            </View>
+          )}
+
+          <View style={allStyles.bottomSheetHandle} />
+
+          <View style={allStyles.sheetHeader}>
+            <Text style={allStyles.sheetTitle}>
+              {isEditingAddress ? "Confirm Address" : "Select a location"}
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                if (isEditingAddress) {
+                  closeFormAndGoBack();
+                } else if (addresses.length > 0) {
+                  setAddressModalVisible(false);
+                } else {
+                  Alert.alert("Required", "Please add a delivery location.");
+                }
+              }}
+            >
+              <Ionicons name="close" size={24} color={Colors.darkText} />
+            </TouchableOpacity>
+          </View>
+
+          {isEditingAddress ? (
+            <ScrollView
+              style={allStyles.addressList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ padding: 20 }}
+            >
+              <Text style={allStyles.inputLabel}>
+                Complete Address / Landmark
+              </Text>
+              <TextInput
+                style={allStyles.addressInput}
+                value={addressForm.addressString}
+                onChangeText={(text) =>
+                  setAddressForm({ ...addressForm, addressString: text })
+                }
+                placeholder="House No, Building, Landmark..."
+                multiline
+              />
+
+              <Text style={allStyles.inputLabel}>Landmark (optional)</Text>
+              <TextInput
+                style={[allStyles.addressInput, { minHeight: 40 }]}
+                value={addressForm.landmark}
+                onChangeText={(text) =>
+                  setAddressForm({ ...addressForm, landmark: text })
+                }
+                placeholder="Nearby landmark"
+              />
+
+              <Text style={allStyles.inputLabel}>City</Text>
+              <TextInput
+                style={[allStyles.addressInput, { minHeight: 40 }]}
+                value={addressForm.city}
+                onChangeText={(text) =>
+                  setAddressForm({ ...addressForm, city: text })
+                }
+                placeholder="City"
+              />
+
+              <Text style={allStyles.inputLabel}>Pincode</Text>
+              <TextInput
+                style={[allStyles.addressInput, { minHeight: 40 }]}
+                value={addressForm.pincode}
+                onChangeText={(text) =>
+                  setAddressForm({ ...addressForm, pincode: text })
+                }
+                placeholder="Pincode"
+                keyboardType="numeric"
+              />
+
+              <Text style={allStyles.inputLabel}>Save As</Text>
+              <View style={allStyles.typeRow}>
+                {["Home", "Work", "Other"].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      allStyles.typeBadge,
+                      addressForm.type === type && allStyles.typeBadgeActive,
+                    ]}
+                    onPress={() =>
+                      setAddressForm({ ...addressForm, type: type as any })
+                    }
+                  >
+                    <Text
+                      style={[
+                        allStyles.typeBadgeText,
+                        addressForm.type === type &&
+                          allStyles.typeBadgeTextActive,
+                      ]}
+                    >
+                      {type}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={allStyles.coordText}>
+                GPS: {addressForm.latitude}, {addressForm.longitude}
+              </Text>
+
+              <TouchableOpacity
+                style={[
+                  allStyles.addAddressButton,
+                  { marginTop: 30, backgroundColor: Colors.swiggyOrange },
+                ]}
+                onPress={submitNewAddressForm}
+              >
+                <Text
+                  style={[
+                    allStyles.addAddressButtonText,
+                    { color: Colors.white, marginLeft: 0 },
+                  ]}
+                >
+                  Save & Proceed
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          ) : (
+            <ScrollView
+              style={allStyles.addressList}
+              showsVerticalScrollIndicator={false}
+            >
+              {!permissionGranted && (
+                <View style={allStyles.permissionBanner}>
+                  <View style={allStyles.permissionTextContainer}>
+                    <View style={allStyles.permissionRow}>
+                      <Ionicons
+                        name="alert-circle"
+                        size={18}
+                        color={Colors.redAlert}
+                      />
+                      <Text style={allStyles.permissionTitle}>
+                        Device location is off
+                      </Text>
+                    </View>
+                    <Text style={allStyles.permissionSubtitle}>
+                      Turn on device location to ensure accurate delivery
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={allStyles.grantButton}
+                    onPress={handleInitiateAddAddress}
+                  >
+                    <Text style={allStyles.grantButtonText}>Enable</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={allStyles.currentLocationContainer}
+                onPress={() => handleInitiateAddAddress()}
+              >
+                <View style={allStyles.currentLocationIcon}>
+                  <Ionicons
+                    name="locate"
+                    size={22}
+                    color={Colors.swiggyOrange}
+                  />
+                </View>
+                <View style={allStyles.addressInfo}>
+                  <Text style={allStyles.currentLocationTitle}>
+                    Use my current location
+                  </Text>
+                  <Text style={allStyles.addressString} numberOfLines={1}>
+                    {selectedAddress
+                      ? selectedAddress.addressString
+                      : "Fetch GPS & save delivery address"}
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={Colors.grayText}
+                />
+              </TouchableOpacity>
+
+              <View style={allStyles.sectionDivider} />
+
+              {addresses.length > 0 && (
+                <>
+                  <Text style={allStyles.savedAddressesHeader}>
+                    SAVED ADDRESSES
+                  </Text>
+                  {sortedAddressList.map((addr) => {
+                    const isSelected = selectedAddress?.id === addr.id;
+                    let iconName = "location";
+                    if (addr.type === "Home") iconName = "home";
+                    if (addr.type === "Work") iconName = "briefcase";
+
+                    return (
+                      <TouchableOpacity
+                        key={addr.id}
+                        style={[
+                          allStyles.addressItem,
+                          isSelected && allStyles.addressItemSelected,
+                        ]}
+                        onPress={() => handleSelectAddress(addr)}
+                      >
+                        <View style={allStyles.iconContainer}>
+                          <Ionicons
+                            name={iconName as any}
+                            size={22}
+                            color={
+                              isSelected ? Colors.swiggyOrange : Colors.darkText
+                            }
+                          />
+                        </View>
+                        <View style={allStyles.addressInfo}>
+                          <View style={allStyles.addressTypeRow}>
+                            <Text
+                              style={[
+                                allStyles.addressType,
+                                isSelected && { color: Colors.swiggyOrange },
+                              ]}
+                            >
+                              {addr.type}
+                            </Text>
+                            {isSelected && (
+                              <View style={allStyles.selectedBadge}>
+                                <Text style={allStyles.selectedBadgeText}>
+                                  Selected
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text
+                            style={allStyles.addressString}
+                            numberOfLines={2}
+                          >
+                            {addr.addressString}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={24}
+                            color={Colors.successGreen}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
+              <View style={{ height: 20 }} />
+            </ScrollView>
+          )}
+
+          {!isEditingAddress && (
+            <View style={allStyles.addAddressFooter}>
+              <TouchableOpacity
+                style={allStyles.addAddressButton}
+                onPress={handleInitiateAddAddress}
+              >
+                <Ionicons name="add" size={20} color={Colors.swiggyOrange} />
+                <Text style={allStyles.addAddressButtonText}>
+                  Add new address
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+
   // --- Category bar ---
   const renderCategoryBar = () => {
     if (allUniqueCategories.length === 0) return null;
@@ -1057,7 +1184,7 @@ const HomeScreen: React.FC = () => {
           </Text>
           <Text style={allStyles.messageText as TextStyle}>{safeErrorMsg}</Text>
           <TouchableOpacity
-            onPress={handleAddCurrentLocation}
+            onPress={handleInitiateAddAddress}
             style={allStyles.retryButton as ViewStyle}
           >
             <Text style={allStyles.retryButtonText as TextStyle}>Retry</Text>
@@ -1069,7 +1196,7 @@ const HomeScreen: React.FC = () => {
     if (inRangeProducts.length === 0 && userLocation)
       return (
         <View style={allStyles.messageContainer}>
-          <Text style={allStyles.messageTitle}>No Products Available!</Text>
+          <Text style={allStyles.messageTitle}>No Products Nearby!</Text>
           <Text style={allStyles.messageText}>
             Looks like no products are currently available in your area.
           </Text>
@@ -1084,9 +1211,11 @@ const HomeScreen: React.FC = () => {
 
     return (
       <ScrollView
+        ref={scrollViewRef}
         style={allStyles.mainContentScrollView as ViewStyle}
         contentContainerStyle={[
           allStyles.contentContainer as ViewStyle,
+          { paddingTop: HEADER_HEIGHT + 10 },
           !isCartEmpty && { paddingBottom: 100 },
         ]}
         refreshControl={
@@ -1097,7 +1226,7 @@ const HomeScreen: React.FC = () => {
             colors={[Colors.swiggyOrange]}
           />
         }
-        onScroll={handleRecommendedScroll}
+        onScroll={handleScroll}
         scrollEventThrottle={16}
       >
         <View style={allStyles.bannerWrapper as ViewStyle}>
@@ -1240,6 +1369,7 @@ const HomeScreen: React.FC = () => {
                     (v) => v._id === product.vendorId,
                   );
                   const isVendorOffline = vendor ? !vendor.isOnline : false;
+                  const isWalkIn = product.stock === 0;
 
                   return (
                     <View
@@ -1251,6 +1381,12 @@ const HomeScreen: React.FC = () => {
                         isVendorOffline={isVendorOffline}
                         isVendorOutOfRange={false}
                       />
+                      {isWalkIn && (
+                        <View style={styles.walkInLabel}>
+                          <Ionicons name="storefront-outline" size={12} color="#1B8C40" />
+                          <Text style={styles.walkInLabelText}>Available in-store only</Text>
+                        </View>
+                      )}
                     </View>
                   );
                 })}
@@ -1261,9 +1397,7 @@ const HomeScreen: React.FC = () => {
     );
   };
 
-  // ==============================================================
-  // RENDER
-  // ==============================================================
+  // --- Main render ---
   return (
     <SafeAreaView
       style={allStyles.safeArea as ViewStyle}
@@ -1283,13 +1417,27 @@ const HomeScreen: React.FC = () => {
       />
 
       <View style={allStyles.container as ViewStyle}>
-        <View style={allStyles.mainHeader}>
+        {/* Animated Header */}
+        <Animated.View
+          style={[
+            allStyles.mainHeader,
+            {
+              transform: [{ translateY: headerTranslateY }],
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              zIndex: 10,
+              backgroundColor: 'transparent',
+              paddingTop: 8,
+            }
+          ]}
+        >
           <View style={allStyles.headerTopRow}>
-            {/* Location Bar */}
             <TouchableOpacity
               style={allStyles.locationSelector}
               activeOpacity={0.7}
-              onPress={() => setShowAddressModal(true)}
+              onPress={onOpenAddressModal}
             >
               <View style={allStyles.locationIconWrapper}>
                 <Ionicons
@@ -1331,7 +1479,6 @@ const HomeScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-          {/* Search Bar */}
           <View style={allStyles.searchBarContainer}>
             <TouchableOpacity
               onPress={handleSearchPress}
@@ -1354,79 +1501,62 @@ const HomeScreen: React.FC = () => {
               </View>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
 
         {renderContent()}
       </View>
-
-      {/* 🔥 Address Modal */}
-      <AddressModal
-        visible={showAddressModal}
-        onClose={() => setShowAddressModal(false)}
-        onSelectAddress={handleSelectAddress}
-        onAddAddress={handleAddCurrentLocation}
-        selectedAddress={selectedAddress}
-        addresses={addresses}
-        isLoading={isLocating || isLocationLoading}
-        onOpenMap={handleOpenMapPicker}
-      />
-
-      {/* 🔥 AddAddressScreen as full-screen modal */}
-      <Modal
-        visible={showAddAddress}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={() => {
-          // Allow closing only if an address already exists
-          if (selectedAddress || addresses.length > 0) {
-            setShowAddAddress(false);
-          } else {
-            Alert.alert("Location Required", "Please select a delivery location.");
-          }
-        }}
-      >
-        <AddAddressScreen
-          onClose={() => {
-            if (selectedAddress || addresses.length > 0) {
-              setShowAddAddress(false);
-            } else {
-              Alert.alert("Location Required", "Please select a delivery location.");
-            }
-          }}
-          onLocationSelect={handleLocationFromAddAddress}
-        />
-      </Modal>
+      {renderAddressModal()}
     </SafeAreaView>
   );
 };
 
-// ==============================================================
-// STYLES
-// ==============================================================
+// --- Additional styles for walk-in label ---
+const styles = StyleSheet.create({
+  walkInLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(27, 140, 64, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginTop: 2,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#1B8C40',
+  },
+  walkInLabelText: {
+    color: '#1B8C40',
+    fontSize: 10,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+});
+
+// --- Main Stylesheet ---
 const allStyles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "transparent" },
   container: { flex: 1, backgroundColor: "transparent" },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#FFFFFF',
-    zIndex: 1000,
-  },
   mainHeader: {
-    backgroundColor: "transparent",
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 16,
-    zIndex: 10,
+    backgroundColor: 'rgba(245, 246, 248, 0.95)',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 4,
+    
   },
   headerTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
+    backgroundColor: "#ffffff", 
+    borderRadius: 12,
+    padding: 8,
+
   },
   locationSelector: {
     flexDirection: "row",
@@ -1435,7 +1565,7 @@ const allStyles = StyleSheet.create({
     paddingRight: 10,
   },
   locationIconWrapper: { marginRight: 6 },
-  locationTextWrapper: { flex: 1 },
+  locationTextWrapper: { flex: 1,backgroundColor: "#ffffff" },
   locationTitleRow: { flexDirection: "row", alignItems: "center" },
   locationTitle: {
     fontSize: 18,
@@ -1491,10 +1621,244 @@ const allStyles = StyleSheet.create({
     marginHorizontal: 12,
   },
 
-  // ---- Content styles ----
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: Colors.sheetOverlay,
+    justifyContent: "flex-end",
+  },
+  bottomSheet: {
+    backgroundColor: Colors.sheetBackground,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    maxHeight: height * 0.8,
+    overflow: "hidden",
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255,255,255,0.7)",
+    zIndex: 100,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bottomSheetHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: "#D1D5DB",
+    borderRadius: 3,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderGray,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: Colors.darkText,
+    letterSpacing: -0.3,
+  },
+  addressList: { maxHeight: height * 0.55 },
+  permissionBanner: {
+    backgroundColor: "#FEE2E2",
+    margin: 20,
+    marginBottom: 10,
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  permissionTextContainer: { flex: 1, marginRight: 12 },
+  permissionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  permissionTitle: {
+    color: Colors.redAlert,
+    fontWeight: "700",
+    fontSize: 15,
+    marginLeft: 6,
+  },
+  permissionSubtitle: { color: "#991B1B", fontSize: 13, lineHeight: 18 },
+  grantButton: {
+    backgroundColor: Colors.white,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  grantButtonText: { color: Colors.redAlert, fontWeight: "bold", fontSize: 13 },
+  currentLocationContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 20,
+    backgroundColor: "#FFFFFF",
+    marginTop: 10,
+  },
+  currentLocationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(252, 128, 25, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  currentLocationTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.swiggyOrange,
+    marginBottom: 2,
+  },
+  sectionDivider: { height: 8, backgroundColor: "#F0F0F0", width: "100%" },
+  savedAddressesHeader: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.grayText,
+    letterSpacing: 0.5,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+  },
+  addressItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: Colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderGray,
+  },
+  addressItemSelected: { backgroundColor: "rgba(52, 199, 89, 0.04)" },
+  iconContainer: { width: 30, alignItems: "flex-start" },
+  addressInfo: { flex: 1, paddingRight: 10 },
+  addressTypeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  addressType: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.darkText,
+  },
+  selectedBadge: {
+    marginLeft: 8,
+    backgroundColor: Colors.successGreen,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  selectedBadgeText: {
+    color: Colors.white,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  addressString: { fontSize: 13, color: Colors.grayText, lineHeight: 18 },
+  addAddressFooter: {
+    padding: 16,
+    paddingBottom: Platform.OS === "ios" ? 34 : 16,
+    backgroundColor: Colors.white,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderGray,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 10,
+  },
+  addAddressButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.borderGray,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  addAddressButtonText: {
+    color: Colors.swiggyOrange,
+    fontSize: 16,
+    fontWeight: "700",
+    marginLeft: 8,
+  },
+
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.darkText,
+    marginBottom: 8,
+    marginTop: 15,
+  },
+  addressInput: {
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.borderGray,
+    borderRadius: 8,
+    padding: 12,
+    minHeight: 80,
+    textAlignVertical: "top",
+    fontSize: 15,
+    color: Colors.darkText,
+  },
+  typeRow: { flexDirection: "row", marginTop: 5 },
+  typeBadge: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.borderGray,
+    marginRight: 10,
+    backgroundColor: Colors.white,
+  },
+  typeBadgeActive: {
+    backgroundColor: "rgba(252, 128, 25, 0.1)",
+    borderColor: Colors.swiggyOrange,
+  },
+  typeBadgeText: { fontSize: 14, color: Colors.grayText, fontWeight: "600" },
+  typeBadgeTextActive: { color: Colors.swiggyOrange },
+  coordText: {
+    fontSize: 12,
+    color: Colors.grayText,
+    marginTop: 25,
+    fontStyle: "italic",
+  },
+
   mainContentScrollView: { flex: 1, backgroundColor: "transparent" },
   contentContainer: { paddingBottom: 60 },
-  bannerWrapper: { position: "relative", marginBottom: 0, width: "100%" },
+  bannerWrapper: {
+    width: "100%",
+    marginBottom: 0,
+    overflow: "visible",
+  },
+  freeShippingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: Colors.white,
+    marginHorizontal: 0,
+    marginTop: 43,
+    padding: 15,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: Colors.borderGray,
+  },
+  bannerTextContainer: { flex: 1 },
+  bannerTitle: { fontSize: 16, color: Colors.dark },
+  bannerTitleBold: { fontWeight: "bold", color: Colors.orange },
+  bannerSubtitle: { fontSize: 12, color: Colors.grayText },
   imageBannerContainer: { width: "100%", height: 200, marginBottom: 0 },
   imageBanner: {
     width: "100%",
@@ -1503,12 +1867,9 @@ const allStyles = StyleSheet.create({
     borderTopRightRadius: 8,
   },
   categoriesSection: {
-    position: "absolute",
-    bottom: -40,
-    left: 0,
-    right: 0,
     paddingVertical: 0,
     backgroundColor: "transparent",
+    marginTop: -40,
     zIndex: 10,
   },
   categoriesScrollContainer: { paddingHorizontal: 8, paddingBottom: 5 },

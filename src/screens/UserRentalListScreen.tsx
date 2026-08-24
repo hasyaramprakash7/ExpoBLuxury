@@ -37,7 +37,6 @@ import {
   saveUserAddress,
   selectAllAddresses,
 } from '../features/locationSlice';
-// 👇 Import AddAddressScreen
 import AddAddressScreen from '../screens/AddAddressScreen';
 
 const { width, height } = Dimensions.get('window');
@@ -46,6 +45,7 @@ const isTablet = width >= 768;
 const isSmallPhone = width < 375;
 const CARD_WIDTH = isTablet ? (width - 48) / 3 : (width - 48) / 2;
 const CARD_HEIGHT = isTablet ? 220 : 200;
+const HEADER_HEIGHT = 250;
 
 const Colors = {
   royalNavy: '#0B1021',
@@ -67,7 +67,10 @@ const Colors = {
 
 const RENTAL_TYPES = ['PG', 'Hotel', 'Apartment', 'Villa', 'Hostel', 'Guest House'];
 
-// 🔥 Address Modal Component (Without Delete Option)
+// Create Animated FlatList
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+// Address Modal Component (Without Delete Option)
 interface AddressModalProps {
   visible: boolean;
   onClose: () => void;
@@ -113,7 +116,6 @@ const AddressModal: React.FC<AddressModalProps> = ({
           </View>
 
           <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
-            {/* Use Current Location */}
             <TouchableOpacity
               style={addressModalStyles.currentLocationContainer}
               onPress={onAddAddress}
@@ -134,7 +136,6 @@ const AddressModal: React.FC<AddressModalProps> = ({
               <Ionicons name="chevron-forward" size={18} color={Colors.textGray} />
             </TouchableOpacity>
 
-            {/* Pick from Map – now opens AddAddressScreen */}
             <TouchableOpacity
               style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]}
               onPress={onOpenMap}
@@ -217,7 +218,6 @@ const AddressModal: React.FC<AddressModalProps> = ({
                           color={Colors.success}
                         />
                       )}
-                      {/* ✅ DELETE OPTION REMOVED */}
                     </TouchableOpacity>
                   );
                 })}
@@ -488,7 +488,6 @@ const UserRentalListScreen: React.FC = () => {
   const loading = useSelector(selectRentalLoading);
   const { currentPage, hasMore } = useSelector(selectRentalPagination);
   
-  // 🔥 Location Slice Selectors
   const addresses = useSelector(selectAllAddresses);
   const selectedAddress = useSelector((state: RootState) => state.location.selectedAddress);
   const userLocation = useSelector((state: RootState) => state.location.location);
@@ -508,26 +507,31 @@ const UserRentalListScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
-  // 🔥 New state for AddAddressScreen modal
   const [showAddAddressModal, setShowAddAddressModal] = useState(false);
   
-  const scrollY = useRef(new Animated.Value(0)).current;
+  // ✅ Animated header
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const isHeaderHidden = useRef(false);
+  
+  // Store complete state for restoration
+  const savedState = useRef({
+    scrollOffset: 0,
+    isHeaderHidden: false,
+    headerTranslateYValue: 0,
+  });
+  const isNavigatingAway = useRef(false);
+
   const flatListRef = useRef<FlatList>(null);
 
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
-
-  // 🔥 Load addresses when token is available
+  // Load addresses when token is available
   useEffect(() => {
     if (token) {
       dispatch(fetchUserAddresses(token));
     }
   }, [dispatch, token]);
 
-  // 🔥 Update filter fields when selectedAddress changes
+  // Update filter fields when selectedAddress changes
   useEffect(() => {
     if (selectedAddress) {
       setCity(selectedAddress.city || '');
@@ -536,6 +540,81 @@ const UserRentalListScreen: React.FC = () => {
       setPincode(selectedAddress.pincode || '');
     }
   }, [selectedAddress]);
+
+  // ✅ PRESERVE scroll position when returning to screen
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 [RentalList] Screen FOCUSED');
+      console.log('📱 [RentalList] Current saved scroll position:', savedState.current.scrollOffset);
+
+      isNavigatingAway.current = false;
+
+      // ✅ RESTORE scroll position instead of resetting to top
+      if (savedState.current.scrollOffset > 10) {
+        console.log('📍 [RentalList] Restoring scroll to:', savedState.current.scrollOffset);
+        
+        // Restore header state
+        if (savedState.current.isHeaderHidden) {
+          isHeaderHidden.current = true;
+          headerTranslateY.setValue(-HEADER_HEIGHT);
+        } else {
+          isHeaderHidden.current = false;
+          headerTranslateY.setValue(0);
+        }
+        
+        // Restore scroll position with multiple attempts
+        const restoreScroll = (attempt = 0) => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({
+              offset: savedState.current.scrollOffset,
+              animated: false,
+            });
+          }
+          if (attempt < 3) {
+            setTimeout(() => restoreScroll(attempt + 1), 100 * (attempt + 1));
+          }
+        };
+        restoreScroll(0);
+      } else {
+        console.log('🔄 [RentalList] No saved position, staying at top');
+        setTimeout(() => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({
+              offset: 0,
+              animated: false,
+            });
+          }
+        }, 100);
+      }
+
+      // Refresh data
+      if (token) {
+        dispatch(fetchUserAddresses(token));
+      }
+      applyFilters();
+
+      return () => {
+        // ✅ SAVE current scroll position when leaving
+        console.log('💾 [RentalList] Saving scroll position:', lastScrollY.current);
+        savedState.current.scrollOffset = lastScrollY.current;
+        savedState.current.isHeaderHidden = isHeaderHidden.current;
+        isNavigatingAway.current = true;
+        console.log('📱 [RentalList] Screen UNFOCUSED - saved at:', savedState.current.scrollOffset);
+      };
+    }, [dispatch, token, applyFilters])
+  );
+
+  // Add beforeRemove listener for better scroll saving
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      // Save scroll position before screen is removed
+      savedState.current.scrollOffset = lastScrollY.current;
+      savedState.current.isHeaderHidden = isHeaderHidden.current;
+      console.log('💾 [RentalList] Before remove, saving scroll:', savedState.current.scrollOffset);
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   // Helper to build filter object from current state
   const getFilterParams = useCallback((overrides: any = {}) => {
@@ -562,11 +641,10 @@ const UserRentalListScreen: React.FC = () => {
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [dispatch, getFilterParams]);
 
-  // 🔥 Handle location selection from AddAddressScreen
+  // Handle location selection from AddAddressScreen
   const handleLocationFromAddAddress = useCallback((lat: number, lng: number, addressDetails: any) => {
     console.log('📍 Location selected from AddAddressScreen:', { lat, lng, addressDetails });
 
-    // Extract all available address components with fallbacks
     const city = addressDetails.city || addressDetails.district || '';
     const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || addressDetails.district || '';
     const state = addressDetails.state || '';
@@ -575,7 +653,6 @@ const UserRentalListScreen: React.FC = () => {
     const street = addressDetails.street || '';
     const fullAddress = addressDetails.addressString || addressDetails.fullAddress || '';
 
-    // Build address string for display
     const addressParts = [
       street,
       addressDetails.colony,
@@ -590,7 +667,6 @@ const UserRentalListScreen: React.FC = () => {
     ].filter(Boolean);
     const displayAddress = addressParts.join(', ') || fullAddress;
 
-    // Prepare address data to save
     const addressData = {
       type: "Home" as "Home" | "Work" | "Other" | "Current Location",
       addressString: displayAddress || "Selected location",
@@ -604,18 +680,15 @@ const UserRentalListScreen: React.FC = () => {
       locality: locality || '',
     };
 
-    // Save address using location slice
     if (token) {
       dispatch(saveUserAddress({ token, addressData }))
         .unwrap()
         .then((savedAddress: any) => {
           dispatch(setSelectedAddress(savedAddress));
-          // Update filter fields
           setCity(savedAddress.city || '');
           setLocality(savedAddress.locality || '');
           setState(state);
           setPincode(savedAddress.pincode || '');
-          // Apply filters with new location
           applyFilters({
             city: savedAddress.city || undefined,
             locality: savedAddress.locality || undefined,
@@ -633,7 +706,6 @@ const UserRentalListScreen: React.FC = () => {
           Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
         });
     } else {
-      // If no token, just update filters directly (should not happen normally)
       setCity(city);
       setLocality(locality);
       setState(state);
@@ -644,11 +716,10 @@ const UserRentalListScreen: React.FC = () => {
     setShowAddAddressModal(false);
   }, [dispatch, token, addresses.length, applyFilters]);
 
-  // 🔥 Handle address selection from saved addresses
+  // Handle address selection from saved addresses
   const handleSelectAddress = useCallback((address: any) => {
     dispatch(setSelectedAddress(address));
     setShowAddressModal(false);
-    // Apply filters with selected address
     applyFilters({
       city: address.city || undefined,
       locality: address.locality || undefined,
@@ -657,7 +728,7 @@ const UserRentalListScreen: React.FC = () => {
     });
   }, [dispatch, applyFilters]);
 
-  // 🔥 Handle add current location
+  // Handle add current location
   const handleAddCurrentLocation = useCallback(async () => {
     if (!token) {
       Toast.show({ type: 'error', text1: 'Authentication Required', text2: 'Please login to save address' });
@@ -730,7 +801,7 @@ const UserRentalListScreen: React.FC = () => {
     }
   }, [dispatch, token, addresses.length, applyFilters]);
 
-  // 🔥 Open AddAddressScreen modal
+  // Open AddAddressScreen modal
   const handleOpenMapPicker = useCallback(() => {
     setShowAddressModal(false);
     setShowAddAddressModal(true);
@@ -740,15 +811,6 @@ const UserRentalListScreen: React.FC = () => {
   useEffect(() => {
     applyFilters();
   }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (token) {
-        dispatch(fetchUserAddresses(token));
-      }
-      applyFilters();
-    }, [dispatch, token, applyFilters])
-  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -804,6 +866,59 @@ const UserRentalListScreen: React.FC = () => {
     setFiltersVisible(false);
   };
 
+  // ✅ Handle scroll for header animation - UPDATED with state saving
+  const handleScroll = (event: any) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const diff = currentScrollY - lastScrollY.current;
+
+    // ✅ Save state continuously
+    savedState.current.scrollOffset = currentScrollY;
+    savedState.current.isHeaderHidden = isHeaderHidden.current;
+    savedState.current.headerTranslateYValue = currentScrollY > 20 ? -HEADER_HEIGHT : 0;
+
+    // Only trigger animation when scrolling significantly
+    if (currentScrollY > 20) {
+      if (diff > 5 && !isHeaderHidden.current) {
+        // Scrolling DOWN - Hide header with smooth spring animation
+        isHeaderHidden.current = true;
+        savedState.current.isHeaderHidden = true;
+        Animated.spring(headerTranslateY, {
+          toValue: -HEADER_HEIGHT,
+          useNativeDriver: true,
+          damping: 20,
+          mass: 0.5,
+          stiffness: 150,
+        }).start();
+      } else if (diff < -5 && isHeaderHidden.current) {
+        // Scrolling UP - Show header with smooth spring animation
+        isHeaderHidden.current = false;
+        savedState.current.isHeaderHidden = false;
+        Animated.spring(headerTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 20,
+          mass: 0.5,
+          stiffness: 150,
+        }).start();
+      }
+    } else {
+      // At the top - Always show header
+      if (isHeaderHidden.current) {
+        isHeaderHidden.current = false;
+        savedState.current.isHeaderHidden = false;
+        Animated.spring(headerTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 20,
+          mass: 0.5,
+          stiffness: 150,
+        }).start();
+      }
+    }
+
+    lastScrollY.current = currentScrollY;
+  };
+
   // Show loading state
   if (locationLoading && addresses.length === 0) {
     return (
@@ -818,112 +933,126 @@ const UserRentalListScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.pureWhite} />
 
-      <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
-        <View>
-          <Text style={styles.headerSubtitle}>Find Your</Text>
-          <Text style={styles.headerTitle}>Perfect Rental</Text>
-        </View>
-        <View style={styles.headerActions}>
-          {/* 🔥 Location Button - Opens Address Modal */}
-          <TouchableOpacity 
-            style={styles.locationBtn} 
-            onPress={() => setShowAddressModal(true)}
-          >
-            <Ionicons name="location-outline" size={22} color={Colors.champagneGold} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationBtn}>
-            <Ionicons name="notifications-outline" size={24} color={Colors.royalNavy} />
-            <View style={styles.notificationDot} />
-          </TouchableOpacity>
-        </View>
-      </Animated.View>
-
-      {/* 🔥 Location Bar - Shows selected location */}
-      <TouchableOpacity 
-        style={styles.locationBar} 
-        onPress={() => setShowAddressModal(true)}
-        activeOpacity={0.7}
+      {/* ✅ ANIMATED HEADER */}
+      <Animated.View
+        style={[
+          styles.headerContainer,
+          {
+            transform: [{ translateY: headerTranslateY }],
+          }
+        ]}
       >
-        <Ionicons name="location-sharp" size={scale(18)} color={Colors.accentGreen} />
-        <Text style={styles.locationBarText} numberOfLines={1}>
-          {selectedAddress?.addressString || city || locality || "Select a location"}
-        </Text>
-        <Ionicons name="chevron-down" size={scale(16)} color={Colors.textGray} />
-      </TouchableOpacity>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerSubtitle}>Find Your</Text>
+            <Text style={styles.headerTitle}>Perfect Rental</Text>
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity 
+              style={styles.locationBtn} 
+              onPress={() => setShowAddressModal(true)}
+            >
+              <Ionicons name="location-outline" size={22} color={Colors.champagneGold} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.notificationBtn}>
+              <Ionicons name="notifications-outline" size={24} color={Colors.royalNavy} />
+              <View style={styles.notificationDot} />
+            </TouchableOpacity>
+          </View>
+        </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchBar}>
-        <Ionicons name="search-outline" size={20} color={Colors.slate} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by name, location, or pincode..."
-          placeholderTextColor={Colors.slate}
-          value={searchText}
-          onChangeText={setSearchText}
-          onSubmitEditing={() => applyFilters({ q: searchText })}
-          returnKeyType="search"
-        />
-        <TouchableOpacity onPress={() => setFiltersVisible(true)} style={styles.filterBtn}>
-          <Ionicons name="options-outline" size={22} color={Colors.pureWhite} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Category Scroll */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoryScroll}
-        contentContainerStyle={styles.categoryContent}
-      >
-        <TouchableOpacity
-          style={[styles.categoryPill, !selectedType && styles.categoryPillActive]}
-          onPress={() => {
-            setSelectedType('');
-            applyFilters({ rentalType: '' });
-          }}
+        {/* Location Bar */}
+        <TouchableOpacity 
+          style={styles.locationBar} 
+          onPress={() => setShowAddressModal(true)}
+          activeOpacity={0.7}
         >
-          <Text style={[styles.categoryText, !selectedType && styles.categoryTextActive]}>All</Text>
+          <Ionicons name="location-sharp" size={scale(18)} color={Colors.accentGreen} />
+          <Text style={styles.locationBarText} numberOfLines={1}>
+            {selectedAddress?.addressString || city || locality || "Select a location"}
+          </Text>
+          <Ionicons name="chevron-down" size={scale(16)} color={Colors.textGray} />
         </TouchableOpacity>
-        {RENTAL_TYPES.map((type) => (
+
+        {/* Search Bar */}
+        <View style={styles.searchBar}>
+          <Ionicons name="search-outline" size={20} color={Colors.slate} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by name, location, or pincode..."
+            placeholderTextColor={Colors.slate}
+            value={searchText}
+            onChangeText={setSearchText}
+            onSubmitEditing={() => applyFilters({ q: searchText })}
+            returnKeyType="search"
+          />
+          <TouchableOpacity onPress={() => setFiltersVisible(true)} style={styles.filterBtn}>
+            <Ionicons name="options-outline" size={22} color={Colors.pureWhite} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Category Scroll */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoryScroll}
+          contentContainerStyle={styles.categoryContent}
+        >
           <TouchableOpacity
-            key={type}
-            style={[styles.categoryPill, selectedType === type && styles.categoryPillActive]}
+            style={[styles.categoryPill, !selectedType && styles.categoryPillActive]}
             onPress={() => {
-              setSelectedType(type);
-              applyFilters({ rentalType: type });
+              setSelectedType('');
+              applyFilters({ rentalType: '' });
             }}
           >
-            <Text style={[styles.categoryText, selectedType === type && styles.categoryTextActive]}>
-              {type}
-            </Text>
+            <Text style={[styles.categoryText, !selectedType && styles.categoryTextActive]}>All</Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+          {RENTAL_TYPES.map((type) => (
+            <TouchableOpacity
+              key={type}
+              style={[styles.categoryPill, selectedType === type && styles.categoryPillActive]}
+              onPress={() => {
+                setSelectedType(type);
+                applyFilters({ rentalType: type });
+              }}
+            >
+              <Text style={[styles.categoryText, selectedType === type && styles.categoryTextActive]}>
+                {type}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </Animated.View>
 
-      {/* Results Row */}
-      <View style={styles.resultsRow}>
-        <Text style={styles.resultsText}>
-          {rentals.length} {rentals.length === 1 ? 'property' : 'properties'} found
-        </Text>
-        <TouchableOpacity onPress={clearAllFilters} style={styles.clearFiltersBtn}>
-          <Text style={styles.clearFiltersText}>Clear All</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* List */}
-      <FlatList
+      {/* Main Content with Animated FlatList */}
+      <AnimatedFlatList
         ref={flatListRef}
         data={rentals}
         keyExtractor={(item) => item._id}
         numColumns={isTablet ? 3 : 2}
         columnWrapperStyle={styles.columnWrapper}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingTop: HEADER_HEIGHT + 10 }]}
         renderItem={({ item }) => <RentalCard item={item} />}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         ListFooterComponent={renderFooter}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.champagneGold} />
+        }
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        ListHeaderComponent={
+          <>
+            {/* Results Row - Inside FlatList for scrolling */}
+            <View style={styles.resultsRow}>
+              <Text style={styles.resultsText}>
+                {rentals.length} {rentals.length === 1 ? 'property' : 'properties'} found
+              </Text>
+              <TouchableOpacity onPress={clearAllFilters} style={styles.clearFiltersBtn}>
+                <Text style={styles.clearFiltersText}>Clear All</Text>
+              </TouchableOpacity>
+            </View>
+          </>
         }
         ListEmptyComponent={
           !loading ? (
@@ -943,7 +1072,7 @@ const UserRentalListScreen: React.FC = () => {
         }
       />
 
-      {/* 🔥 Address Modal - Without Delete Option */}
+      {/* Address Modal */}
       <AddressModal
         visible={showAddressModal}
         onClose={() => setShowAddressModal(false)}
@@ -955,7 +1084,7 @@ const UserRentalListScreen: React.FC = () => {
         onOpenMap={handleOpenMapPicker}
       />
 
-      {/* 🔥 AddAddressScreen as a full-screen modal */}
+      {/* AddAddressScreen as a full-screen modal */}
       <Modal
         visible={showAddAddressModal}
         animationType="slide"
@@ -1089,7 +1218,7 @@ const UserRentalListScreen: React.FC = () => {
   );
 };
 
-// Styles (unchanged – keep all existing styles)
+// Styles
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.offWhite },
   loadingContainer: { 
@@ -1103,14 +1232,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.slate,
   },
+  // ✅ HEADER CONTAINER - Fixed at top
+  headerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: Colors.pureWhite,
+    zIndex: 10,
+    paddingTop: Platform.OS === 'ios' ? 8 : 12,
+    shadowColor: Colors.royalNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 3,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 50 : 30,
-    paddingBottom: 12,
-    backgroundColor: Colors.pureWhite,
+    paddingTop: 4,
+    paddingBottom: 4,
   },
   headerSubtitle: { fontSize: isSmallPhone ? 12 : 14, color: Colors.slate, fontWeight: '500', letterSpacing: 1, textTransform: 'uppercase' },
   headerTitle: { fontSize: isSmallPhone ? 22 : 28, fontWeight: '800', color: Colors.royalNavy, marginTop: 2 },
@@ -1132,9 +1275,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.pureWhite,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     marginHorizontal: 16,
-    marginTop: 8,
+    marginTop: 4,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.lightBorder,
@@ -1157,7 +1300,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.pureWhite,
     marginHorizontal: 16,
-    marginTop: 8,
+    marginTop: 6,
     paddingHorizontal: 16,
     paddingVertical: isSmallPhone ? 2 : 4,
     borderRadius: 16,
@@ -1171,11 +1314,11 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, paddingVertical: isSmallPhone ? 10 : 12, marginLeft: 8, fontSize: isSmallPhone ? 14 : 16, color: Colors.royalNavy },
   filterBtn: { backgroundColor: Colors.royalNavy, padding: isSmallPhone ? 8 : 10, borderRadius: 12, marginLeft: 8 },
-  categoryScroll: { marginTop: 12, maxHeight: 50 },
+  categoryScroll: { marginTop: 6, maxHeight: 50, paddingBottom: 4 },
   categoryContent: { paddingHorizontal: 16, paddingBottom: 4 },
   categoryPill: {
     paddingHorizontal: isSmallPhone ? 14 : 18,
-    paddingVertical: isSmallPhone ? 8 : 10,
+    paddingVertical: isSmallPhone ? 6 : 8,
     borderRadius: 25,
     backgroundColor: Colors.pureWhite,
     marginRight: 10,
@@ -1185,7 +1328,14 @@ const styles = StyleSheet.create({
   categoryPillActive: { backgroundColor: Colors.royalNavy, borderColor: Colors.royalNavy, shadowColor: Colors.royalNavy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
   categoryText: { color: Colors.slate, fontWeight: '600', fontSize: isSmallPhone ? 12 : 14 },
   categoryTextActive: { color: Colors.pureWhite },
-  resultsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
+  resultsRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 20, 
+    paddingTop: 12, 
+    paddingBottom: 4 
+  },
   resultsText: { fontSize: isSmallPhone ? 12 : 13, color: Colors.slate, fontWeight: '500' },
   clearFiltersBtn: { paddingHorizontal: 12, paddingVertical: 4 },
   clearFiltersText: { fontSize: isSmallPhone ? 11 : 12, color: Colors.champagneGold, fontWeight: '600' },
@@ -1213,7 +1363,7 @@ const styles = StyleSheet.create({
   specsContainer: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   specItem: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: Colors.offWhite, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
   specText: { fontSize: isSmallPhone ? 9 : 11, color: Colors.charcoal, fontWeight: '600' },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: height * 0.15, paddingHorizontal: 40 },
+  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: height * 0.1, paddingHorizontal: 40 },
   emptyIconWrapper: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(212, 175, 55, 0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   emptyTitle: { fontSize: isSmallPhone ? 18 : 20, fontWeight: '700', color: Colors.royalNavy, marginBottom: 8 },
   emptySubtitle: { fontSize: isSmallPhone ? 13 : 14, color: Colors.slate, textAlign: 'center', lineHeight: 20 },

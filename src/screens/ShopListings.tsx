@@ -2,8 +2,8 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   View,
-  StyleSheet,
   Text,
+  StyleSheet,
   ActivityIndicator,
   FlatList,
   TouchableOpacity,
@@ -12,6 +12,7 @@ import {
   Image,
   RefreshControl,
   BackHandler,
+  Animated,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -43,6 +44,9 @@ import AddAddressScreen from "./AddAddressScreen";
 const { width, height } = Dimensions.get("window");
 const CATEGORY_DISPLAY_LIMIT = 30;
 const FETCH_STALE_MS = 5 * 60 * 1000;
+const HEADER_HEIGHT = 130;
+
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
 const parseArrayField = (field: any): string[] => {
   if (!field) return [];
@@ -186,6 +190,13 @@ const ShopListings = () => {
   const [isAddressLoading, setIsAddressLoading] = useState<boolean>(false);
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
 
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const isHeaderHidden = useRef(false);
+  const flatListRef = useRef<FlatList>(null);
+  const savedScrollOffset = useRef(0);
+  const isRestoringScroll = useRef(false);
+
   const initialLocationRequested = useRef(false);
   const isFetchingLocation = useRef(false);
   const isInitialMount = useRef(true);
@@ -194,6 +205,8 @@ const ShopListings = () => {
   const lastFetchTime = useRef<number>(0);
   const locationPickerShown = useRef(false);
   const isNavigatingAway = useRef(false);
+
+  // 移除 resetKey
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -570,39 +583,71 @@ const ShopListings = () => {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      console.log('📱 [ShopListings] Screen focused, isNavigatingAway:', isNavigatingAway.current);
+ useFocusEffect(
+  useCallback(() => {
+    console.log('📱 [ShopListings] Screen focused, isNavigatingAway:', isNavigatingAway.current);
+
+    if (isNavigatingAway.current) {
+      isNavigatingAway.current = false;
+      console.log('🔄 [ShopListings] Returning from navigation, fetching all vendors');
+      fetchDirectoryVendors({});
+    }
+
+    const now = Date.now();
+    const shouldFetch = 
+      (!directoryVendors || directoryVendors.length === 0) ||
+      (now - lastFetchTime.current > FETCH_STALE_MS);
+
+    if (shouldFetch && !isInitialMount.current) {
+      console.log('🔄 [ShopListings] Fetching all vendors due to focus (stale or empty)');
+      fetchDirectoryVendors({});
+    } else {
+      console.log('⏭️ [ShopListings] Skipping fetch – data is fresh');
+    }
+
+    if (categories.length === 0 && !categoriesLoading) {
+      dispatch(fetchCategories());
+    }
+
+    // ✅ Restore scroll position when returning
+    if (savedScrollOffset.current > 0 && !isRestoringScroll.current) {
+      isRestoringScroll.current = true;
+      console.log('📍 [ShopListings] Restoring scroll to:', savedScrollOffset.current);
       
-      if (isNavigatingAway.current) {
-        isNavigatingAway.current = false;
-        console.log('🔄 [ShopListings] Returning from navigation, fetching all vendors');
-        fetchDirectoryVendors({});
-        return;
-      }
-      
-      const now = Date.now();
-      const shouldFetch = 
-        (!directoryVendors || directoryVendors.length === 0) ||
-        (now - lastFetchTime.current > FETCH_STALE_MS);
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToOffset({
+            offset: savedScrollOffset.current,
+            animated: false,
+          });
+        }
+        // Restore header state based on scroll position
+        if (savedScrollOffset.current > 20) {
+          isHeaderHidden.current = true;
+          headerTranslateY.setValue(-HEADER_HEIGHT);
+        } else {
+          isHeaderHidden.current = false;
+          headerTranslateY.setValue(0);
+        }
+        setTimeout(() => {
+          isRestoringScroll.current = false;
+        }, 100);
+      }, 150);
+    }
 
-      if (shouldFetch && !isInitialMount.current) {
-        console.log('🔄 [ShopListings] Fetching all vendors due to focus (stale or empty)');
-        fetchDirectoryVendors({});
-      } else {
-        console.log('⏭️ [ShopListings] Skipping fetch – data is fresh');
+    return () => {
+      // Save current scroll position when leaving
+      if (flatListRef.current) {
+        // Get the current scroll offset before leaving
+        // The scroll position is already being saved in handleScroll
+        console.log('💾 [ShopListings] Saving scroll position:', lastScrollY.current);
+        savedScrollOffset.current = lastScrollY.current;
       }
-
-      if (categories.length === 0 && !categoriesLoading) {
-        dispatch(fetchCategories());
-      }
-
-      return () => {
-        isNavigatingAway.current = true;
-        console.log('📱 [ShopListings] Screen unfocused, setting isNavigatingAway=true');
-      };
-    }, [fetchDirectoryVendors, directoryVendors, categories.length, categoriesLoading, dispatch])
-  );
+      isNavigatingAway.current = true;
+      console.log('📱 [ShopListings] Screen unfocused, saved scroll:', savedScrollOffset.current);
+    };
+  }, [fetchDirectoryVendors, directoryVendors, categories.length, categoriesLoading, dispatch])
+);
 
   useEffect(() => {
     if (isInitialMount.current) return;
@@ -749,6 +794,46 @@ const ShopListings = () => {
     navigation.navigate("ShopDetails", { vendor: shop });
   };
 
+  const handleScroll = (event: any) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const diff = currentScrollY - lastScrollY.current;
+    
+    savedScrollOffset.current = currentScrollY;
+    
+    if (currentScrollY > 20) {
+      if (diff > 3) {
+        if (!isHeaderHidden.current) {
+          isHeaderHidden.current = true;
+          Animated.timing(headerTranslateY, {
+            toValue: -HEADER_HEIGHT,
+            duration: 200,
+            useNativeDriver: true,
+          }).start();
+        }
+      } else if (diff < -3) {
+        if (isHeaderHidden.current) {
+          isHeaderHidden.current = false;
+          Animated.timing(headerTranslateY, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }).start();
+        }
+      }
+    } else {
+      if (isHeaderHidden.current) {
+        isHeaderHidden.current = false;
+        Animated.timing(headerTranslateY, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      }
+    }
+    
+    lastScrollY.current = currentScrollY;
+  };
+
   const isLoading = 
     (isInitialLoading && (!directoryVendors || directoryVendors.length === 0)) || 
     isLocationLoading || 
@@ -789,8 +874,10 @@ const ShopListings = () => {
     }
 
     return (
-      <FlatList
+      <AnimatedFlatList
+        ref={flatListRef}
         data={vendorsWithDetails}
+        extraData={displayCategories}  // ✅ 添加 extraData
         keyExtractor={(item) => item._id}
         renderItem={({ item }) => (
           <ShopCard shop={item} onPress={() => handleCardPress(item)} />
@@ -804,47 +891,59 @@ const ShopListings = () => {
             colors={[Colors.accentGreen]}
           />
         }
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         ListHeaderComponent={
-          !targetVendorId && displayCategories.length > 0 ? (
-            <>
-              <CategorySectionHeader
-                title="Browse Categories"
-                count={displayCategories.length + (hasMoreCategories ? '+' : '')}
-              />
-              <View style={styles.categoryGridContainer}>
-                <FlatList
-                  data={displayCategories}
-                  keyExtractor={(item) => item.name}
-                  numColumns={3}
-                  scrollEnabled={false}
-                  contentContainerStyle={styles.categoryGridContent}
-                  renderItem={({ item }) => (
-                    <CategoryGridItem
-                      category={item}
-                      onPress={() => {
-                        console.log('🔷 [ShopListings] Navigating to category:', item.name);
-                        navigation.navigate('CategoryShopsScreen', {
-                          categoryName: item.name,
-                          categoryImage: item.image,
-                        });
-                      }}
-                    />
-                  )}
+          <>
+            <View style={{ height: HEADER_HEIGHT + 10 }} />
+            
+            {/* ✅ AdCarousel FIRST */}
+            {!targetVendorId && <AdCarouselWithNavigation limit={5} title="Sponsored" />}
+
+            {!targetVendorId && displayCategories.length > 0 ? (
+              <>
+                <CategorySectionHeader
+                  title="Browse Categories"
+                  count={displayCategories.length + (hasMoreCategories ? '+' : '')}
                 />
-              </View>
-              {hasMoreCategories && (
-                <TouchableOpacity
-                  style={styles.showMoreButton}
-                  onPress={() => navigation.navigate('AllCategoriesScreen')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.showMoreText}>Show More Categories</Text>
-                  <Ionicons name="arrow-forward" size={scale(16)} color={Colors.accentGreen} />
-                </TouchableOpacity>
-              )}
-              <AdCarouselWithNavigation limit={5} title="Sponsored" />
-            </>
-          ) : null
+                <View style={styles.categoryGridContainer}>
+                  <FlatList
+                    data={displayCategories}
+                    keyExtractor={(item) => item.name}
+                    numColumns={3}
+                    scrollEnabled={false}
+                    contentContainerStyle={styles.categoryGridContent}
+                    renderItem={({ item }) => (
+                      <CategoryGridItem
+                        category={item}
+                        onPress={() => {
+                          console.log('🔷 [ShopListings] Navigating to category:', item.name);
+                          if (item.name) {
+                            navigation.navigate('CategoryShopsScreen', {
+                              categoryName: item.name,
+                              categoryImage: item.image,
+                            });
+                          } else {
+                            console.warn('⚠️ Category item has no name:', item);
+                          }
+                        }}
+                      />
+                    )}
+                  />
+                </View>
+                {hasMoreCategories && (
+                  <TouchableOpacity
+                    style={styles.showMoreButton}
+                    onPress={() => navigation.navigate('AllCategoriesScreen')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.showMoreText}>Show More Categories</Text>
+                    <Ionicons name="arrow-forward" size={scale(16)} color={Colors.accentGreen} />
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : null}
+          </>
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
@@ -868,30 +967,39 @@ const ShopListings = () => {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-        <TouchableOpacity
-          style={styles.locationBar}
-          onPress={handleOpenAddressModal}
-          activeOpacity={0.7}
+        <Animated.View
+          style={[
+            styles.headerContainer,
+            {
+              transform: [{ translateY: headerTranslateY }],
+            }
+          ]}
         >
-          <Ionicons name="location-sharp" size={scale(20)} color={Colors.accentGreen} />
-          <Text style={styles.locationBarText} numberOfLines={1}>
-            {selectedAddress?.addressString ||
-             (userLocation ? "Using GPS location" : "Select a location")}
-          </Text>
-          <Ionicons name="chevron-down" size={scale(16)} color={Colors.textGray} />
-        </TouchableOpacity>
-
-        {!targetVendorId && (
           <TouchableOpacity
-            style={styles.searchBarContainer}
-            onPress={() => navigation.navigate('AllCategoriesScreen')}
+            style={styles.locationBar}
+            onPress={handleOpenAddressModal}
             activeOpacity={0.7}
           >
-            <Ionicons name="search" size={scale(20)} color={Colors.textGray} />
-            <Text style={styles.searchBarPlaceholder}>Browse categories & shops...</Text>
-            <Ionicons name="chevron-forward" size={scale(16)} color={Colors.textGray} />
+            <Ionicons name="location-sharp" size={scale(20)} color={Colors.accentGreen} />
+            <Text style={styles.locationBarText} numberOfLines={1}>
+              {selectedAddress?.addressString ||
+               (userLocation ? "Using GPS location" : "Select a location")}
+            </Text>
+            <Ionicons name="chevron-down" size={scale(16)} color={Colors.textGray} />
           </TouchableOpacity>
-        )}
+
+          {!targetVendorId && (
+            <TouchableOpacity
+              style={styles.searchBarContainer}
+              onPress={() => navigation.navigate('AllCategoriesScreen')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="search" size={scale(20)} color={Colors.textGray} />
+              <Text style={styles.searchBarPlaceholder}>Browse categories & shops...</Text>
+              <Ionicons name="chevron-forward" size={scale(16)} color={Colors.textGray} />
+            </TouchableOpacity>
+          )}
+        </Animated.View>
 
         {renderContent()}
       </SafeAreaView>
@@ -934,6 +1042,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     zIndex: 1000,
   },
+  headerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    zIndex: 10,
+    paddingTop: 28,
+    paddingBottom: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 3,
+  },
   locationBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -944,7 +1067,7 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(10),
     borderWidth: 1,
     borderColor: '#E5E5E5',
-    marginTop: verticalScale(12),
+    marginTop: verticalScale(4),
   },
   locationBarText: {
     flex: 1,
@@ -961,7 +1084,7 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(12),
     paddingHorizontal: scale(15),
     marginHorizontal: scale(16),
-    marginVertical: verticalScale(10),
+    marginVertical: verticalScale(8),
     borderWidth: 1,
     borderColor: "#E5E5E5",
     paddingVertical: verticalScale(12),

@@ -1,26 +1,26 @@
-// src/screens/admin/AdManagementScreen.tsx
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+// src/screens/admin/AdGroupDetailScreen.tsx
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView, // <-- added ScrollView back
+  FlatList,
   ActivityIndicator,
   TouchableOpacity,
   SafeAreaView,
-  TextInput,
   Alert,
-  FlatList,
+  RefreshControl,
+  Dimensions,
   Modal,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
+  TextInput,
   Switch,
-  RefreshControl,
-  Dimensions,
   Image,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
-import { useNavigation, useIsFocused } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
 import { RootState, AppDispatch } from "../../src/app/store";
@@ -33,8 +33,8 @@ import {
   Ad,
 } from "../../src/features/adSlice";
 import { CATEGORIES } from "../constants/categories";
+import { AdCard } from "./AdManagementScreen"; // exported from main screen
 
-// ---------- Dimensions & scaling ----------
 const { width, height } = Dimensions.get("window");
 
 const scale = (size: number) => (width / 375) * size;
@@ -42,7 +42,6 @@ const verticalScale = (size: number) => (height / 812) * size;
 const moderateScale = (size: number, factor = 0.5) =>
   size + (scale(size) - size) * factor;
 
-// ---------- Colors ----------
 const Colors = {
   background: "#FFFFFF",
   card: "#FFFFFF",
@@ -54,16 +53,13 @@ const Colors = {
   accentBlue: "#2563EB",
   accentRed: "#D32F2F",
   borderGray: "#E5E5EA",
-  gold: "#FFD700",
   onlineGreen: "#2E7D32",
   offlineRed: "#D32F2F",
-  accentYellow: "#F59E0B",
-  shadow: "#00000020",
   inputBackground: "#F5F5F5",
   modalOverlay: "rgba(0,0,0,0.5)",
 };
 
-// ---------- Category Selector Modal ----------
+// ---------- Category Selector (copy from main screen) ----------
 const CategorySelector: React.FC<{
   visible: boolean;
   onClose: () => void;
@@ -263,14 +259,16 @@ const categorySelectorStyles = StyleSheet.create({
   },
 });
 
-// ---------- Ad Form Modal ----------
+// ---------- Ad Form Modal (with support for default title and read-only title) ----------
 const AdFormModal: React.FC<{
   visible: boolean;
   onClose: () => void;
   ad?: Ad | null;
   onSubmit: (data: FormData) => void;
   loading: boolean;
-}> = ({ visible, onClose, ad, onSubmit, loading }) => {
+  defaultTitle?: string; // pre-filled title for new ads
+  titleEditable?: boolean; // if false, title is read-only
+}> = ({ visible, onClose, ad, onSubmit, loading, defaultTitle, titleEditable = true }) => {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
@@ -292,7 +290,7 @@ const AdFormModal: React.FC<{
       setExistingImageUrl(ad.image || null);
       setImageUri(null);
     } else {
-      setTitle("");
+      setTitle(defaultTitle || "");
       setDescription("");
       setCategory("");
       setLink("");
@@ -301,7 +299,7 @@ const AdFormModal: React.FC<{
       setExistingImageUrl(null);
       setImageUri(null);
     }
-  }, [ad]);
+  }, [ad, defaultTitle]);
 
   const handleImagePick = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -373,13 +371,18 @@ const AdFormModal: React.FC<{
             <View style={formStyles.formGroup}>
               <Text style={formStyles.label}>Title (Optional)</Text>
               <TextInput
-                style={formStyles.input}
+                style={[formStyles.input, !titleEditable && formStyles.inputDisabled]}
                 placeholder="Enter ad title"
                 placeholderTextColor={Colors.textLightGray}
                 value={title}
                 onChangeText={setTitle}
                 maxLength={100}
+                editable={titleEditable}
+                selectTextOnFocus={titleEditable}
               />
+              {!titleEditable && (
+                <Text style={formStyles.lockedHint}>Title is locked for this group</Text>
+              )}
             </View>
 
             <View style={formStyles.formGroup}>
@@ -569,6 +572,10 @@ const formStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.borderGray,
   },
+  inputDisabled: {
+    backgroundColor: "#E5E5EA",
+    color: Colors.textGray,
+  },
   textArea: {
     minHeight: verticalScale(80),
     textAlignVertical: "top",
@@ -656,250 +663,44 @@ const formStyles = StyleSheet.create({
     fontSize: moderateScale(16),
     fontWeight: "bold",
   },
-});
-
-// ---------- AdCard (exported for reuse in detail screen) ----------
-export const AdCard: React.FC<{
-  ad: Ad;
-  onEdit: () => void;
-  onDelete: () => void;
-  onToggle: () => void;
-}> = ({ ad, onEdit, onDelete, onToggle }) => {
-  const getStatusText = () => (ad.isActive ? "Active" : "Inactive");
-  const getStatusColor = () => (ad.isActive ? Colors.onlineGreen : Colors.offlineRed);
-
-  return (
-    <View style={cardStyles.card}>
-      <View style={cardStyles.cardContent}>
-        <View style={cardStyles.imageContainer}>
-          <Image source={{ uri: ad.image }} style={cardStyles.adImage} />
-        </View>
-        <View style={cardStyles.infoContainer}>
-          <Text style={cardStyles.titleText} numberOfLines={1}>
-            {ad.title || "Untitled Ad"}
-          </Text>
-          {ad.category ? (
-            <Text style={cardStyles.categoryText} numberOfLines={1}>
-              {ad.category}
-            </Text>
-          ) : null}
-          <View style={cardStyles.metaRow}>
-            {ad.isProductAd && (
-              <View style={cardStyles.productBadge}>
-                <Text style={cardStyles.productBadgeText}>🛍️ Product</Text>
-              </View>
-            )}
-            <View style={cardStyles.statusBadge}>
-              <View style={[cardStyles.statusDot, { backgroundColor: getStatusColor() }]} />
-              <Text style={[cardStyles.statusText, { color: getStatusColor() }]}>
-                {getStatusText()}
-              </Text>
-            </View>
-          </View>
-        </View>
-        <View style={cardStyles.actions}>
-          <TouchableOpacity style={cardStyles.actionButton} onPress={onToggle}>
-            <Ionicons
-              name={ad.isActive ? "eye-outline" : "eye-off-outline"}
-              size={scale(20)}
-              color={ad.isActive ? Colors.onlineGreen : Colors.textGray}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity style={cardStyles.actionButton} onPress={onEdit}>
-            <Ionicons name="create-outline" size={scale(20)} color={Colors.accentBlue} />
-          </TouchableOpacity>
-          <TouchableOpacity style={cardStyles.actionButton} onPress={onDelete}>
-            <Ionicons name="trash-outline" size={scale(20)} color={Colors.offlineRed} />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  );
-};
-
-const cardStyles = StyleSheet.create({
-  card: {
-    backgroundColor: Colors.card,
-    borderRadius: moderateScale(12),
-    marginBottom: verticalScale(8),
-    borderWidth: 1,
-    borderColor: Colors.borderGray,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  cardContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: moderateScale(12),
-    gap: scale(10),
-  },
-  imageContainer: {
-    width: scale(60),
-    height: scale(60),
-    borderRadius: moderateScale(8),
-    overflow: "hidden",
-    backgroundColor: Colors.inputBackground,
-  },
-  adImage: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "cover",
-  },
-  infoContainer: {
-    flex: 1,
-  },
-  titleText: {
-    fontSize: moderateScale(15),
-    fontWeight: "600",
-    color: Colors.textDark,
-    marginBottom: verticalScale(2),
-  },
-  categoryText: {
-    fontSize: moderateScale(12),
-    color: Colors.textGray,
-    marginBottom: verticalScale(2),
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(6),
-    flexWrap: "wrap",
-  },
-  productBadge: {
-    backgroundColor: Colors.accentGreenLight,
-    paddingHorizontal: scale(8),
-    paddingVertical: verticalScale(2),
-    borderRadius: moderateScale(10),
-    borderWidth: 1,
-    borderColor: Colors.accentGreen,
-  },
-  productBadgeText: {
-    color: Colors.accentGreen,
-    fontSize: moderateScale(9),
-    fontWeight: "600",
-  },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  statusDot: {
-    width: scale(6),
-    height: scale(6),
-    borderRadius: scale(3),
-    marginRight: scale(4),
-  },
-  statusText: {
-    fontSize: moderateScale(10),
-    fontWeight: "600",
-  },
-  actions: {
-    flexDirection: "row",
-    gap: scale(2),
-  },
-  actionButton: {
-    padding: scale(6),
-    borderRadius: moderateScale(6),
+  lockedHint: {
+    fontSize: moderateScale(11),
+    color: Colors.textLightGray,
+    marginTop: verticalScale(4),
+    fontStyle: "italic",
   },
 });
 
-// ---------- GroupCard (new) ----------
-const GroupCard: React.FC<{
-  title: string;
-  image: string;
-  count: number;
-  onPress: () => void;
-}> = ({ title, image, count, onPress }) => {
-  return (
-    <TouchableOpacity style={groupCardStyles.card} onPress={onPress}>
-      <Image source={{ uri: image }} style={groupCardStyles.image} />
-      <View style={groupCardStyles.textContainer}>
-        <Text style={groupCardStyles.title}>{title}</Text>
-        <Text style={groupCardStyles.count}>{count} ad{count > 1 ? "s" : ""}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={24} color={Colors.textLightGray} />
-    </TouchableOpacity>
-  );
-};
-
-const groupCardStyles = StyleSheet.create({
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.card,
-    borderRadius: moderateScale(12),
-    padding: moderateScale(12),
-    marginBottom: verticalScale(8),
-    borderWidth: 1,
-    borderColor: Colors.borderGray,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  image: {
-    width: scale(60),
-    height: scale(60),
-    borderRadius: moderateScale(8),
-    marginRight: scale(12),
-    backgroundColor: Colors.inputBackground,
-    resizeMode: "cover",
-  },
-  textContainer: {
-    flex: 1,
-  },
-  title: {
-    fontSize: moderateScale(16),
-    fontWeight: "600",
-    color: Colors.textDark,
-  },
-  count: {
-    fontSize: moderateScale(13),
-    color: Colors.textGray,
-    marginTop: 2,
-  },
-});
-
-// ---------- Main Screen ----------
-const AdManagementScreen = () => {
+// ---------- Main Component ----------
+const AdGroupDetailScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation();
-  const isFocused = useIsFocused();
+  const route = useRoute();
+  const { title } = route.params as { title: string };
+
   const { ads, loading } = useSelector((state: RootState) => state.ads);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingAd, setEditingAd] = useState<Ad | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [searchText, setSearchText] = useState("");
+
+  const fetchAdsForGroup = useCallback(() => {
+    dispatch(fetchAds({ search: title }));
+  }, [dispatch, title]);
 
   useEffect(() => {
-    if (isFocused) {
-      dispatch(fetchAds({ search: searchText || undefined }));
-    }
-  }, [isFocused, dispatch, searchText]);
+    fetchAdsForGroup();
+  }, [fetchAdsForGroup]);
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await dispatch(fetchAds({ search: searchText || undefined }));
+    await fetchAdsForGroup();
     setIsRefreshing(false);
-  }, [dispatch, searchText]);
+  }, [fetchAdsForGroup]);
 
-  const handleGoBack = useCallback(() => {
-    try {
-      if (navigation && typeof navigation.canGoBack === "function" && navigation.canGoBack()) {
-        navigation.goBack();
-      } else {
-        console.warn("Cannot go back from this screen");
-      }
-    } catch (error) {
-      console.error("Navigation error:", error);
-    }
-  }, [navigation]);
+  const handleGoBack = () => navigation.goBack();
 
-  const handleCreate = () => {
+  const handleAdd = () => {
     setEditingAd(null);
     setShowModal(true);
   };
@@ -921,10 +722,10 @@ const AdManagementScreen = () => {
           onPress: async () => {
             try {
               await dispatch(deleteAd(ad._id)).unwrap();
-              Alert.alert("Success", "Ad deleted successfully");
-              dispatch(fetchAds({ search: searchText || undefined }));
+              Alert.alert("Success", "Ad deleted");
+              fetchAdsForGroup();
             } catch (error: any) {
-              Alert.alert("Error", error?.message || "Failed to delete ad");
+              Alert.alert("Error", error?.message || "Failed to delete");
             }
           },
         },
@@ -935,10 +736,10 @@ const AdManagementScreen = () => {
   const handleToggle = async (ad: Ad) => {
     try {
       await dispatch(toggleAdStatus({ id: ad._id, isActive: !ad.isActive })).unwrap();
-      Alert.alert("Success", `Ad ${!ad.isActive ? "activated" : "deactivated"} successfully`);
-      dispatch(fetchAds({ search: searchText || undefined }));
+      Alert.alert("Success", `Ad ${!ad.isActive ? "activated" : "deactivated"}`);
+      fetchAdsForGroup();
     } catch (error: any) {
-      Alert.alert("Error", error?.message || "Failed to toggle ad status");
+      Alert.alert("Error", error?.message || "Failed to toggle");
     }
   };
 
@@ -953,7 +754,7 @@ const AdManagementScreen = () => {
         Alert.alert("Success", "Ad created successfully");
       }
       setShowModal(false);
-      dispatch(fetchAds({ search: searchText || undefined }));
+      fetchAdsForGroup();
     } catch (error: any) {
       Alert.alert("Error", error?.message || "Failed to save ad");
     } finally {
@@ -961,132 +762,56 @@ const AdManagementScreen = () => {
     }
   };
 
-  const filteredAds = Array.isArray(ads) ? ads : [];
-
-  // Build grouped data: unique titles with first image and count
-  const groupedAds = useMemo(() => {
-    const groups: { [key: string]: { title: string; image: string; count: number } } = {};
-    filteredAds.forEach((ad) => {
-      const key = (ad.title || "Untitled").trim().toLowerCase();
-      if (!groups[key]) {
-        groups[key] = {
-          title: ad.title || "Untitled",
-          image: ad.image,
-          count: 0,
-        };
-      }
-      groups[key].count += 1;
-    });
-    return Object.values(groups);
-  }, [filteredAds]);
-
-  const handleGroupPress = (title: string) => {
-    // @ts-ignore – add this route to your navigator types
-    navigation.navigate("AdGroupDetail", { title });
-  };
-
-  if (!navigation) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.accentGreen} />
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const filteredAds = ads.filter(
+    (ad) => (ad.title || "Untitled").toLowerCase() === title.toLowerCase()
+  );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={scale(24)} color={Colors.textDark} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Manage Ads</Text>
-          <TouchableOpacity style={styles.addButton} onPress={handleCreate}>
-            <Ionicons name="add" size={scale(28)} color="#fff" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.searchBarContainer}>
-          <Ionicons name="search" size={scale(20)} color={Colors.textLightGray} />
-          <TextInput
-            style={styles.searchBarInput}
-            placeholder="Search by title, description or category..."
-            placeholderTextColor={Colors.textLightGray}
-            value={searchText}
-            onChangeText={setSearchText}
-          />
-          {searchText.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchText("")}>
-              <Ionicons name="close-circle" size={scale(20)} color={Colors.textLightGray} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{filteredAds.length}</Text>
-            <Text style={styles.statLabel}>Total</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={[styles.statNumber, { color: Colors.onlineGreen }]}>
-              {filteredAds.filter((a) => a.isActive).length}
-            </Text>
-            <Text style={styles.statLabel}>Active</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={[styles.statNumber, { color: Colors.offlineRed }]}>
-              {filteredAds.filter((a) => !a.isActive).length}
-            </Text>
-            <Text style={styles.statLabel}>Inactive</Text>
-          </View>
-        </View>
-
-        {loading && !isRefreshing ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={Colors.accentGreen} />
-            <Text style={styles.loadingText}>Loading ads...</Text>
-          </View>
-        ) : groupedAds.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="megaphone-outline" size={scale(60)} color={Colors.textLightGray} />
-            <Text style={styles.emptyTitle}>{searchText ? "No ads found" : "No ads yet"}</Text>
-            <Text style={styles.emptySubtitle}>
-              {searchText
-                ? "Try a different search term"
-                : "Create your first ad to promote your content"}
-            </Text>
-            {!searchText && (
-              <TouchableOpacity style={styles.emptyButton} onPress={handleCreate}>
-                <Text style={styles.emptyButtonText}>Create Ad</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : (
-          <FlatList
-            data={groupedAds}
-            keyExtractor={(item, index) => `${item.title}-${index}`}
-            renderItem={({ item }) => (
-              <GroupCard
-                title={item.title}
-                image={item.image}
-                count={item.count}
-                onPress={() => handleGroupPress(item.title)}
-              />
-            )}
-            contentContainerStyle={styles.listContent}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={onRefresh}
-                tintColor={Colors.accentGreen}
-              />
-            }
-          />
-        )}
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color={Colors.textDark} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        <TouchableOpacity style={styles.addButton} onPress={handleAdd}>
+          <Ionicons name="add" size={28} color="#fff" />
+        </TouchableOpacity>
       </View>
+
+      {loading && !isRefreshing ? (
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color={Colors.accentGreen} />
+        </View>
+      ) : (
+        <FlatList
+          data={filteredAds}
+          keyExtractor={(item) => item._id}
+          renderItem={({ item }) => (
+            <AdCard
+              ad={item}
+              onEdit={() => handleEdit(item)}
+              onDelete={() => handleDelete(item)}
+              onToggle={() => handleToggle(item)}
+            />
+          )}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.accentGreen}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>No ads found for "{title}"</Text>
+              <Text style={styles.emptySubtext}>Tap the "+" button to add one</Text>
+            </View>
+          }
+          contentContainerStyle={styles.list}
+        />
+      )}
 
       <AdFormModal
         visible={showModal}
@@ -1094,33 +819,36 @@ const AdManagementScreen = () => {
         ad={editingAd}
         onSubmit={handleSubmit}
         loading={isSubmitting}
+        defaultTitle={title}           // pre‑fill title
+        titleEditable={!editingAd}     // only editable when creating new ad (not editing)
       />
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
   container: {
     flex: 1,
-    padding: moderateScale(16),
+    backgroundColor: Colors.background,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: moderateScale(16),
     paddingVertical: verticalScale(8),
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderGray,
   },
   backButton: {
-    padding: scale(4),
+    padding: 4,
   },
   headerTitle: {
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(18),
     fontWeight: "bold",
     color: Colors.textDark,
+    flex: 1,
+    textAlign: "center",
   },
   addButton: {
     backgroundColor: Colors.accentGreen,
@@ -1130,93 +858,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  searchBarContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.inputBackground,
-    borderRadius: moderateScale(10),
-    paddingHorizontal: scale(12),
-    marginVertical: verticalScale(12),
-    borderWidth: 1,
-    borderColor: Colors.borderGray,
-  },
-  searchBarInput: {
-    flex: 1,
-    paddingVertical: verticalScale(10),
-    paddingHorizontal: scale(8),
-    color: Colors.textDark,
-    fontSize: moderateScale(15),
-  },
-  statsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    backgroundColor: Colors.card,
-    borderRadius: moderateScale(12),
-    paddingVertical: verticalScale(12),
-    marginBottom: verticalScale(12),
-    borderWidth: 1,
-    borderColor: Colors.borderGray,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  statItem: {
-    alignItems: "center",
-  },
-  statNumber: {
-    fontSize: moderateScale(20),
-    fontWeight: "bold",
-    color: Colors.textDark,
-  },
-  statLabel: {
-    fontSize: moderateScale(12),
-    color: Colors.textLightGray,
-    marginTop: verticalScale(2),
-  },
-  loadingContainer: {
+  loading: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  loadingText: {
-    color: Colors.textLightGray,
-    marginTop: verticalScale(8),
+  list: {
+    padding: moderateScale(16),
   },
-  emptyContainer: {
+  empty: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: scale(20),
+    marginTop: 40,
   },
-  emptyTitle: {
-    fontSize: moderateScale(18),
-    fontWeight: "bold",
-    color: Colors.textDark,
-    marginTop: verticalScale(12),
+  emptyText: {
+    fontSize: moderateScale(16),
+    color: Colors.textLightGray,
   },
-  emptySubtitle: {
+  emptySubtext: {
     fontSize: moderateScale(14),
     color: Colors.textLightGray,
-    marginTop: verticalScale(4),
-    textAlign: "center",
-  },
-  emptyButton: {
-    marginTop: verticalScale(20),
-    backgroundColor: Colors.accentGreen,
-    paddingHorizontal: scale(24),
-    paddingVertical: verticalScale(10),
-    borderRadius: moderateScale(8),
-  },
-  emptyButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: moderateScale(14),
-  },
-  listContent: {
-    paddingBottom: verticalScale(20),
+    marginTop: 8,
   },
 });
 
-export default AdManagementScreen;
+export default AdGroupDetailScreen;

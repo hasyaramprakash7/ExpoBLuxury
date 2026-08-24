@@ -15,7 +15,7 @@ import {
   Dimensions,
   Linking,
   StatusBar,
-  Animated as RNAnimated,
+  Animated,
   Platform,
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
@@ -34,7 +34,7 @@ import MapView, { Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
-import Animated, {
+import ReAnimated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
@@ -65,6 +65,7 @@ import {
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
 const isSmallPhone = width < 375;
+const HEADER_HEIGHT = 230;
 
 const Colors = {
   white: '#FFFFFF',
@@ -99,7 +100,7 @@ const FALLBACK_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCA
 type AddressType = "Home" | "Work" | "Other";
 
 // ================================================================
-// 1. Map Picker Modal - Updated with AddAddressScreen UI
+// 1. Map Picker Modal
 // ================================================================
 interface MapPickerModalProps {
   visible: boolean;
@@ -137,7 +138,6 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
     neighbourhood: "",
   });
 
-  // Search states
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
@@ -176,10 +176,7 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(
-          "Permission Denied",
-          "We need location access to pin your address."
-        );
+        Alert.alert("Permission Denied", "We need location access to pin your address.");
         setRegion(defaultLocation);
         setIsLocating(false);
         return;
@@ -254,7 +251,6 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
     }
   };
 
-  // Search functionality
   const searchLocations = useCallback((query: string) => {
     setSearchQuery(query);
     setShowSearchResults(query.length > 0);
@@ -271,9 +267,7 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
       try {
         const response = await fetch(
           `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=15&countrycodes=in`,
-          {
-            headers: { "User-Agent": "BLuxuryApp/1.0" },
-          }
+          { headers: { "User-Agent": "BLuxuryApp/1.0" } }
         );
         const data = await response.json();
         const results = data.sort((a: any, b: any) => {
@@ -362,7 +356,6 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={mapModalStyles.container}>
-            {/* MAP SECTION */}
             <View style={mapModalStyles.mapContainer}>
               {region ? (
                 <MapView
@@ -377,39 +370,25 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
               ) : (
                 <View style={mapModalStyles.mapLoading}>
                   <ActivityIndicator size="large" color={Colors.accentGreen} />
-                  <Text style={mapModalStyles.mapLoadingText}>
-                    Finding your location...
-                  </Text>
+                  <Text style={mapModalStyles.mapLoadingText}>Finding your location...</Text>
                 </View>
               )}
 
-              {/* Fixed Center Pin */}
               <View style={mapModalStyles.centerMarkerContainer} pointerEvents="none">
-                <View
-                  style={[
-                    mapModalStyles.markerBubble,
-                    isMapMoving && mapModalStyles.markerBubbleMoving,
-                  ]}
-                >
+                <View style={[mapModalStyles.markerBubble, isMapMoving && mapModalStyles.markerBubbleMoving]}>
                   <Text style={mapModalStyles.markerText}>
-                    {isMapMoving
-                      ? "Move map to adjust"
-                      : "Location selected here"}
+                    {isMapMoving ? "Move map to adjust" : "Location selected here"}
                   </Text>
                 </View>
                 <Ionicons
                   name="location"
                   size={42}
                   color={Colors.textPrimary}
-                  style={[
-                    mapModalStyles.markerIcon,
-                    isMapMoving && mapModalStyles.markerIconMoving,
-                  ]}
+                  style={[mapModalStyles.markerIcon, isMapMoving && mapModalStyles.markerIconMoving]}
                 />
                 <View style={mapModalStyles.markerShadow} />
               </View>
 
-              {/* Search Bar Overlay */}
               <View style={[mapModalStyles.searchContainer, { top: Math.max(insets.top, 20) }]}>
                 <View style={mapModalStyles.searchBar}>
                   <Ionicons name="search" size={20} color={Colors.textTertiary} />
@@ -419,21 +398,15 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
                     placeholderTextColor={Colors.textTertiary}
                     value={searchQuery}
                     onChangeText={searchLocations}
-                    onFocus={() => {
-                      if (searchQuery.length > 0) {
-                        setShowSearchResults(true);
-                      }
-                    }}
+                    onFocus={() => { if (searchQuery.length > 0) setShowSearchResults(true); }}
                   />
                   {isSearching && <ActivityIndicator size="small" color={Colors.accentGreen} />}
                   {searchQuery.length > 0 && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        setSearchQuery("");
-                        setSearchResults([]);
-                        setShowSearchResults(false);
-                      }}
-                    >
+                    <TouchableOpacity onPress={() => {
+                      setSearchQuery("");
+                      setSearchResults([]);
+                      setShowSearchResults(false);
+                    }}>
                       <Ionicons name="close-circle" size={20} color={Colors.textTertiary} />
                     </TouchableOpacity>
                   )}
@@ -468,7 +441,6 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
                 )}
               </View>
 
-              {/* Close Button */}
               <TouchableOpacity
                 style={[mapModalStyles.closeButton, { top: Math.max(insets.top, 20) }]}
                 onPress={onClose}
@@ -476,7 +448,6 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
                 <Ionicons name="close" size={24} color={Colors.textPrimary} />
               </TouchableOpacity>
 
-              {/* Re-center Button */}
               <TouchableOpacity
                 style={mapModalStyles.myLocationButton}
                 onPress={getCurrentLocation}
@@ -485,15 +456,10 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* BOTTOM SHEET */}
             <View style={mapModalStyles.bottomSheet}>
               <View style={mapModalStyles.locationHeader}>
                 <View style={mapModalStyles.locationIconContainer}>
-                  <Ionicons
-                    name="location"
-                    size={24}
-                    color={Colors.accentGreen}
-                  />
+                  <Ionicons name="location" size={24} color={Colors.accentGreen} />
                 </View>
                 <View style={mapModalStyles.locationTextContainer}>
                   <Text style={mapModalStyles.locationTitle}>Property Location</Text>
@@ -524,23 +490,11 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
                   return (
                     <TouchableOpacity
                       key={type}
-                      style={[
-                        mapModalStyles.typeChip,
-                        isSelected && mapModalStyles.typeChipSelected,
-                      ]}
+                      style={[mapModalStyles.typeChip, isSelected && mapModalStyles.typeChipSelected]}
                       onPress={() => setSelectedType(type)}
                     >
-                      <Ionicons
-                        name={iconName as any}
-                        size={16}
-                        color={isSelected ? Colors.accentGreen : Colors.textPrimary}
-                      />
-                      <Text
-                        style={[
-                          mapModalStyles.typeChipText,
-                          isSelected && mapModalStyles.typeChipTextSelected,
-                        ]}
-                      >
+                      <Ionicons name={iconName as any} size={16} color={isSelected ? Colors.accentGreen : Colors.textPrimary} />
+                      <Text style={[mapModalStyles.typeChipText, isSelected && mapModalStyles.typeChipTextSelected]}>
                         {type}
                       </Text>
                     </TouchableOpacity>
@@ -549,19 +503,11 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
               </View>
 
               <View style={mapModalStyles.buttonRow}>
-                <TouchableOpacity
-                  style={mapModalStyles.cancelButton}
-                  onPress={onClose}
-                >
+                <TouchableOpacity style={mapModalStyles.cancelButton} onPress={onClose}>
                   <Text style={mapModalStyles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={mapModalStyles.confirmButton}
-                  onPress={confirmLocation}
-                >
-                  <Text style={mapModalStyles.confirmButtonText}>
-                    Confirm Location
-                  </Text>
+                <TouchableOpacity style={mapModalStyles.confirmButton} onPress={confirmLocation}>
+                  <Text style={mapModalStyles.confirmButtonText}>Confirm Location</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -573,28 +519,11 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
 };
 
 const mapModalStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.white,
-  },
-  mapContainer: {
-    flex: 1,
-    position: "relative",
-  },
-  map: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  mapLoading: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: Colors.offWhite,
-  },
-  mapLoadingText: {
-    marginTop: 12,
-    color: Colors.textPrimary,
-    fontWeight: "600",
-  },
+  container: { flex: 1, backgroundColor: Colors.white },
+  mapContainer: { flex: 1, position: "relative" },
+  map: { ...StyleSheet.absoluteFillObject },
+  mapLoading: { ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center", backgroundColor: Colors.offWhite },
+  mapLoadingText: { marginTop: 12, color: Colors.textPrimary, fontWeight: "600" },
   centerMarkerContainer: {
     position: "absolute",
     top: "50%",
@@ -605,41 +534,13 @@ const mapModalStyles = StyleSheet.create({
     alignItems: "center",
     zIndex: 2,
   },
-  markerBubble: {
-    backgroundColor: Colors.textPrimary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginBottom: 5,
-  },
-  markerBubbleMoving: {
-    opacity: 0.5,
-  },
-  markerText: {
-    color: Colors.white,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  markerIcon: {
-    transform: [{ translateY: 0 }],
-  },
-  markerIconMoving: {
-    transform: [{ translateY: -12 }],
-  },
-  markerShadow: {
-    width: 8,
-    height: 4,
-    backgroundColor: "rgba(0,0,0,0.2)",
-    borderRadius: 4,
-    marginTop: -6,
-    transform: [{ scaleX: 2.5 }],
-  },
-  searchContainer: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    zIndex: 10,
-  },
+  markerBubble: { backgroundColor: Colors.textPrimary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginBottom: 5 },
+  markerBubbleMoving: { opacity: 0.5 },
+  markerText: { color: Colors.white, fontSize: 12, fontWeight: "600" },
+  markerIcon: { transform: [{ translateY: 0 }] },
+  markerIconMoving: { transform: [{ translateY: -12 }] },
+  markerShadow: { width: 8, height: 4, backgroundColor: "rgba(0,0,0,0.2)", borderRadius: 4, marginTop: -6, transform: [{ scaleX: 2.5 }] },
+  searchContainer: { position: "absolute", left: 16, right: 16, zIndex: 10 },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -655,14 +556,7 @@ const mapModalStyles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  searchInput: {
-    flex: 1,
-    color: Colors.textPrimary,
-    fontSize: 15,
-    paddingVertical: 0,
-    marginLeft: 10,
-    marginRight: 8,
-  },
+  searchInput: { flex: 1, color: Colors.textPrimary, fontSize: 15, paddingVertical: 0, marginLeft: 10, marginRight: 8 },
   searchResultsContainer: {
     backgroundColor: Colors.white,
     borderRadius: 12,
@@ -677,64 +571,13 @@ const mapModalStyles = StyleSheet.create({
     elevation: 4,
     overflow: 'hidden',
   },
-  searchResultsList: {
-    maxHeight: 250,
-  },
-  searchResultItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-  },
-  searchResultTextContainer: {
-    flex: 1,
-    marginLeft: 12,
-    marginRight: 8,
-  },
-  searchResultText: {
-    color: Colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  searchResultType: {
-    color: Colors.textTertiary,
-    fontSize: 12,
-    marginTop: 2,
-    textTransform: 'capitalize',
-  },
-  closeButton: {
-    position: "absolute",
-    left: 16,
-    backgroundColor: Colors.white,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 5,
-    shadowColor: Colors.shadowDark,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
-  },
-  myLocationButton: {
-    position: "absolute",
-    right: 16,
-    bottom: 24,
-    backgroundColor: Colors.white,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 4,
-    shadowColor: Colors.shadowDark,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
-  },
+  searchResultsList: { maxHeight: 250 },
+  searchResultItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  searchResultTextContainer: { flex: 1, marginLeft: 12, marginRight: 8 },
+  searchResultText: { color: Colors.textPrimary, fontSize: 14, fontWeight: '500' },
+  searchResultType: { color: Colors.textTertiary, fontSize: 12, marginTop: 2, textTransform: 'capitalize' },
+  closeButton: { position: "absolute", left: 16, backgroundColor: Colors.white, width: 44, height: 44, borderRadius: 22, justifyContent: "center", alignItems: "center", elevation: 5, shadowColor: Colors.shadowDark, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4 },
+  myLocationButton: { position: "absolute", right: 16, bottom: 24, backgroundColor: Colors.white, width: 48, height: 48, borderRadius: 24, justifyContent: "center", alignItems: "center", elevation: 4, shadowColor: Colors.shadowDark, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4 },
   bottomSheet: {
     backgroundColor: Colors.white,
     borderTopLeftRadius: 24,
@@ -751,127 +594,28 @@ const mapModalStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  locationHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  locationIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.accentGreenLight,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  locationTextContainer: {
-    flex: 1,
-  },
-  locationTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  locationSubtitle: {
-    fontSize: 13,
-    color: Colors.textTertiary,
-    lineHeight: 18,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.border,
-    marginBottom: 16,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: Colors.textPrimary,
-    backgroundColor: Colors.offWhite,
-    marginBottom: 20,
-  },
-  saveAsLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.textTertiary,
-    marginBottom: 12,
-  },
-  typeContainer: {
-    flexDirection: "row",
-    marginBottom: 24,
-  },
-  typeChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    marginRight: 10,
-    backgroundColor: Colors.white,
-  },
-  typeChipSelected: {
-    borderColor: Colors.accentGreen,
-    backgroundColor: Colors.accentGreenLight,
-  },
-  typeChipText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.textPrimary,
-    marginLeft: 6,
-  },
-  typeChipTextSelected: {
-    color: Colors.accentGreen,
-  },
-  buttonRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: Colors.offWhite,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  cancelButtonText: {
-    color: Colors.textPrimary,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  confirmButton: {
-    flex: 2,
-    backgroundColor: Colors.accentGreen,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 2,
-    shadowColor: Colors.accentGreen,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  confirmButtonText: {
-    color: Colors.white,
-    fontSize: 16,
-    fontWeight: "bold",
-    letterSpacing: 0.5,
-  },
+  locationHeader: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  locationIconContainer: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.accentGreenLight, justifyContent: "center", alignItems: "center", marginRight: 12 },
+  locationTextContainer: { flex: 1 },
+  locationTitle: { fontSize: 16, fontWeight: "700", color: Colors.textPrimary, marginBottom: 4 },
+  locationSubtitle: { fontSize: 13, color: Colors.textTertiary, lineHeight: 18 },
+  divider: { height: 1, backgroundColor: Colors.border, marginBottom: 16 },
+  input: { borderWidth: 1, borderColor: Colors.border, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: Colors.textPrimary, backgroundColor: Colors.offWhite, marginBottom: 20 },
+  saveAsLabel: { fontSize: 14, fontWeight: "600", color: Colors.textTertiary, marginBottom: 12 },
+  typeContainer: { flexDirection: "row", marginBottom: 24 },
+  typeChip: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginRight: 10, backgroundColor: Colors.white },
+  typeChipSelected: { borderColor: Colors.accentGreen, backgroundColor: Colors.accentGreenLight },
+  typeChipText: { fontSize: 14, fontWeight: "600", color: Colors.textPrimary, marginLeft: 6 },
+  typeChipTextSelected: { color: Colors.accentGreen },
+  buttonRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  cancelButton: { flex: 1, backgroundColor: Colors.offWhite, borderRadius: 12, paddingVertical: 16, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border },
+  cancelButtonText: { color: Colors.textPrimary, fontSize: 16, fontWeight: "600" },
+  confirmButton: { flex: 2, backgroundColor: Colors.accentGreen, borderRadius: 12, paddingVertical: 16, alignItems: "center", justifyContent: "center", elevation: 2, shadowColor: Colors.accentGreen, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+  confirmButtonText: { color: Colors.white, fontSize: 16, fontWeight: "bold", letterSpacing: 0.5 },
 });
 
 // ================================================================
-// 2. Address Modal (White Theme)
+// 2. Address Modal
 // ================================================================
 interface AddressModalProps {
   visible: boolean;
@@ -895,21 +639,11 @@ const AddressModal: React.FC<AddressModalProps> = ({
   onOpenMap,
 }) => {
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onClose}
-    >
+    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
       <View style={addressModalStyles.overlay}>
-        <TouchableOpacity
-          style={StyleSheet.absoluteFillObject}
-          activeOpacity={1}
-          onPress={onClose}
-        />
+        <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={onClose} />
         <View style={addressModalStyles.bottomSheet}>
           <View style={addressModalStyles.bottomSheetHandle} />
-
           <View style={addressModalStyles.sheetHeader}>
             <Text style={addressModalStyles.sheetTitle}>Select Location</Text>
             <TouchableOpacity onPress={onClose}>
@@ -918,42 +652,26 @@ const AddressModal: React.FC<AddressModalProps> = ({
           </View>
 
           <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
-            {/* Use Current Location */}
-            <TouchableOpacity
-              style={addressModalStyles.currentLocationContainer}
-              onPress={onAddAddress}
-            >
+            <TouchableOpacity style={addressModalStyles.currentLocationContainer} onPress={onAddAddress}>
               <View style={addressModalStyles.currentLocationIcon}>
                 <Ionicons name="locate" size={22} color={Colors.accentGreen} />
               </View>
               <View style={addressModalStyles.addressInfo}>
-                <Text style={addressModalStyles.currentLocationTitle}>
-                  Use my current location
-                </Text>
+                <Text style={addressModalStyles.currentLocationTitle}>Use my current location</Text>
                 <Text style={addressModalStyles.addressString} numberOfLines={1}>
-                  {selectedAddress
-                    ? selectedAddress.addressString
-                    : "Fetch GPS & find nearby properties"}
+                  {selectedAddress ? selectedAddress.addressString : "Fetch GPS & find nearby properties"}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
             </TouchableOpacity>
 
-            {/* Pick from Map */}
-            <TouchableOpacity
-              style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]}
-              onPress={onOpenMap}
-            >
+            <TouchableOpacity style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]} onPress={onOpenMap}>
               <View style={[addressModalStyles.currentLocationIcon, { backgroundColor: Colors.accentGreenLight }]}>
                 <Ionicons name="map" size={22} color={Colors.accentGreen} />
               </View>
               <View style={addressModalStyles.addressInfo}>
-                <Text style={[addressModalStyles.currentLocationTitle, { color: Colors.accentGreen }]}>
-                  Pick from Map
-                </Text>
-                <Text style={addressModalStyles.addressString} numberOfLines={1}>
-                  Search and select location on map
-                </Text>
+                <Text style={[addressModalStyles.currentLocationTitle, { color: Colors.accentGreen }]}>Pick from Map</Text>
+                <Text style={addressModalStyles.addressString} numberOfLines={1}>Search and select location on map</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
             </TouchableOpacity>
@@ -962,9 +680,7 @@ const AddressModal: React.FC<AddressModalProps> = ({
 
             {addresses.length > 0 && (
               <>
-                <Text style={addressModalStyles.savedAddressesHeader}>
-                  SAVED ADDRESSES
-                </Text>
+                <Text style={addressModalStyles.savedAddressesHeader}>SAVED ADDRESSES</Text>
                 {addresses.map((addr) => {
                   const isSelected = selectedAddress?.id === addr.id;
                   let iconName = "location";
@@ -975,53 +691,29 @@ const AddressModal: React.FC<AddressModalProps> = ({
                   return (
                     <TouchableOpacity
                       key={addr.id}
-                      style={[
-                        addressModalStyles.addressItem,
-                        isSelected && addressModalStyles.addressItemSelected,
-                      ]}
+                      style={[addressModalStyles.addressItem, isSelected && addressModalStyles.addressItemSelected]}
                       onPress={() => onSelectAddress(addr)}
                     >
                       <View style={addressModalStyles.iconContainer}>
-                        <Ionicons
-                          name={iconName as any}
-                          size={22}
-                          color={isSelected ? Colors.accentGreen : Colors.textSecondary}
-                        />
+                        <Ionicons name={iconName as any} size={22} color={isSelected ? Colors.accentGreen : Colors.textSecondary} />
                       </View>
                       <View style={addressModalStyles.addressInfo}>
                         <View style={addressModalStyles.addressTypeRow}>
-                          <Text
-                            style={[
-                              addressModalStyles.addressType,
-                              isSelected && { color: Colors.accentGreen },
-                            ]}
-                          >
+                          <Text style={[addressModalStyles.addressType, isSelected && { color: Colors.accentGreen }]}>
                             {addr.type}
                           </Text>
                           {isSelected && (
                             <View style={addressModalStyles.selectedBadge}>
-                              <Text style={addressModalStyles.selectedBadgeText}>
-                                Selected
-                              </Text>
+                              <Text style={addressModalStyles.selectedBadgeText}>Selected</Text>
                             </View>
                           )}
                         </View>
                         <Text style={addressModalStyles.addressString} numberOfLines={2}>
                           {addr.addressString}
                         </Text>
-                        {addr.landmark && (
-                          <Text style={addressModalStyles.landmarkText}>
-                            📍 {addr.landmark}
-                          </Text>
-                        )}
+                        {addr.landmark && <Text style={addressModalStyles.landmarkText}>📍 {addr.landmark}</Text>}
                       </View>
-                      {isSelected && (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={24}
-                          color={Colors.success}
-                        />
-                      )}
+                      {isSelected && <Ionicons name="checkmark-circle" size={24} color={Colors.success} />}
                     </TouchableOpacity>
                   );
                 })}
@@ -1035,14 +727,9 @@ const AddressModal: React.FC<AddressModalProps> = ({
           </ScrollView>
 
           <View style={addressModalStyles.addAddressFooter}>
-            <TouchableOpacity
-              style={addressModalStyles.addAddressButton}
-              onPress={onAddAddress}
-            >
+            <TouchableOpacity style={addressModalStyles.addAddressButton} onPress={onAddAddress}>
               <Ionicons name="add" size={20} color={Colors.accentGreen} />
-              <Text style={addressModalStyles.addAddressButtonText}>
-                Add new address
-              </Text>
+              <Text style={addressModalStyles.addAddressButtonText}>Add new address</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1052,178 +739,42 @@ const AddressModal: React.FC<AddressModalProps> = ({
 };
 
 const addressModalStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  bottomSheet: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
-    maxHeight: height * 0.8,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  bottomSheetHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: Colors.border,
-    borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-  },
-  sheetTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.textPrimary,
-    letterSpacing: -0.3,
-  },
-  addressList: {
-    maxHeight: height * 0.55,
-  },
-  currentLocationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: Colors.white,
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderLight,
-  },
-  currentLocationIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.accentGreenLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  currentLocationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  addressInfo: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  addressString: {
-    fontSize: 13,
-    color: Colors.textTertiary,
-    lineHeight: 18,
-  },
-  landmarkText: {
-    fontSize: 12,
-    color: Colors.textTertiary,
-    marginTop: 2,
-  },
-  sectionDivider: {
-    height: 8,
-    backgroundColor: Colors.offWhite,
-    width: '100%',
-  },
-  savedAddressesHeader: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textTertiary,
-    letterSpacing: 0.5,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
-  },
-  addressItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-  },
-  addressItemSelected: {
-    backgroundColor: Colors.accentGreenLight,
-  },
-  iconContainer: {
-    width: 30,
-    alignItems: 'flex-start',
-  },
-  addressTypeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  addressType: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  selectedBadge: {
-    marginLeft: 8,
-    backgroundColor: Colors.success,
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  selectedBadgeText: {
-    color: Colors.white,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  addAddressFooter: {
-    padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-    backgroundColor: Colors.white,
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderLight,
-  },
-  addAddressButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  addAddressButtonText: {
-    color: Colors.accentGreen,
-    fontSize: 16,
-    fontWeight: '700',
-    marginLeft: 8,
-  },
-  loadingContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  bottomSheet: { backgroundColor: Colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, maxHeight: height * 0.8, overflow: 'hidden', borderWidth: 1, borderColor: Colors.border },
+  bottomSheetHandle: { width: 40, height: 5, backgroundColor: Colors.border, borderRadius: 3, alignSelf: 'center', marginBottom: 16 },
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  sheetTitle: { fontSize: 20, fontWeight: 'bold', color: Colors.textPrimary, letterSpacing: -0.3 },
+  addressList: { maxHeight: height * 0.55 },
+  currentLocationContainer: { flexDirection: 'row', alignItems: 'center', padding: 20, backgroundColor: Colors.white, marginTop: 10, borderTopWidth: 1, borderTopColor: Colors.borderLight },
+  currentLocationIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.accentGreenLight, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  currentLocationTitle: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary, marginBottom: 2 },
+  addressInfo: { flex: 1, paddingRight: 10 },
+  addressString: { fontSize: 13, color: Colors.textTertiary, lineHeight: 18 },
+  landmarkText: { fontSize: 12, color: Colors.textTertiary, marginTop: 2 },
+  sectionDivider: { height: 8, backgroundColor: Colors.offWhite, width: '100%' },
+  savedAddressesHeader: { fontSize: 13, fontWeight: '700', color: Colors.textTertiary, letterSpacing: 0.5, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10 },
+  addressItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 20, backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  addressItemSelected: { backgroundColor: Colors.accentGreenLight },
+  iconContainer: { width: 30, alignItems: 'flex-start' },
+  addressTypeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  addressType: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
+  selectedBadge: { marginLeft: 8, backgroundColor: Colors.success, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  selectedBadgeText: { color: Colors.white, fontSize: 11, fontWeight: '700' },
+  addAddressFooter: { padding: 16, paddingBottom: Platform.OS === 'ios' ? 34 : 16, backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.borderLight },
+  addAddressButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.border, paddingVertical: 14, borderRadius: 12 },
+  addAddressButtonText: { color: Colors.accentGreen, fontSize: 16, fontWeight: '700', marginLeft: 8 },
+  loadingContainer: { padding: 20, alignItems: 'center' },
 });
 
 // ================================================================
-// 3. SUB-COMPONENTS (ViewPropertyCTA, RealisticChip, PropertyCard)
+// 3. SUB-COMPONENTS
 // ================================================================
 const ViewPropertyCTA = ({ onPress }: { onPress: () => void }) => {
   const arrowTranslateX = useSharedValue(0);
 
   useEffect(() => {
     arrowTranslateX.value = withRepeat(
-      withSequence(
-        withTiming(8, { duration: 600 }),
-        withTiming(0, { duration: 600 })
-      ),
+      withSequence(withTiming(8, { duration: 600 }), withTiming(0, { duration: 600 })),
       -1,
       true
     );
@@ -1236,18 +787,15 @@ const ViewPropertyCTA = ({ onPress }: { onPress: () => void }) => {
   return (
     <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={styles.ctaButton}>
       <Text style={styles.ctaText}>VIEW PROPERTY</Text>
-      <Animated.View style={animatedArrowStyle}>
+      <ReAnimated.View style={animatedArrowStyle}>
         <Ionicons name="arrow-forward" size={18} color={Colors.white} />
-      </Animated.View>
+      </ReAnimated.View>
     </TouchableOpacity>
   );
 };
 
 const RealisticChip = () => (
-  <LinearGradient
-    colors={['#D4AF37', '#F9E2AF', '#C5A028', '#D4AF37']}
-    style={styles.chipContainer}
-  >
+  <LinearGradient colors={['#D4AF37', '#F9E2AF', '#C5A028', '#D4AF37']} style={styles.chipContainer}>
     <View style={[styles.chipLine, { top: '25%', width: '100%' }]} />
     <View style={[styles.chipLine, { top: '50%', width: '100%' }]} />
     <View style={[styles.chipLine, { top: '75%', width: '100%' }]} />
@@ -1312,13 +860,10 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
   return (
     <GestureDetector gesture={panGesture}>
       <View style={styles.cardWrapper}>
-        <Animated.View style={[styles.cardBase, frontAnimatedStyle]}>
+        <ReAnimated.View style={[styles.cardBase, frontAnimatedStyle]}>
           <TouchableOpacity activeOpacity={1} onPress={navigateToDetails} style={{ flex: 1 }}>
             <Image source={{ uri: coverImage }} style={styles.cardBgImage} />
-            <LinearGradient
-              colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.6)', '#000']}
-              style={StyleSheet.absoluteFillObject}
-            />
+            <LinearGradient colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.6)', '#000']} style={StyleSheet.absoluteFillObject} />
             <View style={styles.frontHeader}>
               <View style={styles.chipBrandGroup}>
                 <RealisticChip />
@@ -1347,9 +892,9 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
               </View>
             </View>
           </TouchableOpacity>
-        </Animated.View>
+        </ReAnimated.View>
 
-        <Animated.View style={[styles.cardBase, styles.cardBack, backAnimatedStyle]}>
+        <ReAnimated.View style={[styles.cardBase, styles.cardBack, backAnimatedStyle]}>
           <View style={styles.vCardContainer}>
             <View style={styles.vCardHeader}>
               <View style={styles.vCardLogoArea}>
@@ -1400,14 +945,14 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
               <ViewPropertyCTA onPress={navigateToDetails} />
             </View>
           </View>
-        </Animated.View>
+        </ReAnimated.View>
       </View>
     </GestureDetector>
   );
 };
 
 // ================================================================
-// 4. MAIN SCREEN
+// 4. MAIN SCREEN - WITH SCROLL PRESERVATION
 // ================================================================
 const UserPropertyListScreen: React.FC = () => {
   const dispatch = useDispatch<any>();
@@ -1441,14 +986,20 @@ const UserPropertyListScreen: React.FC = () => {
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [mapPickerCoords, setMapPickerCoords] = useState<{ lat: number; lng: number } | null>(null);
 
-  const scrollY = useRef(new RNAnimated.Value(0)).current;
-  const flatListRef = useRef<FlatList>(null);
+  // ✅ Animated header
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const isHeaderHidden = useRef(false);
 
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
+  // Store complete state for restoration
+  const savedState = useRef({
+    scrollOffset: 0,
+    isHeaderHidden: false,
+    headerTranslateYValue: 0,
   });
+  const isNavigatingAway = useRef(false);
+
+  const flatListRef = useRef<FlatList>(null);
 
   // Sync local filters when selectedAddress changes
   useEffect(() => {
@@ -1466,6 +1017,81 @@ const UserPropertyListScreen: React.FC = () => {
       dispatch(fetchUserAddresses(token));
     }
   }, [dispatch, token]);
+
+  // ✅ PRESERVE scroll position when returning to screen
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 [PropertyList] Screen FOCUSED');
+      console.log('📱 [PropertyList] Current saved scroll position:', savedState.current.scrollOffset);
+
+      isNavigatingAway.current = false;
+
+      // ✅ RESTORE scroll position instead of resetting to top
+      if (savedState.current.scrollOffset > 10) {
+        console.log('📍 [PropertyList] Restoring scroll to:', savedState.current.scrollOffset);
+
+        // Restore header state
+        if (savedState.current.isHeaderHidden) {
+          isHeaderHidden.current = true;
+          headerTranslateY.setValue(-HEADER_HEIGHT);
+        } else {
+          isHeaderHidden.current = false;
+          headerTranslateY.setValue(0);
+        }
+
+        // Restore scroll position with multiple attempts
+        const restoreScroll = (attempt = 0) => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({
+              offset: savedState.current.scrollOffset,
+              animated: false,
+            });
+          }
+          if (attempt < 3) {
+            setTimeout(() => restoreScroll(attempt + 1), 100 * (attempt + 1));
+          }
+        };
+        restoreScroll(0);
+      } else {
+        console.log('🔄 [PropertyList] No saved position, staying at top');
+        setTimeout(() => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({
+              offset: 0,
+              animated: false,
+            });
+          }
+        }, 100);
+      }
+
+      // Refresh data
+      if (token) {
+        dispatch(fetchUserAddresses(token));
+      }
+      applyFilters();
+      dispatch(fetchAllVendorsAuth());
+
+      return () => {
+        // ✅ SAVE current scroll position when leaving
+        console.log('💾 [PropertyList] Saving scroll position:', lastScrollY.current);
+        savedState.current.scrollOffset = lastScrollY.current;
+        savedState.current.isHeaderHidden = isHeaderHidden.current;
+        isNavigatingAway.current = true;
+        console.log('📱 [PropertyList] Screen UNFOCUSED - saved at:', savedState.current.scrollOffset);
+      };
+    }, [dispatch, token, applyFilters])
+  );
+
+  // Add beforeRemove listener for better scroll saving
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      savedState.current.scrollOffset = lastScrollY.current;
+      savedState.current.isHeaderHidden = isHeaderHidden.current;
+      console.log('💾 [PropertyList] Before remove, saving scroll:', savedState.current.scrollOffset);
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   // Build filter params
   const getFilterParams = useCallback((overrides: any = {}) => {
@@ -1606,12 +1232,12 @@ const UserPropertyListScreen: React.FC = () => {
 
   const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
     console.log('📍 Map location selected:', lat, lng, addressDetails);
-    
+
     const city = addressDetails.city || '';
     const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
     const state = addressDetails.state || '';
     const pincode = addressDetails.pincode || '';
-    
+
     const addressParts = [
       addressDetails.street,
       addressDetails.colony,
@@ -1624,7 +1250,7 @@ const UserPropertyListScreen: React.FC = () => {
       pincode,
       addressDetails.country,
     ].filter(Boolean);
-    
+
     const fullAddress = addressParts.join(', ');
 
     const addressData = {
@@ -1667,15 +1293,6 @@ const UserPropertyListScreen: React.FC = () => {
     dispatch(fetchAllVendorsAuth());
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (token) {
-        dispatch(fetchUserAddresses(token));
-      }
-      applyFilters();
-    }, [dispatch, token, applyFilters])
-  );
-
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     if (token) {
@@ -1713,6 +1330,56 @@ const UserPropertyListScreen: React.FC = () => {
     return parts.length ? parts.join(', ') : 'Select a location';
   }, [selectedAddress, locality, city, state, pincode]);
 
+  // ✅ Handle scroll for header animation with state saving
+  const handleScroll = (event: any) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const diff = currentScrollY - lastScrollY.current;
+
+    // ✅ Save state continuously
+    savedState.current.scrollOffset = currentScrollY;
+    savedState.current.isHeaderHidden = isHeaderHidden.current;
+    savedState.current.headerTranslateYValue = currentScrollY > 20 ? -HEADER_HEIGHT : 0;
+
+    // Only trigger animation when scrolling significantly
+    if (currentScrollY > 20) {
+      if (diff > 5 && !isHeaderHidden.current) {
+        isHeaderHidden.current = true;
+        savedState.current.isHeaderHidden = true;
+        Animated.spring(headerTranslateY, {
+          toValue: -HEADER_HEIGHT,
+          useNativeDriver: true,
+          damping: 20,
+          mass: 0.5,
+          stiffness: 150,
+        }).start();
+      } else if (diff < -5 && isHeaderHidden.current) {
+        isHeaderHidden.current = false;
+        savedState.current.isHeaderHidden = false;
+        Animated.spring(headerTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 20,
+          mass: 0.5,
+          stiffness: 150,
+        }).start();
+      }
+    } else {
+      if (isHeaderHidden.current) {
+        isHeaderHidden.current = false;
+        savedState.current.isHeaderHidden = false;
+        Animated.spring(headerTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 20,
+          mass: 0.5,
+          stiffness: 150,
+        }).start();
+      }
+    }
+
+    lastScrollY.current = currentScrollY;
+  };
+
   // Loading state
   if (locationLoading && addresses.length === 0) {
     return (
@@ -1727,86 +1394,99 @@ const UserPropertyListScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
 
-      <RNAnimated.View style={[styles.header, { opacity: headerOpacity }]}>
-        <View>
-          <Text style={styles.headerSubtitle}>PRIVATE COLLECTION</Text>
-          <Text style={styles.headerTitle}>BLUXURY LISTINGS</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={styles.locationBtn}
-            onPress={() => setShowAddressModal(true)}
-          >
-            <Ionicons name="location-outline" size={22} color={Colors.accentGreen} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.notificationBtn}>
-            <Ionicons name="notifications-outline" size={24} color={Colors.textPrimary} />
-            <View style={styles.notificationDot} />
-          </TouchableOpacity>
-        </View>
-      </RNAnimated.View>
-
-      {/* Location Bar */}
-      <TouchableOpacity
-        style={styles.locationBar}
-        onPress={() => setShowAddressModal(true)}
-        activeOpacity={0.7}
+      {/* ✅ ANIMATED HEADER */}
+      <Animated.View
+        style={[
+          styles.headerContainer,
+          {
+            transform: [{ translateY: headerTranslateY }],
+          }
+        ]}
       >
-        <Ionicons name="location-sharp" size={18} color={Colors.accentGreen} />
-        <Text style={styles.locationBarText} numberOfLines={1}>
-          {getLocationSummary()}
-        </Text>
-        <Ionicons name="chevron-down" size={16} color={Colors.textTertiary} />
-      </TouchableOpacity>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerSubtitle}>PRIVATE COLLECTION</Text>
+            <Text style={styles.headerTitle}>BLUXURY LISTINGS</Text>
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.locationBtn}
+              onPress={() => setShowAddressModal(true)}
+            >
+              <Ionicons name="location-outline" size={22} color={Colors.accentGreen} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.notificationBtn}>
+              <Ionicons name="notifications-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.notificationDot} />
+            </TouchableOpacity>
+          </View>
+        </View>
 
-      <View style={styles.searchBar}>
-        <Ionicons name="search" size={20} color={Colors.textTertiary} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search properties by title or highlights..."
-          placeholderTextColor={Colors.textTertiary}
-          value={searchText}
-          onChangeText={setSearchText}
-          onSubmitEditing={() => applyFilters({ q: searchText })}
-          returnKeyType="search"
-        />
-        <TouchableOpacity onPress={() => setFiltersVisible(true)} style={styles.filterBtn}>
-          <Ionicons name="options-outline" size={22} color={Colors.white} />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoryScroll}
-        contentContainerStyle={styles.categoryContent}
-      >
+        {/* Location Bar */}
         <TouchableOpacity
-          style={[styles.categoryPill, !selectedType && styles.categoryPillActive]}
-          onPress={() => {
-            setSelectedType('');
-            applyFilters({ propertyType: '' });
-          }}
+          style={styles.locationBar}
+          onPress={() => setShowAddressModal(true)}
+          activeOpacity={0.7}
         >
-          <Text style={[styles.categoryText, !selectedType && styles.categoryTextActive]}>All</Text>
+          <Ionicons name="location-sharp" size={18} color={Colors.accentGreen} />
+          <Text style={styles.locationBarText} numberOfLines={1}>
+            {getLocationSummary()}
+          </Text>
+          <Ionicons name="chevron-down" size={16} color={Colors.textTertiary} />
         </TouchableOpacity>
-        {PROPERTY_TYPES.map((type) => (
+
+        {/* Search Bar */}
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={20} color={Colors.textTertiary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search properties by title or highlights..."
+            placeholderTextColor={Colors.textTertiary}
+            value={searchText}
+            onChangeText={setSearchText}
+            onSubmitEditing={() => applyFilters({ q: searchText })}
+            returnKeyType="search"
+          />
+          <TouchableOpacity onPress={() => setFiltersVisible(true)} style={styles.filterBtn}>
+            <Ionicons name="options-outline" size={22} color={Colors.white} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Category Scroll */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoryScroll}
+          contentContainerStyle={styles.categoryContent}
+        >
           <TouchableOpacity
-            key={type}
-            style={[styles.categoryPill, selectedType === type && styles.categoryPillActive]}
+            style={[styles.categoryPill, !selectedType && styles.categoryPillActive]}
             onPress={() => {
-              setSelectedType(type);
-              applyFilters({ propertyType: type });
+              setSelectedType('');
+              applyFilters({ propertyType: '' });
             }}
           >
-            <Text style={[styles.categoryText, selectedType === type && styles.categoryTextActive]}>
-              {type}
-            </Text>
+            <Text style={[styles.categoryText, !selectedType && styles.categoryTextActive]}>All</Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+          {PROPERTY_TYPES.map((type) => (
+            <TouchableOpacity
+              key={type}
+              style={[styles.categoryPill, selectedType === type && styles.categoryPillActive]}
+              onPress={() => {
+                setSelectedType(type);
+                applyFilters({ propertyType: type });
+              }}
+            >
+              <Text style={[styles.categoryText, selectedType === type && styles.categoryTextActive]}>
+                {type}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </Animated.View>
 
-      <View style={styles.resultsRow}>
+      {/* Results Row */}
+      <View style={[styles.resultsRow, { paddingTop: HEADER_HEIGHT + 4 }]}>
         <Text style={styles.resultsText}>
           {properties.length} {properties.length === 1 ? 'property' : 'properties'} found
         </Text>
@@ -1815,11 +1495,12 @@ const UserPropertyListScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
 
+      {/* Main Content with FlatList */}
       <FlatList
         ref={flatListRef}
         data={properties}
         keyExtractor={(item) => item._id}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent]}
         renderItem={({ item }) => <PropertyCard item={item} vendors={vendors} />}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
@@ -1827,6 +1508,8 @@ const UserPropertyListScreen: React.FC = () => {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accentGreen} />
         }
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         ListEmptyComponent={
           !loading ? (
             <View style={styles.emptyContainer}>
@@ -1857,7 +1540,7 @@ const UserPropertyListScreen: React.FC = () => {
         onOpenMap={handleOpenMapPicker}
       />
 
-      {/* Map Picker Modal - Updated with AddAddressScreen UI */}
+      {/* Map Picker Modal */}
       <MapPickerModal
         visible={showMapPicker}
         onClose={() => setShowMapPicker(false)}
@@ -2013,31 +1696,35 @@ const UserPropertyListScreen: React.FC = () => {
 };
 
 // ================================================================
-// 5. STYLES - WHITE THEME
+// 5. STYLES
 // ================================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.white },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.white },
+  loadingText: { marginTop: 12, fontSize: 14, color: Colors.textTertiary },
+
+  // ✅ HEADER CONTAINER - Fixed at top with animation
+  headerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     backgroundColor: Colors.white,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: Colors.textTertiary,
+    zIndex: 10,
+    paddingTop: Platform.OS === 'ios' ? 8 : 12,
+    shadowColor: Colors.royalNavy,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 3,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 50 : 30,
-    paddingBottom: 12,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    paddingTop: 4,
+    paddingBottom: 4,
   },
   headerSubtitle: {
     fontSize: isSmallPhone ? 10 : 12,
@@ -2131,7 +1818,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  categoryScroll: { marginTop: 4, maxHeight: 45, marginBottom: 8 },
+  categoryScroll: { marginTop: 4, maxHeight: 45, marginBottom: 4 },
   categoryContent: { paddingHorizontal: 16, paddingBottom: 4 },
   categoryPill: {
     paddingHorizontal: 14,
@@ -2153,7 +1840,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 4,
     paddingBottom: 8,
   },
   resultsText: { fontSize: isSmallPhone ? 12 : 13, color: Colors.textTertiary, fontWeight: '500' },
@@ -2182,12 +1868,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.accentGreen,
     borderWidth: 1,
   },
-  cardBgImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-    opacity: 0.65,
-  },
+  cardBgImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', opacity: 0.65 },
   chipContainer: { width: 40, height: 28, borderRadius: 5, overflow: 'hidden' },
   chipLine: { position: 'absolute', height: 0.5, backgroundColor: 'rgba(0,0,0,0.2)' },
   chipLineVertical: { position: 'absolute', width: 0.5, backgroundColor: 'rgba(0,0,0,0.2)' },
@@ -2205,72 +1886,24 @@ const styles = StyleSheet.create({
   specText: { color: '#fff', fontSize: 12, fontWeight: '900' },
   specTextSub: { color: Colors.luxuryGold, fontSize: 8, fontWeight: 'bold' },
 
-  vCardContainer: {
-    padding: 16,
-    flex: 1,
-    justifyContent: 'space-between',
-    backgroundColor: Colors.white,
-  },
+  vCardContainer: { padding: 16, flex: 1, justifyContent: 'space-between', backgroundColor: Colors.white },
   vCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   vCardLogoArea: { flexDirection: 'row', alignItems: 'center' },
-  vCardBrandName: {
-    color: Colors.textPrimary,
-    fontSize: 11,
-    fontWeight: 'bold',
-    letterSpacing: 3,
-    marginLeft: 6,
-  },
+  vCardBrandName: { color: Colors.textPrimary, fontSize: 11, fontWeight: 'bold', letterSpacing: 3, marginLeft: 6 },
   flipIcon: { padding: 4 },
   vCardMainInfo: { marginTop: 4 },
-  vendorName: {
-    color: Colors.textPrimary,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  vendorTitle: {
-    color: Colors.textTertiary,
-    fontSize: 9,
-    fontWeight: '600',
-    marginTop: 2,
-    letterSpacing: 1,
-  },
+  vendorName: { color: Colors.textPrimary, fontSize: 16, fontWeight: 'bold' },
+  vendorTitle: { color: Colors.textTertiary, fontSize: 9, fontWeight: '600', marginTop: 2, letterSpacing: 1 },
   goldDivider: { width: 30, height: 2, backgroundColor: Colors.accentGreen, marginTop: 6 },
   contactGrid: { marginVertical: 4 },
   contactItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
-  contactText: {
-    color: Colors.textSecondary,
-    fontSize: 9.5,
-    marginLeft: 10,
-    fontWeight: '500',
-  },
+  contactText: { color: Colors.textSecondary, fontSize: 9.5, marginLeft: 10, fontWeight: '500' },
   vCardFooter: { width: '100%' },
-  ctaButton: {
-    backgroundColor: Colors.accentGreen,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 0,
-  },
-  ctaText: {
-    color: Colors.white,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-    marginRight: 10,
-  },
+  ctaButton: { backgroundColor: Colors.accentGreen, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8, borderWidth: 0 },
+  ctaText: { color: Colors.white, fontSize: 11, fontWeight: '900', letterSpacing: 1.5, marginRight: 10 },
 
   emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: height * 0.15, paddingHorizontal: 40 },
-  emptyIconWrapper: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.accentGreenLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
+  emptyIconWrapper: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.accentGreenLight, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   emptyTitle: { fontSize: isSmallPhone ? 18 : 20, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8 },
   emptySubtitle: { fontSize: isSmallPhone ? 13 : 14, color: Colors.textTertiary, textAlign: 'center', lineHeight: 20 },
   emptyBtn: { marginTop: 20, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 25, borderWidth: 1, borderColor: Colors.accentGreen },

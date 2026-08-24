@@ -300,7 +300,7 @@ export default function SignupScreen() {
         <View style={signupStyles.logoCircle}>
           <Text style={signupStyles.logoB}>UT</Text>
         </View>
-        <Text style={signupStyles.logoText}>UsmanTrading</Text>
+        <Text style={signupStyles.logoText}>BLuxury</Text>
       </View>
       <Text style={signupStyles.subtitle}>
         Join us and explore amazing features!

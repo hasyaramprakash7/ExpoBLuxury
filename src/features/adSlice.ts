@@ -5,12 +5,12 @@ import api from '../userScreens/utils/api';
 export interface Ad {
   _id: string;
   title: string;
+  description: string;
+  category: string;
   image: string;
   link: string;
-  startDate: string;
-  endDate: string;
   isActive: boolean;
-  isProductAd: boolean; // NEW
+  isProductAd: boolean;
   createdAt: string;
 }
 
@@ -31,12 +31,14 @@ const initialState: AdState = {
 // ---------- Thunks ----------
 export const fetchAds = createAsyncThunk(
   'ads/fetchAll',
-  async (params?: { isActive?: boolean }, { rejectWithValue }) => {
+  async (params?: { isActive?: boolean; search?: string }, { rejectWithValue }) => {
     try {
       let url = '/ads';
-      if (params?.isActive !== undefined) {
-        url += `?isActive=${params.isActive}`;
-      }
+      const queryParams = new URLSearchParams();
+      if (params?.isActive !== undefined) queryParams.append('isActive', String(params.isActive));
+      if (params?.search) queryParams.append('search', params.search);
+      const query = queryParams.toString();
+      if (query) url += `?${query}`;
       const res = await api.get(url);
       return res.data?.data || [];
     } catch (err: any) {
@@ -47,9 +49,11 @@ export const fetchAds = createAsyncThunk(
 
 export const fetchActiveAds = createAsyncThunk(
   'ads/fetchActive',
-  async (_, { rejectWithValue }) => {
+  async (search?: string, { rejectWithValue }) => {
     try {
-      const res = await api.get('/ads/active');
+      let url = '/ads/active';
+      if (search) url += `?search=${encodeURIComponent(search)}`;
+      const res = await api.get(url);
       const data = res.data?.data || [];
       return Array.isArray(data) ? data : [];
     } catch (err: any) {
@@ -58,7 +62,6 @@ export const fetchActiveAds = createAsyncThunk(
   }
 );
 
-// createAd and updateAd now expect FormData with 'isProductAd' appended
 export const createAd = createAsyncThunk(
   'ads/create',
   async (data: FormData, { rejectWithValue }) => {
@@ -160,10 +163,7 @@ const adSlice = createSlice({
       .addCase(createAd.fulfilled, (state, action) => {
         if (action.payload) {
           state.ads = [action.payload, ...state.ads];
-          const now = new Date();
-          const start = new Date(action.payload.startDate);
-          const end = new Date(action.payload.endDate);
-          if (action.payload.isActive && start <= now && end >= now) {
+          if (action.payload.isActive) {
             state.activeAds = [action.payload, ...state.activeAds];
           }
         }
@@ -217,7 +217,6 @@ export const selectActiveAds = (state: RootState) => state.ads.activeAds;
 export const selectAdsLoading = (state: RootState) => state.ads.loading;
 export const selectAdsError = (state: RootState) => state.ads.error;
 
-// Optional: separate selectors for product ads and generic ads
 export const selectProductAds = (state: RootState) =>
   state.ads.activeAds.filter(ad => ad.isProductAd);
 export const selectGenericAds = (state: RootState) =>
