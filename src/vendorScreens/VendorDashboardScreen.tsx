@@ -541,7 +541,7 @@ export default function VendorDashboard() {
         </TouchableOpacity>
       </ScrollView>
 
-      <View style={styles.bottomNav}>
+      {/* <View style={styles.bottomNav}>
         <TouchableOpacity
           onPress={() => navigation.navigate("VendorChatScreen")}
           style={styles.navItem}
@@ -567,7 +567,7 @@ export default function VendorDashboard() {
           <Receipt size={24} color="#6c757d" />
           <Text style={styles.navText}>Orders</Text>
         </TouchableOpacity>
-      </View>
+      </View> */}
     </SafeAreaView>
   );
 }

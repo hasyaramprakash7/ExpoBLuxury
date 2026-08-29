@@ -509,12 +509,11 @@ const UserRentalListScreen: React.FC = () => {
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [showAddAddressModal, setShowAddAddressModal] = useState(false);
   
-  // ✅ Animated header
+  // Animated header
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
   const isHeaderHidden = useRef(false);
   
-  // Store complete state for restoration
   const savedState = useRef({
     scrollOffset: 0,
     isHeaderHidden: false,
@@ -524,126 +523,131 @@ const UserRentalListScreen: React.FC = () => {
 
   const flatListRef = useRef<FlatList>(null);
 
+  // Track previous address to detect changes (for watcher)
+  const prevSelectedAddressRef = useRef<any>(null);
+  const initialFilterApplied = useRef(false);
+
+  // ============================
   // Load addresses when token is available
+  // ============================
   useEffect(() => {
     if (token) {
       dispatch(fetchUserAddresses(token));
     }
   }, [dispatch, token]);
 
-  // Update filter fields when selectedAddress changes
+  // ============================
+  // Sync local filters when selectedAddress changes (for UI display)
+  // ============================
   useEffect(() => {
     if (selectedAddress) {
+      console.log('📍 [RentalList] selectedAddress updated:', {
+        city: selectedAddress.city,
+        locality: selectedAddress.locality,
+        state: selectedAddress.state,
+        pincode: selectedAddress.pincode,
+        addressString: selectedAddress.addressString?.substring(0, 50),
+      });
       setCity(selectedAddress.city || '');
       setLocality(selectedAddress.locality || '');
       setState(selectedAddress.state || '');
       setPincode(selectedAddress.pincode || '');
+    } else {
+      console.log('⚠️ [RentalList] selectedAddress is null');
     }
   }, [selectedAddress]);
 
-  // ✅ PRESERVE scroll position when returning to screen
-  useFocusEffect(
-    useCallback(() => {
-      console.log('📱 [RentalList] Screen FOCUSED');
-      console.log('📱 [RentalList] Current saved scroll position:', savedState.current.scrollOffset);
-
-      isNavigatingAway.current = false;
-
-      // ✅ RESTORE scroll position instead of resetting to top
-      if (savedState.current.scrollOffset > 10) {
-        console.log('📍 [RentalList] Restoring scroll to:', savedState.current.scrollOffset);
-        
-        // Restore header state
-        if (savedState.current.isHeaderHidden) {
-          isHeaderHidden.current = true;
-          headerTranslateY.setValue(-HEADER_HEIGHT);
-        } else {
-          isHeaderHidden.current = false;
-          headerTranslateY.setValue(0);
-        }
-        
-        // Restore scroll position with multiple attempts
-        const restoreScroll = (attempt = 0) => {
-          if (flatListRef.current) {
-            flatListRef.current.scrollToOffset({
-              offset: savedState.current.scrollOffset,
-              animated: false,
-            });
-          }
-          if (attempt < 3) {
-            setTimeout(() => restoreScroll(attempt + 1), 100 * (attempt + 1));
-          }
-        };
-        restoreScroll(0);
-      } else {
-        console.log('🔄 [RentalList] No saved position, staying at top');
-        setTimeout(() => {
-          if (flatListRef.current) {
-            flatListRef.current.scrollToOffset({
-              offset: 0,
-              animated: false,
-            });
-          }
-        }, 100);
-      }
-
-      // Refresh data
-      if (token) {
-        dispatch(fetchUserAddresses(token));
-      }
-      applyFilters();
-
-      return () => {
-        // ✅ SAVE current scroll position when leaving
-        console.log('💾 [RentalList] Saving scroll position:', lastScrollY.current);
-        savedState.current.scrollOffset = lastScrollY.current;
-        savedState.current.isHeaderHidden = isHeaderHidden.current;
-        isNavigatingAway.current = true;
-        console.log('📱 [RentalList] Screen UNFOCUSED - saved at:', savedState.current.scrollOffset);
-      };
-    }, [dispatch, token, applyFilters])
-  );
-
-  // Add beforeRemove listener for better scroll saving
+  // ============================
+  // 🔥 WATCH: selectedAddress changes → automatically re-fetch
+  // ============================
   useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-      // Save scroll position before screen is removed
-      savedState.current.scrollOffset = lastScrollY.current;
-      savedState.current.isHeaderHidden = isHeaderHidden.current;
-      console.log('💾 [RentalList] Before remove, saving scroll:', savedState.current.scrollOffset);
-    });
+    if (!selectedAddress) {
+      console.log('⏭️ [RentalList] selectedAddress is null, skipping watcher');
+      return;
+    }
 
-    return unsubscribe;
-  }, [navigation]);
+    // On first valid address, mark as initialized but don't fetch (initial load handled separately)
+    if (!initialFilterApplied.current) {
+      console.log('🚀 [RentalList] First valid address – marking initialized');
+      initialFilterApplied.current = true;
+      prevSelectedAddressRef.current = selectedAddress;
+      return;
+    }
 
-  // Helper to build filter object from current state
+    const prev = prevSelectedAddressRef.current;
+    if (prev) {
+      const hasChanged =
+        prev.city !== selectedAddress.city ||
+        prev.locality !== selectedAddress.locality ||
+        prev.state !== selectedAddress.state ||
+        prev.pincode !== selectedAddress.pincode;
+
+      if (hasChanged) {
+        console.log('🔄 [RentalList] Address fields changed – re-fetching with location', {
+          prev: { city: prev.city, locality: prev.locality, state: prev.state, pincode: prev.pincode },
+          current: { city: selectedAddress.city, locality: selectedAddress.locality, state: selectedAddress.state, pincode: selectedAddress.pincode },
+        });
+        // Update local state (already done by the sync effect above)
+        // Now call applyFilters() – it will use selectedAddress via getFilterParams
+        applyFilters();
+      } else {
+        console.log('✅ [RentalList] Address fields unchanged – no re-fetch');
+      }
+    }
+    prevSelectedAddressRef.current = selectedAddress;
+  }, [selectedAddress, applyFilters]);
+
+  // ============================
+  // Build filter params – always use selectedAddress unless overridden
+  // ============================
   const getFilterParams = useCallback((overrides: any = {}) => {
-    return {
+    // Priority: overrides > selectedAddress > local state (fallback)
+    const finalCity = overrides.city !== undefined ? overrides.city : (selectedAddress?.city ?? city);
+    const finalLocality = overrides.locality !== undefined ? overrides.locality : (selectedAddress?.locality ?? locality);
+    const finalState = overrides.state !== undefined ? overrides.state : (selectedAddress?.state ?? state);
+    const finalPincode = overrides.pincode !== undefined ? overrides.pincode : (selectedAddress?.pincode ?? pincode);
+
+    const params = {
       page: 1,
       limit: 10,
       q: searchText || undefined,
       rentalType: selectedType || undefined,
       minRent: minRent ? Number(minRent) : undefined,
       maxRent: maxRent ? Number(maxRent) : undefined,
-      city: city || undefined,
-      state: state || undefined,
-      locality: locality || undefined,
-      pincode: pincode || undefined,
+      city: finalCity || undefined,
+      state: finalState || undefined,
+      locality: finalLocality || undefined,
+      pincode: finalPincode || undefined,
       isAvailable,
       ...overrides,
     };
-  }, [searchText, selectedType, minRent, maxRent, city, state, locality, pincode, isAvailable]);
 
-  // Apply filters
+    console.log('📦 [RentalList] getFilterParams output:', {
+      city: params.city,
+      locality: params.locality,
+      state: params.state,
+      pincode: params.pincode,
+      hasLocation: !!(params.city || params.locality || params.state || params.pincode),
+    });
+
+    return params;
+  }, [searchText, selectedType, minRent, maxRent, city, state, locality, pincode, isAvailable, selectedAddress]);
+
+  // ============================
+  // Apply filters – dispatches fetch
+  // ============================
   const applyFilters = useCallback((overrides?: any) => {
     const params = getFilterParams(overrides);
+    console.log('🚀 [RentalList] Dispatching fetchRentals with params:', JSON.stringify(params, null, 2));
     dispatch(fetchRentals(params));
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [dispatch, getFilterParams]);
 
-  // Handle location selection from AddAddressScreen
+  // ============================
+  // Location handlers (manual triggers)
+  // ============================
   const handleLocationFromAddAddress = useCallback((lat: number, lng: number, addressDetails: any) => {
-    console.log('📍 Location selected from AddAddressScreen:', { lat, lng, addressDetails });
+    console.log('📍 [RentalList] Location selected from AddAddressScreen:', { lat, lng, addressDetails });
 
     const city = addressDetails.city || addressDetails.district || '';
     const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || addressDetails.district || '';
@@ -685,50 +689,32 @@ const UserRentalListScreen: React.FC = () => {
         .unwrap()
         .then((savedAddress: any) => {
           dispatch(setSelectedAddress(savedAddress));
-          setCity(savedAddress.city || '');
-          setLocality(savedAddress.locality || '');
-          setState(state);
-          setPincode(savedAddress.pincode || '');
-          applyFilters({
-            city: savedAddress.city || undefined,
-            locality: savedAddress.locality || undefined,
-            state: state || undefined,
-            pincode: savedAddress.pincode || undefined,
-          });
-          Toast.show({
-            type: 'success',
-            text1: 'Location Saved',
-            text2: `📍 ${displayAddress}`,
-          });
+          // applyFilters will be triggered by the watcher
+          setShowAddAddressModal(false);
+          Toast.show({ type: 'success', text1: 'Location Saved', text2: `📍 ${displayAddress}` });
         })
         .catch((error: any) => {
           console.error('Failed to save address:', error);
           Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
         });
     } else {
+      // No token – just update local state and fetch
       setCity(city);
       setLocality(locality);
       setState(state);
       setPincode(pincode);
       applyFilters({ city, locality, state, pincode });
+      setShowAddAddressModal(false);
       Toast.show({ type: 'info', text1: 'Location Updated', text2: displayAddress });
     }
-    setShowAddAddressModal(false);
   }, [dispatch, token, addresses.length, applyFilters]);
 
-  // Handle address selection from saved addresses
   const handleSelectAddress = useCallback((address: any) => {
     dispatch(setSelectedAddress(address));
     setShowAddressModal(false);
-    applyFilters({
-      city: address.city || undefined,
-      locality: address.locality || undefined,
-      state: address.state || undefined,
-      pincode: address.pincode || undefined,
-    });
-  }, [dispatch, applyFilters]);
+    // Watcher will trigger applyFilters
+  }, [dispatch]);
 
-  // Handle add current location
   const handleAddCurrentLocation = useCallback(async () => {
     if (!token) {
       Toast.show({ type: 'error', text1: 'Authentication Required', text2: 'Please login to save address' });
@@ -772,21 +758,11 @@ const UserRentalListScreen: React.FC = () => {
           .unwrap()
           .then((savedAddress: any) => {
             dispatch(setSelectedAddress(savedAddress));
-            setCity(detectedCity);
-            setLocality(detectedLocality);
-            setState(detectedState);
-            setPincode(detectedPincode);
             setShowAddressModal(false);
             Toast.show({ 
               type: 'success', 
               text1: 'Location Detected', 
               text2: `📍 ${detectedLocality}, ${detectedCity}` 
-            });
-            applyFilters({
-              city: detectedCity || undefined,
-              locality: detectedLocality || undefined,
-              state: detectedState || undefined,
-              pincode: detectedPincode || undefined,
             });
           })
           .catch((error: any) => {
@@ -799,36 +775,118 @@ const UserRentalListScreen: React.FC = () => {
     } finally {
       setIsLocating(false);
     }
-  }, [dispatch, token, addresses.length, applyFilters]);
+  }, [dispatch, token, addresses.length]);
 
-  // Open AddAddressScreen modal
   const handleOpenMapPicker = useCallback(() => {
     setShowAddressModal(false);
     setShowAddAddressModal(true);
   }, []);
 
-  // Initial fetch
+  // ============================
+  // Initial fetch & focus handling
+  // ============================
   useEffect(() => {
+    console.log('🔄 [RentalList] Component mounted – initial fetch');
+    // Mark that we've seen the initial address (if any)
+    if (selectedAddress) {
+      initialFilterApplied.current = true;
+      prevSelectedAddressRef.current = selectedAddress;
+    }
     applyFilters();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 [RentalList] Screen FOCUSED');
+      console.log('📱 [RentalList] Current saved scroll position:', savedState.current.scrollOffset);
+
+      isNavigatingAway.current = false;
+
+      // Restore scroll
+      if (savedState.current.scrollOffset > 10) {
+        console.log('📍 [RentalList] Restoring scroll to:', savedState.current.scrollOffset);
+        if (savedState.current.isHeaderHidden) {
+          isHeaderHidden.current = true;
+          headerTranslateY.setValue(-HEADER_HEIGHT);
+        } else {
+          isHeaderHidden.current = false;
+          headerTranslateY.setValue(0);
+        }
+        const restoreScroll = (attempt = 0) => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({
+              offset: savedState.current.scrollOffset,
+              animated: false,
+            });
+          }
+          if (attempt < 3) {
+            setTimeout(() => restoreScroll(attempt + 1), 100 * (attempt + 1));
+          }
+        };
+        restoreScroll(0);
+      } else {
+        console.log('🔄 [RentalList] No saved position, staying at top');
+        setTimeout(() => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({
+              offset: 0,
+              animated: false,
+            });
+          }
+        }, 100);
+      }
+
+      // Refresh data
+      if (token) {
+        dispatch(fetchUserAddresses(token));
+      }
+      // Re-apply filters on focus – will use current selectedAddress
+      applyFilters();
+
+      return () => {
+        console.log('💾 [RentalList] Saving scroll position:', lastScrollY.current);
+        savedState.current.scrollOffset = lastScrollY.current;
+        savedState.current.isHeaderHidden = isHeaderHidden.current;
+        isNavigatingAway.current = true;
+      };
+    }, [dispatch, token, applyFilters])
+  );
+
+  // beforeRemove listener for scroll saving
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      savedState.current.scrollOffset = lastScrollY.current;
+      savedState.current.isHeaderHidden = isHeaderHidden.current;
+      console.log('💾 [RentalList] Before remove, saving scroll:', savedState.current.scrollOffset);
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  // ============================
+  // Pull to refresh
+  // ============================
   const onRefresh = useCallback(async () => {
+    console.log('🔄 [RentalList] Pull-to-refresh started');
     setRefreshing(true);
-    if (token) {
-      await dispatch(fetchUserAddresses(token));
+    try {
+      if (token) {
+        await dispatch(fetchUserAddresses(token)).unwrap();
+      }
+      await applyFilters();
+      console.log('✅ [RentalList] Pull-to-refresh completed');
+    } catch (error) {
+      console.error('❌ [RentalList] Refresh error:', error);
+    } finally {
+      setRefreshing(false);
     }
-    await applyFilters();
-    setRefreshing(false);
   }, [dispatch, token, applyFilters]);
 
   const handleLoadMore = () => {
     if (hasMore && !loading && !refreshing) {
       const nextPage = currentPage + 1;
       const params = getFilterParams();
-      dispatch(fetchRentals({
-        ...params,
-        page: nextPage,
-      }));
+      console.log(`📄 [RentalList] Loading more (page ${nextPage})`);
+      dispatch(fetchRentals({ ...params, page: nextPage }));
     }
   };
 
@@ -843,15 +901,18 @@ const UserRentalListScreen: React.FC = () => {
   };
 
   const clearAllFilters = () => {
+    console.log('🧹 [RentalList] Clearing all filters');
     setSearchText('');
     setSelectedType('');
     setMinRent('');
     setMaxRent('');
+    // Clear location fields (will be refilled by selectedAddress if available)
     setCity('');
     setState('');
     setLocality('');
     setPincode('');
     setIsAvailable(true);
+    // Apply with empty location overrides
     applyFilters({
       q: '',
       rentalType: '',
@@ -866,20 +927,18 @@ const UserRentalListScreen: React.FC = () => {
     setFiltersVisible(false);
   };
 
-  // ✅ Handle scroll for header animation - UPDATED with state saving
+  // ============================
+  // Scroll handler for header
+  // ============================
   const handleScroll = (event: any) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const diff = currentScrollY - lastScrollY.current;
 
-    // ✅ Save state continuously
     savedState.current.scrollOffset = currentScrollY;
     savedState.current.isHeaderHidden = isHeaderHidden.current;
-    savedState.current.headerTranslateYValue = currentScrollY > 20 ? -HEADER_HEIGHT : 0;
 
-    // Only trigger animation when scrolling significantly
     if (currentScrollY > 20) {
       if (diff > 5 && !isHeaderHidden.current) {
-        // Scrolling DOWN - Hide header with smooth spring animation
         isHeaderHidden.current = true;
         savedState.current.isHeaderHidden = true;
         Animated.spring(headerTranslateY, {
@@ -890,7 +949,6 @@ const UserRentalListScreen: React.FC = () => {
           stiffness: 150,
         }).start();
       } else if (diff < -5 && isHeaderHidden.current) {
-        // Scrolling UP - Show header with smooth spring animation
         isHeaderHidden.current = false;
         savedState.current.isHeaderHidden = false;
         Animated.spring(headerTranslateY, {
@@ -902,7 +960,6 @@ const UserRentalListScreen: React.FC = () => {
         }).start();
       }
     } else {
-      // At the top - Always show header
       if (isHeaderHidden.current) {
         isHeaderHidden.current = false;
         savedState.current.isHeaderHidden = false;
@@ -915,11 +972,9 @@ const UserRentalListScreen: React.FC = () => {
         }).start();
       }
     }
-
     lastScrollY.current = currentScrollY;
   };
 
-  // Show loading state
   if (locationLoading && addresses.length === 0) {
     return (
       <View style={styles.loadingContainer}>
@@ -933,7 +988,7 @@ const UserRentalListScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.pureWhite} />
 
-      {/* ✅ ANIMATED HEADER */}
+      {/* ANIMATED HEADER */}
       <Animated.View
         style={[
           styles.headerContainer,
@@ -961,7 +1016,6 @@ const UserRentalListScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Location Bar */}
         <TouchableOpacity 
           style={styles.locationBar} 
           onPress={() => setShowAddressModal(true)}
@@ -974,7 +1028,6 @@ const UserRentalListScreen: React.FC = () => {
           <Ionicons name="chevron-down" size={scale(16)} color={Colors.textGray} />
         </TouchableOpacity>
 
-        {/* Search Bar */}
         <View style={styles.searchBar}>
           <Ionicons name="search-outline" size={20} color={Colors.slate} />
           <TextInput
@@ -991,7 +1044,6 @@ const UserRentalListScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Category Scroll */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1024,7 +1076,7 @@ const UserRentalListScreen: React.FC = () => {
         </ScrollView>
       </Animated.View>
 
-      {/* Main Content with Animated FlatList */}
+      {/* Main FlatList */}
       <AnimatedFlatList
         ref={flatListRef}
         data={rentals}
@@ -1042,34 +1094,29 @@ const UserRentalListScreen: React.FC = () => {
         onScroll={handleScroll}
         scrollEventThrottle={16}
         ListHeaderComponent={
-          <>
-            {/* Results Row - Inside FlatList for scrolling */}
-            <View style={styles.resultsRow}>
-              <Text style={styles.resultsText}>
-                {rentals.length} {rentals.length === 1 ? 'property' : 'properties'} found
-              </Text>
-              <TouchableOpacity onPress={clearAllFilters} style={styles.clearFiltersBtn}>
-                <Text style={styles.clearFiltersText}>Clear All</Text>
-              </TouchableOpacity>
-            </View>
-          </>
+          <View style={styles.resultsRow}>
+            <Text style={styles.resultsText}>
+              {rentals.length} {rentals.length === 1 ? 'property' : 'properties'} found
+            </Text>
+            <TouchableOpacity onPress={clearAllFilters} style={styles.clearFiltersBtn}>
+              <Text style={styles.clearFiltersText}>Clear All</Text>
+            </TouchableOpacity>
+          </View>
         }
         ListEmptyComponent={
-          !loading ? (
-            <View style={styles.emptyContainer}>
-              <View style={styles.emptyIconWrapper}>
-                <Ionicons name="home-outline" size={48} color={Colors.champagneGold} />
-              </View>
-              <Text style={styles.emptyTitle}>No Rentals Found</Text>
-              <Text style={styles.emptySubtitle}>
-                Try adjusting your filters or search terms
-              </Text>
-              <TouchableOpacity style={styles.emptyBtn} onPress={clearAllFilters}>
-                <Text style={styles.emptyBtnText}>Clear Filters</Text>
-              </TouchableOpacity>
-            </View>
-          ) : null
-        }
+  !loading ? (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="home-outline" size={48} color={Colors.champagneGold} />
+      <Text style={styles.emptyTitle}>No Rentals Found</Text>
+      <Text style={styles.emptySubtitle}>
+        Try adjusting your filters or search terms
+      </Text>
+      {/* <TouchableOpacity style={styles.emptyBtn} onPress={clearAllFilters}>
+        <Text style={styles.emptyBtnText}>Clear Filters</Text>
+      </TouchableOpacity> */}
+    </View>
+  ) : null
+}
       />
 
       {/* Address Modal */}
@@ -1084,7 +1131,7 @@ const UserRentalListScreen: React.FC = () => {
         onOpenMap={handleOpenMapPicker}
       />
 
-      {/* AddAddressScreen as a full-screen modal */}
+      {/* AddAddressScreen modal */}
       <Modal
         visible={showAddAddressModal}
         animationType="slide"
@@ -1218,21 +1265,11 @@ const UserRentalListScreen: React.FC = () => {
   );
 };
 
-// Styles
+// Styles (unchanged)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.offWhite },
-  loadingContainer: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center',
-    backgroundColor: Colors.pureWhite,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: Colors.slate,
-  },
-  // ✅ HEADER CONTAINER - Fixed at top
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.pureWhite },
+  loadingText: { marginTop: 12, fontSize: 14, color: Colors.slate },
   headerContainer: {
     position: 'absolute',
     top: 0,
@@ -1258,16 +1295,7 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: isSmallPhone ? 12 : 14, color: Colors.slate, fontWeight: '500', letterSpacing: 1, textTransform: 'uppercase' },
   headerTitle: { fontSize: isSmallPhone ? 22 : 28, fontWeight: '800', color: Colors.royalNavy, marginTop: 2 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  locationBtn: { 
-    width: 44, 
-    height: 44, 
-    borderRadius: 22, 
-    backgroundColor: Colors.offWhite, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    borderWidth: 1, 
-    borderColor: Colors.champagneGold 
-  },
+  locationBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.offWhite, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: Colors.champagneGold },
   notificationBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.offWhite, justifyContent: 'center', alignItems: 'center' },
   notificationDot: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.champagneGold, borderWidth: 2, borderColor: Colors.pureWhite },
   locationBar: {
@@ -1287,14 +1315,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  locationBarText: {
-    flex: 1,
-    color: Colors.textDark,
-    fontSize: 14,
-    marginLeft: 8,
-    marginRight: 8,
-    fontWeight: '500',
-  },
+  locationBarText: { flex: 1, color: Colors.textDark, fontSize: 14, marginLeft: 8, marginRight: 8, fontWeight: '500' },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1328,14 +1349,7 @@ const styles = StyleSheet.create({
   categoryPillActive: { backgroundColor: Colors.royalNavy, borderColor: Colors.royalNavy, shadowColor: Colors.royalNavy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
   categoryText: { color: Colors.slate, fontWeight: '600', fontSize: isSmallPhone ? 12 : 14 },
   categoryTextActive: { color: Colors.pureWhite },
-  resultsRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    paddingHorizontal: 20, 
-    paddingTop: 12, 
-    paddingBottom: 4 
-  },
+  resultsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
   resultsText: { fontSize: isSmallPhone ? 12 : 13, color: Colors.slate, fontWeight: '500' },
   clearFiltersBtn: { paddingHorizontal: 12, paddingVertical: 4 },
   clearFiltersText: { fontSize: isSmallPhone ? 11 : 12, color: Colors.champagneGold, fontWeight: '600' },

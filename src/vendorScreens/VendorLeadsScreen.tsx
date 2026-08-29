@@ -143,11 +143,13 @@ const typeStyles = StyleSheet.create({
 });
 
 // --- Grouped Lead Card (Group by User only) ---
+// Now receives `vendorId` to filter leads before updating status
 const GroupedLeadCard: React.FC<{
   group: any;
   onUpdateStatus: (leadId: string, status: string) => void;
   onContact: (lead: Lead) => void;
-}> = ({ group, onUpdateStatus, onContact }) => {
+  vendorId: string; // <-- NEW prop
+}> = ({ group, onUpdateStatus, onContact, vendorId }) => {
   const [expanded, setExpanded] = useState(false);
 
   const formatDate = (dateString: string) => {
@@ -186,12 +188,14 @@ const GroupedLeadCard: React.FC<{
     return indexA - indexB;
   });
 
-  // 🔥 Handle contact click - mark all unseen leads as seen
+  // 🔥 Handle contact click - ONLY update leads that belong to this vendor
   const handleContactPress = () => {
-    // Find all new leads for this user
-    const newLeads = group.leads.filter((l: Lead) => l.status === 'new');
+    // Find all new leads for this user that belong to the vendor
+    const newLeads = group.leads.filter((l: Lead) => 
+      l.status === 'new' && l.vendor === vendorId  // <-- FIX: check vendor ID
+    );
     
-    // Update each new lead to 'seen'
+    // Update each matching lead to 'seen'
     newLeads.forEach((lead: Lead) => {
       onUpdateStatus(lead._id, 'seen');
     });
@@ -306,7 +310,7 @@ const GroupedLeadCard: React.FC<{
             );
           })}
 
-          {/* Contact button - marks all unseen as seen before opening contact */}
+          {/* Contact button - marks only vendor-owned unseen leads as seen before opening contact */}
           {group.hasNonView && (
             <View style={cardStyles.actions}>
               <TouchableOpacity
@@ -1276,6 +1280,7 @@ const VendorLeadsScreen = () => {
                 group={item}
                 onUpdateStatus={handleUpdateStatus}
                 onContact={handleContact}
+                vendorId={vendor._id} // <-- pass vendor ID
               />
             )}
             contentContainerStyle={styles.listContent}

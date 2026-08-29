@@ -4,7 +4,7 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView, // <-- added ScrollView back
+  ScrollView,
   ActivityIndicator,
   TouchableOpacity,
   SafeAreaView,
@@ -805,21 +805,30 @@ const cardStyles = StyleSheet.create({
   },
 });
 
-// ---------- GroupCard (new) ----------
+// ---------- GroupCard (updated with delete button) ----------
 const GroupCard: React.FC<{
   title: string;
   image: string;
   count: number;
   onPress: () => void;
-}> = ({ title, image, count, onPress }) => {
+  onDelete: () => void; // NEW
+}> = ({ title, image, count, onPress, onDelete }) => {
   return (
-    <TouchableOpacity style={groupCardStyles.card} onPress={onPress}>
+    <TouchableOpacity style={groupCardStyles.card} onPress={onPress} activeOpacity={0.7}>
       <Image source={{ uri: image }} style={groupCardStyles.image} />
       <View style={groupCardStyles.textContainer}>
         <Text style={groupCardStyles.title}>{title}</Text>
         <Text style={groupCardStyles.count}>{count} ad{count > 1 ? "s" : ""}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={24} color={Colors.textLightGray} />
+      <TouchableOpacity
+        style={groupCardStyles.deleteButton}
+        onPress={(e) => {
+          e.stopPropagation(); // Prevent navigating to detail
+          onDelete();
+        }}
+      >
+        <Ionicons name="trash-outline" size={24} color={Colors.offlineRed} />
+      </TouchableOpacity>
     </TouchableOpacity>
   );
 };
@@ -861,6 +870,9 @@ const groupCardStyles = StyleSheet.create({
     color: Colors.textGray,
     marginTop: 2,
   },
+  deleteButton: {
+    padding: scale(8),
+  },
 });
 
 // ---------- Main Screen ----------
@@ -874,6 +886,7 @@ const AdManagementScreen = () => {
   const [editingAd, setEditingAd] = useState<Ad | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchText, setSearchText] = useState("");
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null); // track which group is being deleted
 
   useEffect(() => {
     if (isFocused) {
@@ -959,6 +972,48 @@ const AdManagementScreen = () => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // NEW: Delete entire group
+  const handleDeleteGroup = (groupTitle: string) => {
+    Alert.alert(
+      "Delete Group",
+      `Are you sure you want to delete ALL ads under "${groupTitle}"? This action cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete All",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingGroup(groupTitle);
+            try {
+              // Find all ads with this title
+              const adsToDelete = ads.filter(
+                (ad) => (ad.title || "Untitled").toLowerCase() === groupTitle.toLowerCase()
+              );
+              if (adsToDelete.length === 0) {
+                Alert.alert("Info", "No ads found in this group.");
+                setDeletingGroup(null);
+                return;
+              }
+
+              // Delete each ad
+              await Promise.all(
+                adsToDelete.map((ad) => dispatch(deleteAd(ad._id)).unwrap())
+              );
+
+              Alert.alert("Success", `All ${adsToDelete.length} ads deleted.`);
+              // Refresh list
+              dispatch(fetchAds({ search: searchText || undefined }));
+            } catch (error: any) {
+              Alert.alert("Error", error?.message || "Failed to delete group");
+            } finally {
+              setDeletingGroup(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const filteredAds = Array.isArray(ads) ? ads : [];
@@ -1074,6 +1129,7 @@ const AdManagementScreen = () => {
                 image={item.image}
                 count={item.count}
                 onPress={() => handleGroupPress(item.title)}
+                onDelete={() => handleDeleteGroup(item.title)}
               />
             )}
             contentContainerStyle={styles.listContent}

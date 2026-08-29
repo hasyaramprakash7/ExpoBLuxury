@@ -36,68 +36,7 @@ interface AuthState {
   trialEndDate: string | null;
 }
 
-// =====================================================================
-// THUNKS – all remove the USER TOKEN DELETION
-// =====================================================================
-
-export const registerVendor = createAsyncThunk<
-  { vendor: Vendor; token: string },
-  FormData,
-  { rejectValue: string }
->(
-  "vendorAuth/registerVendor",
-  async (formData: FormData, { rejectWithValue }) => {
-    console.log('📝 [registerVendor] Starting registration...');
-    try {
-      const pushToken = await registerForPushNotificationsAsync();
-      if (pushToken) formData.append('pushToken', pushToken);
-
-      const res = await api.post(`/vendors/register`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      console.log('✅ [registerVendor] Response:', res.data);
-
-      await AsyncStorage.setItem("vendorToken", res.data.token);
-      await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
-      await SecureStore.deleteItemAsync("deliveryBoyToken");
-      // ✅ KEEP user token – DO NOT REMOVE
-      // AsyncStorage.removeItem("token"); // ❌ REMOVED
-      return { vendor: res.data.vendor, token: res.data.token };
-    } catch (err: any) {
-      console.error('❌ [registerVendor] Error:', err.response?.data || err.message);
-      return rejectWithValue(err.response?.data?.message || "Registration failed");
-    }
-  }
-);
-
-export const registerVendorWithOtp = createAsyncThunk<
-  { vendor: Vendor; token: string },
-  FormData,
-  { rejectValue: string }
->(
-  "vendorAuth/registerVendorWithOtp",
-  async (formData: FormData, { rejectWithValue }) => {
-    console.log('📝 [registerVendorWithOtp] Starting OTP registration...');
-    try {
-      const pushToken = await registerForPushNotificationsAsync();
-      if (pushToken) formData.append('pushToken', pushToken);
-
-      const res = await api.post(`/vendors/register-with-otp`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      console.log('✅ [registerVendorWithOtp] Response:', res.data);
-
-      await AsyncStorage.setItem("vendorToken", res.data.token);
-      await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
-      await SecureStore.deleteItemAsync("deliveryBoyToken");
-      // ✅ KEEP user token
-      return { vendor: res.data.vendor, token: res.data.token };
-    } catch (err: any) {
-      console.error('❌ [registerVendorWithOtp] Error:', err.response?.data || err.message);
-      return rejectWithValue(err.response?.data?.message || "OTP Registration failed");
-    }
-  }
-);
+// src/features/vendor/vendorAuthSlice.ts - FIXED
 
 export const loginVendor = createAsyncThunk<
   { vendor: Vendor; token: string },
@@ -108,14 +47,25 @@ export const loginVendor = createAsyncThunk<
   async ({ identifier, password }, { rejectWithValue }) => {
     console.log('🔐 [loginVendor] Logging in with:', identifier);
     try {
-      const pushToken = await registerForPushNotificationsAsync();
-      const res = await api.post(`/vendors/login`, { identifier, password, pushToken });
+      // ✅ Step 1: Login WITHOUT pushToken
+      const res = await api.post(`/vendors/login`, { identifier, password });
       console.log('✅ [loginVendor] Response:', res.data);
-      await AsyncStorage.setItem("vendorToken", res.data.token);
-      await AsyncStorage.setItem("vendor", JSON.stringify(res.data.vendor));
+
+      const vendor = res.data.vendor;
+      const token = res.data.token;
+
+      // ✅ Step 2: Store token
+      await AsyncStorage.setItem("vendorToken", token);
+      await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
+
+      // ✅ Step 3: Register push token WITH vendor ID
+      if (vendor._id) {
+        console.log(`📱 [loginVendor] Registering push token for vendor: ${vendor._id}`);
+        await registerForPushNotificationsAsync(vendor._id);
+      }
+
       await SecureStore.deleteItemAsync("deliveryBoyToken");
-      // ✅ KEEP user token
-      return { vendor: res.data.vendor, token: res.data.token };
+      return { vendor, token };
     } catch (err: any) {
       console.error('❌ [loginVendor] Error:', err.response?.data || err.message);
       return rejectWithValue(err.response?.data?.message || "Login failed");
@@ -132,18 +82,25 @@ export const loginVendorWithOtp = createAsyncThunk<
   async ({ phone, otp }, { rejectWithValue }) => {
     console.log('🔐 [loginVendorWithOtp] Logging in with phone:', phone);
     try {
-      const pushToken = await registerForPushNotificationsAsync();
-      const res = await api.post(`/vendors/login-with-otp`, { phone, otp, pushToken });
+      // ✅ Step 1: Login WITHOUT pushToken
+      const res = await api.post(`/vendors/login-with-otp`, { phone, otp });
       console.log('✅ [loginVendorWithOtp] Response:', res.data);
+
       const vendor = res.data.vendor;
-      if (vendor._id && pushToken) {
+      const token = res.data.token;
+
+      // ✅ Step 2: Store token
+      await AsyncStorage.setItem("vendorToken", token);
+      await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
+
+      // ✅ Step 3: Register push token WITH vendor ID
+      if (vendor._id) {
+        console.log(`📱 [loginVendorWithOtp] Registering push token for vendor: ${vendor._id}`);
         await registerForPushNotificationsAsync(vendor._id);
       }
-      await AsyncStorage.setItem("vendorToken", res.data.token);
-      await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
+
       await SecureStore.deleteItemAsync("deliveryBoyToken");
-      // ✅ KEEP user token
-      return { vendor, token: res.data.token };
+      return { vendor, token };
     } catch (err: any) {
       console.error('❌ [loginVendorWithOtp] Error:', err.response?.data || err.message);
       return rejectWithValue(err.response?.data?.message || "OTP Login failed");
@@ -151,6 +108,80 @@ export const loginVendorWithOtp = createAsyncThunk<
   }
 );
 
+// ✅ Also fix register functions
+export const registerVendor = createAsyncThunk<
+  { vendor: Vendor; token: string },
+  FormData,
+  { rejectValue: string }
+>(
+  "vendorAuth/registerVendor",
+  async (formData: FormData, { rejectWithValue }) => {
+    console.log('📝 [registerVendor] Starting registration...');
+    try {
+      // ✅ Don't get push token yet - we don't have vendor ID
+      const res = await api.post(`/vendors/register`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      console.log('✅ [registerVendor] Response:', res.data);
+
+      const vendor = res.data.vendor;
+      const token = res.data.token;
+
+      await AsyncStorage.setItem("vendorToken", token);
+      await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
+
+      // ✅ Register push token WITH vendor ID
+      if (vendor._id) {
+        console.log(`📱 [registerVendor] Registering push token for vendor: ${vendor._id}`);
+        await registerForPushNotificationsAsync(vendor._id);
+      }
+
+      await SecureStore.deleteItemAsync("deliveryBoyToken");
+      return { vendor, token };
+    } catch (err: any) {
+      console.error('❌ [registerVendor] Error:', err.response?.data || err.message);
+      return rejectWithValue(err.response?.data?.message || "Registration failed");
+    }
+  }
+);
+
+export const registerVendorWithOtp = createAsyncThunk<
+  { vendor: Vendor; token: string },
+  FormData,
+  { rejectValue: string }
+>(
+  "vendorAuth/registerVendorWithOtp",
+  async (formData: FormData, { rejectWithValue }) => {
+    console.log('📝 [registerVendorWithOtp] Starting OTP registration...');
+    try {
+      // ✅ Don't get push token yet - we don't have vendor ID
+      const res = await api.post(`/vendors/register-with-otp`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      console.log('✅ [registerVendorWithOtp] Response:', res.data);
+
+      const vendor = res.data.vendor;
+      const token = res.data.token;
+
+      await AsyncStorage.setItem("vendorToken", token);
+      await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
+
+      // ✅ Register push token WITH vendor ID
+      if (vendor._id) {
+        console.log(`📱 [registerVendorWithOtp] Registering push token for vendor: ${vendor._id}`);
+        await registerForPushNotificationsAsync(vendor._id);
+      }
+
+      await SecureStore.deleteItemAsync("deliveryBoyToken");
+      return { vendor, token };
+    } catch (err: any) {
+      console.error('❌ [registerVendorWithOtp] Error:', err.response?.data || err.message);
+      return rejectWithValue(err.response?.data?.message || "OTP Registration failed");
+    }
+  }
+);
+
+// ✅ fetchVendorProfile is already correct - keep as is
 export const fetchVendorProfile = createAsyncThunk<
   { vendor: Vendor; token: string },
   void,
@@ -167,14 +198,18 @@ export const fetchVendorProfile = createAsyncThunk<
         await AsyncStorage.removeItem("vendorToken");
         return rejectWithValue("No vendor token found");
       }
+
       const res = await api.get(`/vendors/profile`);
       console.log('✅ [fetchVendorProfile] Response:', res.data);
+
       const vendor = res.data.vendor;
-      const currentPushToken = await registerForPushNotificationsAsync(vendor._id);
-      if (currentPushToken && vendor.pushToken !== currentPushToken) {
-        api.put(`/vendors/update-push-token`, { pushToken: currentPushToken })
-          .catch(e => console.log("Failed to update push token", e));
+
+      // ✅ Register push token with vendor ID
+      if (vendor._id) {
+        console.log(`📱 [fetchVendorProfile] Registering push token for vendor: ${vendor._id}`);
+        await registerForPushNotificationsAsync(vendor._id);
       }
+
       await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
       return { vendor, token };
     } catch (err: any) {
@@ -183,6 +218,7 @@ export const fetchVendorProfile = createAsyncThunk<
       await AsyncStorage.removeItem("vendorToken");
       return rejectWithValue(err.response?.data?.message || "Failed to fetch vendor profile");
     }
+  
   }
 );
 

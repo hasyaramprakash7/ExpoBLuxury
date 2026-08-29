@@ -66,7 +66,7 @@ const Colors = {
 // ✅ Helper to parse array fields (categories, tags, services)
 const parseArrayField = (field: any): string[] => {
   if (!field) return [];
-  
+
   if (Array.isArray(field)) {
     if (field.length === 1 && typeof field[0] === 'string' && field[0].startsWith('[')) {
       try {
@@ -78,7 +78,7 @@ const parseArrayField = (field: any): string[] => {
     }
     return field.map(item => String(item).trim()).filter(Boolean);
   }
-  
+
   if (typeof field === 'string') {
     try {
       const parsed = JSON.parse(field);
@@ -93,29 +93,29 @@ const parseArrayField = (field: any): string[] => {
       return [field.trim()].filter(Boolean);
     }
   }
-  
+
   return [];
 };
 
 // --- Helper to check if shop is currently open ---
 const isShopCurrentlyOpen = (operatingHours: any): boolean => {
   if (!operatingHours) return false;
-  
+
   try {
     const parsed = typeof operatingHours === 'string' ? JSON.parse(operatingHours) : operatingHours;
     const now = new Date();
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const currentDay = days[now.getDay()];
     const currentTime = now.getHours() * 60 + now.getMinutes();
-    
+
     const daySchedule = parsed[currentDay];
     if (!daySchedule || !daySchedule.open || !daySchedule.close) return false;
-    
+
     const [openHour, openMinute] = daySchedule.open.split(':').map(Number);
     const [closeHour, closeMinute] = daySchedule.close.split(':').map(Number);
     const openTime = openHour * 60 + openMinute;
     const closeTime = closeHour * 60 + closeMinute;
-    
+
     if (closeTime < openTime) {
       return currentTime >= openTime || currentTime < closeTime;
     }
@@ -148,7 +148,7 @@ const formatFullHours = (hours: any): string | null => {
       saturday: "Saturday",
       sunday: "Sunday",
     };
-    
+
     let schedule = "";
     for (const day of days) {
       if (parsed[day] && parsed[day].open && parsed[day].close) {
@@ -165,10 +165,10 @@ const formatFullHours = (hours: any): string | null => {
 const ReviewItem: React.FC<{ review: any }> = ({ review }) => {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
     });
   };
 
@@ -177,9 +177,9 @@ const ReviewItem: React.FC<{ review: any }> = ({ review }) => {
       <View style={reviewStyles.reviewHeader}>
         <View style={reviewStyles.userInfo}>
           {review.user?.profilePic ? (
-            <Image 
-              source={{ uri: review.user.profilePic }} 
-              style={reviewStyles.userAvatar} 
+            <Image
+              source={{ uri: review.user.profilePic }}
+              style={reviewStyles.userAvatar}
             />
           ) : (
             <View style={reviewStyles.userAvatarPlaceholder}>
@@ -204,11 +204,11 @@ const ReviewItem: React.FC<{ review: any }> = ({ review }) => {
         </View>
         <Text style={reviewStyles.reviewDate}>{formatDate(review.createdAt)}</Text>
       </View>
-      
+
       {review.comment && (
         <Text style={reviewStyles.reviewComment}>{review.comment}</Text>
       )}
-      
+
       {review.images && review.images.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={reviewStyles.reviewImagesContainer}>
           {review.images.map((img: string, idx: number) => (
@@ -216,7 +216,7 @@ const ReviewItem: React.FC<{ review: any }> = ({ review }) => {
           ))}
         </ScrollView>
       )}
-      
+
       {review.isVerified && (
         <View style={reviewStyles.verifiedBadge}>
           <Ionicons name="checkmark-circle" size={moderateScale(14)} color={Colors.accentBlue} />
@@ -367,7 +367,7 @@ const ReviewModal: React.FC<{
                 </View>
 
                 <Text style={reviewModalStyles.ratingLabel}>How would you rate this shop?</Text>
-                
+
                 <View style={reviewModalStyles.starsContainer}>
                   {[1, 2, 3, 4, 5].map((star) => (
                     <TouchableOpacity
@@ -405,7 +405,7 @@ const ReviewModal: React.FC<{
                   onChangeText={setComment}
                   maxLength={500}
                 />
-                
+
                 <Text style={reviewModalStyles.charCount}>{comment.length}/500</Text>
 
                 <View style={reviewModalStyles.buttonRow}>
@@ -549,11 +549,13 @@ const ShopDetails = () => {
   );
 
   const [products, setProducts] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredProducts, setFilteredProducts] = useState<any[]>([]);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAllHours, setShowAllHours] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
+
   const vendorData = vendor;
   const isOpen = isShopCurrentlyOpen(vendorData?.operatingHours);
   const fullHours = formatFullHours(vendorData?.operatingHours);
@@ -580,14 +582,14 @@ const ShopDetails = () => {
   useEffect(() => {
     if (user?._id && vendor?._id && !viewTracked.current && isMounted.current) {
       viewTracked.current = true;
-      
+
       const viewData = {
         vendorId: vendor._id,
         shopName: vendor.shopName || 'Shop',
         userId: user._id,
         userName: user.name || 'User'
       };
-      
+
       dispatch(createViewLead(viewData))
         .then((result: any) => {
           console.log('✅ View lead tracked for vendor:', vendor.shopName);
@@ -628,6 +630,21 @@ const ShopDetails = () => {
     }
   }, [allProducts, vendorData]);
 
+  // Filter products by search query
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredProducts(products);
+    } else {
+      const query = searchQuery.toLowerCase().trim();
+      const filtered = products.filter((p) =>
+        p.name?.toLowerCase().includes(query) ||
+        p.description?.toLowerCase().includes(query) ||
+        p.category?.toLowerCase().includes(query)
+      );
+      setFilteredProducts(filtered);
+    }
+  }, [products, searchQuery]);
+
   // Pull-to-refresh handler
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -653,7 +670,7 @@ const ShopDetails = () => {
       }));
     }
     if (vendorData?.phone) {
-      Linking.openURL(`tel:${vendorData.phone}`).catch(() => 
+      Linking.openURL(`tel:${vendorData.phone}`).catch(() =>
         Alert.alert('Error', 'Unable to make call')
       );
     }
@@ -744,6 +761,13 @@ const ShopDetails = () => {
     }
   };
 
+  // ✅ Render product item for vertical list (full width)
+  const renderProductItem = ({ item }: { item: any }) => (
+    <View style={styles.verticalProductCardWrapper}>
+      <NewProductCard product={item} />
+    </View>
+  );
+
   if (!vendorData) {
     return (
       <View style={styles.center}>
@@ -756,7 +780,7 @@ const ShopDetails = () => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-      
+
       <ScrollView
         style={styles.container}
         showsVerticalScrollIndicator={false}
@@ -770,22 +794,26 @@ const ShopDetails = () => {
           />
         }
       >
-        {/* Header Image with White Gradient */}
+        {/* Header Image – no placeholder; show fallback color */}
         <View style={styles.imageContainer}>
-          <Image
-            source={{
-              uri:
-                vendorData?.shopImage ||
-                "https://via.placeholder.com/600x400?text=Shop",
-            }}
-            style={styles.shopImage}
-            resizeMode="cover"
-          />
-          
-          {/* White Gradient Overlay at Bottom - 50% */}
+          {vendorData?.shopImage ? (
+            <Image
+              source={{ uri: vendorData.shopImage }}
+              style={styles.shopImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.shopImage, styles.fallbackImage]}>
+              <Text style={styles.fallbackText}>
+                {vendorData?.shopName?.charAt(0)?.toUpperCase() || 'S'}
+              </Text>
+            </View>
+          )}
+
+          {/* White Gradient Overlay at Bottom */}
           <View style={styles.imageGradientOverlay} />
-          
-          {/* ✅ Transparent back button with white icon - no background change */}
+
+          {/* Transparent back button with white icon */}
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
@@ -816,7 +844,7 @@ const ShopDetails = () => {
                 </Text>
               </View>
             </View>
-            
+
             <View style={styles.badgeRow}>
               {vendorData?.isVerified && (
                 <View style={styles.badge}>
@@ -1018,7 +1046,7 @@ const ShopDetails = () => {
               <ReviewItem key={review._id} review={review} />
             ))
           )}
-          
+
           {reviews.length > 5 && (
             <TouchableOpacity style={styles.viewAllReviews}>
               <Text style={styles.viewAllReviewsText}>View all {reviews.length} reviews</Text>
@@ -1028,20 +1056,68 @@ const ShopDetails = () => {
 
           <View style={styles.divider} />
 
-          {/* Products Section */}
+          {/* Products Section with Search */}
           <View style={styles.productsHeader}>
             <Text style={styles.sectionTitle}>Products</Text>
             <Text style={styles.productCount}>{products.length} items</Text>
           </View>
 
-          {/* ✅ VendorHorizontalScroll – shows all listings (products, properties, rentals) */}
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search-outline" size={moderateScale(20)} color={Colors.textTertiary} style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search products..."
+              placeholderTextColor={Colors.textTertiary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              clearButtonMode="while-editing"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchButton}>
+                <Ionicons name="close-circle" size={moderateScale(20)} color={Colors.textTertiary} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* ✅ Vertical product list (single column, full width) */}
+          {productsLoading ? (
+            <View style={styles.loadingProducts}>
+              <ActivityIndicator size="small" color={Colors.accentGreen} />
+              <Text style={styles.loadingProductsText}>Loading products...</Text>
+            </View>
+          ) : filteredProducts.length === 0 ? (
+            <View style={styles.emptyProducts}>
+              <Ionicons name="cube-outline" size={moderateScale(40)} color={Colors.textTertiary} />
+              <Text style={styles.emptyProductsText}>
+                {searchQuery.trim() ? 'No products match your search' : 'No products available'}
+              </Text>
+              {searchQuery.trim() && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Text style={styles.clearSearchText}>Clear search</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <FlatList
+              data={filteredProducts}
+              renderItem={renderProductItem}
+              keyExtractor={(item) => item._id || item.id || Math.random().toString()}
+              scrollEnabled={false}  // disable internal scrolling because parent ScrollView handles it
+              contentContainerStyle={styles.verticalProductList}
+            />
+          )}
+
           <View style={styles.divider} />
+
+          {/* ✅ VendorHorizontalScroll – forced to vertical (single column) */}
           <View style={styles.horizontalScrollSection}>
             <Text style={styles.sectionTitle}>More from {vendorData.shopName}</Text>
             <VendorHorizontalScroll
               vendorId={vendorData._id}
               vendorName={vendorData.shopName}
               isVendorOffline={!vendorData.isOnline}
+              horizontal={false}  // <-- request vertical layout (must be supported by the component)
             />
           </View>
 
@@ -1089,6 +1165,16 @@ const styles = StyleSheet.create({
   shopImage: {
     width: "100%",
     height: "100%",
+  },
+  fallbackImage: {
+    backgroundColor: Colors.accentGreen,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fallbackText: {
+    color: Colors.white,
+    fontSize: moderateScale(60),
+    fontWeight: 'bold',
   },
   imageGradientOverlay: {
     position: "absolute",
@@ -1440,11 +1526,39 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: verticalScale(16),
+    marginBottom: verticalScale(12),
   },
   productCount: {
     fontSize: moderateScale(14),
     color: Colors.textTertiary,
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: moderateScale(12),
+    paddingHorizontal: scale(14),
+    marginBottom: verticalScale(16),
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  searchIcon: {
+    marginRight: scale(8),
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: verticalScale(10),
+    fontSize: moderateScale(15),
+    color: Colors.textPrimary,
+  },
+  clearSearchButton: {
+    padding: scale(4),
+  },
+  clearSearchText: {
+    color: Colors.accentBlue,
+    fontSize: moderateScale(14),
+    fontWeight: "600",
+    marginTop: verticalScale(8),
   },
   loadingProducts: {
     alignItems: "center",
@@ -1464,12 +1578,14 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: moderateScale(16),
     fontWeight: "600",
+    textAlign: "center",
   },
-  emptyProductsSubtext: {
-    color: Colors.textTertiary,
-    fontSize: moderateScale(14),
+  // Vertical product list styles
+  verticalProductList: {
+    paddingBottom: verticalScale(8),
   },
-  productCardWrapper: {
+  verticalProductCardWrapper: {
+    width: '100%',
     marginBottom: verticalScale(12),
   },
   horizontalScrollSection: {

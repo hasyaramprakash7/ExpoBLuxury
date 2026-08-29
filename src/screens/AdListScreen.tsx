@@ -16,13 +16,16 @@ import {
   StatusBar,
   Animated,
   Alert,
+  BackHandler,
+  Linking,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
 import { fetchActiveAds } from '../features/adSlice';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as WebBrowser from 'expo-web-browser'; // ✅ The Instagram‑grade browser
 
 // ---------- Dynamically load speech recognition (fallback for Expo Go) ----------
 let SpeechRecognition: any = null;
@@ -40,9 +43,51 @@ interface AdListScreenProps {
 const { width } = Dimensions.get('window');
 const TAB_WIDTH = 80;
 const TAB_HEIGHT = 80;
-const TOP_BAR_HEIGHT = 130;
+const CATEGORY_ITEM_WIDTH = 90;
+const TOP_BAR_HEIGHT = 270;
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+// ----- Category Item Component -----
+const CategoryItem: React.FC<{
+  category: string;
+  image: string;
+  isSelected: boolean;
+  onPress: (category: string) => void;
+}> = ({ category, image, isSelected, onPress }) => {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.categoryItem,
+        isSelected && styles.categoryItemActive,
+      ]}
+      onPress={() => onPress(category)}
+      activeOpacity={0.7}
+    >
+      <View style={styles.categoryImageContainer}>
+        <Image
+          source={{ uri: image || 'https://via.placeholder.com/80' }}
+          style={styles.categoryImage}
+          resizeMode="cover"
+        />
+        {isSelected && (
+          <View style={styles.categorySelectedOverlay}>
+            <Ionicons name="checkmark-circle" size={18} color="#0A3D2B" />
+          </View>
+        )}
+      </View>
+      <Text
+        style={[
+          styles.categoryText,
+          isSelected && styles.categoryTextActive,
+        ]}
+        numberOfLines={1}
+      >
+        {category}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
 // ----- Full Width Product Ad Card -----
 const FullWidthProductAdCard: React.FC<{
@@ -212,6 +257,8 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
   const initialLoadDone = useRef(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const flatListRef = useRef<FlatList>(null);
+  const categoryScrollViewRef = useRef<ScrollView>(null);
+  const searchInputRef = useRef<TextInput>(null);
   
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
@@ -228,10 +275,18 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
   const [sidebarAds, setSidebarAds] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  
+  // State for categories - specific to selected title
+  const [categories, setCategories] = useState<{ name: string; image: string }[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [filteredProducts, setFilteredProducts] = useState<any[]>([]);
 
   // Get navigation params
   const selectedAdId = route.params?.selectedAdId || route.params?.adId;
   const selectedAdTitle = route.params?.selectedAdTitle;
+
+  // --- State for Instagram-grade browser (prevents double taps) ---
+  const [isOpeningBrowser, setIsOpeningBrowser] = useState(false);
 
   useEffect(() => {
     console.log('📋 [AdListScreen] Received params:', { 
@@ -280,7 +335,6 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       return;
     }
 
-    // If already recording, stop it
     if (isRecording) {
       try {
         await SpeechRecognition.stopAsync();
@@ -291,7 +345,6 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       return;
     }
 
-    // Request permissions
     const { status } = await SpeechRecognition.requestPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission required', 'Please allow speech recognition to use voice search.');
@@ -301,7 +354,6 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     setIsRecording(true);
 
     try {
-      // Start listening
       const subscription = SpeechRecognition.addListener('onResult', (event: any) => {
         const transcript = event.results?.[0]?.transcript;
         if (transcript) {
@@ -336,7 +388,28 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     }
   }, [isRecording]);
 
-  // Process ads and filter by selected generic ad
+  // FIXED: Back handler for search - Using correct BackHandler API
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      // If search has text, clear it first
+      if (searchQuery.length > 0) {
+        setSearchQuery('');
+        return true; // Prevent default back behavior
+      }
+      
+      // If search input is focused, blur it
+      if (searchInputRef.current?.isFocused()) {
+        searchInputRef.current?.blur();
+        return true; // Prevent default back behavior
+      }
+      
+      return false; // Allow default back behavior
+    });
+
+    return () => backHandler.remove();
+  }, [searchQuery]);
+
+  // Process ads and extract categories - ONLY for the selected title
   useEffect(() => {
     const products = externalProducts || [];
     let ads = activeAds || [];
@@ -369,13 +442,11 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     // Check if we should select an ad from params
     let adToSelect = findAdByParams(validGenericAds);
     
-    // If no ad found from params and we have no selected ad, select the first one
     if (!adToSelect && validGenericAds.length > 0 && !selectedAd) {
       console.log('✅ [AdListScreen] Selecting first generic ad:', validGenericAds[0].title);
       adToSelect = validGenericAds[0];
     }
 
-    // If search query changed and the selected ad is no longer in the filtered list, clear selection
     if (selectedAd && searchQuery.trim()) {
       const stillExists = validGenericAds.some(ad => ad._id === selectedAd._id);
       if (!stillExists) {
@@ -386,13 +457,56 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       }
     }
 
-    // Update selected ad if we found one from params or first one
     if (adToSelect) {
       if (!selectedAd || selectedAd._id !== adToSelect._id) {
         console.log('🔄 [AdListScreen] Setting selected ad to:', adToSelect.title);
         setSelectedAd(adToSelect);
         return;
       }
+    }
+
+    // --- EXTRACT CATEGORIES ONLY FOR THE SELECTED TITLE ---
+    if (selectedAd) {
+      const selectedTitle = selectedAd.title.trim();
+      console.log('📊 [AdListScreen] Extracting categories for title:', selectedTitle);
+      
+      // Filter product ads that match the selected title
+      const productAdsForTitle = productAds.filter(pa => 
+        pa.title && pa.title.trim() === selectedTitle
+      );
+      
+      console.log('📊 [AdListScreen] Product ads for this title:', productAdsForTitle.length);
+      
+      // Extract categories from these product ads
+      const categoryMap = new Map<string, string>();
+      productAdsForTitle.forEach(ad => {
+        if (ad.category && ad.category.trim()) {
+          const catName = ad.category.trim();
+          if (!categoryMap.has(catName)) {
+            // Use the first image from this category
+            categoryMap.set(catName, ad.image || 'https://via.placeholder.com/80');
+          }
+        }
+      });
+      
+      const extractedCategories = Array.from(categoryMap.entries()).map(([name, image]) => ({
+        name,
+        image,
+      }));
+      setCategories(extractedCategories);
+      console.log('📊 [AdListScreen] Extracted categories for this title:', extractedCategories.length);
+      
+      // If selected category is not in the new list, clear it
+      if (selectedCategory) {
+        const categoryExists = extractedCategories.some(c => c.name === selectedCategory);
+        if (!categoryExists) {
+          setSelectedCategory(null);
+        }
+      }
+    } else {
+      // No selected ad - clear categories
+      setCategories([]);
+      setSelectedCategory(null);
     }
 
     // Build display data based on selected ad
@@ -404,7 +518,15 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       
       merged.push({ type: 'ad', data: selectedAd });
       
-      const matchingProductAds = productAds.filter(pa => pa.title && pa.title.trim() === title);
+      let matchingProductAds = productAds.filter(pa => pa.title && pa.title.trim() === title);
+      
+      // Apply category filter if selected
+      if (selectedCategory) {
+        matchingProductAds = matchingProductAds.filter(pa => 
+          pa.category && pa.category.trim().toLowerCase() === selectedCategory.toLowerCase()
+        );
+      }
+      
       console.log('📊 [AdListScreen] Matching product ads:', matchingProductAds.length);
       
       matchingProductAds.forEach(pa => {
@@ -414,9 +536,21 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       if (matchingProductAds.length === 0) {
         console.log('⚠️ [AdListScreen] No matching product ads found for:', title);
       }
+      
+      // Update filtered products for category view
+      setFilteredProducts(matchingProductAds);
+      
     } else {
       console.log('📊 [AdListScreen] No selected ad, showing all');
-      const allAds = [...genericAds, ...productAds];
+      let allAds = [...genericAds, ...productAds];
+      
+      // Apply category filter if selected
+      if (selectedCategory) {
+        allAds = allAds.filter(ad => 
+          ad.category && ad.category.trim().toLowerCase() === selectedCategory.toLowerCase()
+        );
+      }
+      
       allAds.forEach(ad => {
         if (ad.isProductAd) {
           merged.push({ type: 'fullProductAd', data: ad });
@@ -424,11 +558,14 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
           merged.push({ type: 'ad', data: ad });
         }
       });
+      
+      setFilteredProducts(productAds);
     }
 
     console.log('📊 [AdListScreen] Display data items:', merged.length);
     setDisplayData(merged);
-  }, [externalProducts, activeAds, selectedAd, findAdByParams, searchQuery, navigation]);
+    
+  }, [externalProducts, activeAds, selectedAd, findAdByParams, searchQuery, navigation, selectedCategory]);
 
   // Scroll the main list to the top whenever selectedAd or searchQuery changes
   useEffect(() => {
@@ -499,13 +636,76 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     setRefreshing(false);
   }, [dispatch, externalProducts, searchQuery]);
 
+  // ============================================================
+  // 🚀 INSTAGRAM-GRADE NATIVE BROWSER (expo-web-browser)
+  // ============================================================
+  const openLinkInNativeBrowser = useCallback(async (url: string) => {
+    // Prevent double-taps
+    if (isOpeningBrowser) return;
+    
+    // Basic URL validation
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      Alert.alert('Invalid Link', 'This link cannot be opened.');
+      return;
+    }
+
+    try {
+      setIsOpeningBrowser(true);
+
+      // Open in Chrome Custom Tab / Safari View Controller
+      await WebBrowser.openBrowserAsync(url, {
+        // Branding
+        toolbarColor: '#0A3D2B',
+        controlsColor: '#FFFFFF',
+        // iOS
+        dismissButtonStyle: 'close',
+        enableBarCollapsing: true,
+        // Android
+        showTitle: true,
+        enableDefaultShare: true,
+      });
+
+      console.log('✅ Browser dismissed. AdListScreen preserved.');
+
+    } catch (error) {
+      console.warn('WebBrowser error:', error);
+      // Fallback: open in system browser
+      try {
+        const supported = await Linking.canOpenURL(url);
+        if (supported) {
+          await Linking.openURL(url);
+        } else {
+          Alert.alert('Error', 'Cannot open this link.');
+        }
+      } catch (e) {
+        Alert.alert('Error', 'Failed to open link.');
+      }
+    } finally {
+      // Re-enable tapping after browser is closed
+      setIsOpeningBrowser(false);
+    }
+  }, [isOpeningBrowser]);
+
+  // ---- REPLACED: Ad Press Handler with Native Browser ----
   const handleAdPress = useCallback((ad: any) => {
+    // If it's an external web link
     if (ad.link && (ad.link.startsWith('http://') || ad.link.startsWith('https://'))) {
-      navigation.navigate('WebViewScreen', { url: ad.link });
+      // 🚀 Open in Instagram-grade Native Browser (0MB memory overhead)
+      openLinkInNativeBrowser(ad.link);
     } else {
+      // Internal app navigation (e.g., product detail, custom screen)
       navigation.navigate('AdDetail', { ad });
     }
-  }, [navigation]);
+  }, [navigation, openLinkInNativeBrowser]);
+
+  // ---- Reset browser opening flag if screen loses focus ----
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setIsOpeningBrowser(false);
+      };
+    }, [])
+  );
 
   const handleProductPress = useCallback((product: any) => {
     navigation.navigate('ProductDetails', { productId: product._id });
@@ -519,6 +719,27 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       adId: undefined
     });
     setSelectedAd(ad);
+    // Clear category selection when switching ads
+    setSelectedCategory(null);
+    setCategories([]);
+  }, [navigation]);
+
+  // Handle category selection
+  const handleCategoryPress = useCallback((categoryName: string) => {
+    if (selectedCategory === categoryName) {
+      setSelectedCategory(null); // Deselect if already selected
+    } else {
+      setSelectedCategory(categoryName);
+      // Scroll to top when category is selected
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }, 100);
+    }
+  }, [selectedCategory]);
+
+  // Handle settings bell press
+  const handleSettingsPress = useCallback(() => {
+    navigation.navigate('Settings');
   }, [navigation]);
 
   const renderItem = useCallback(({ item }: { item: any }) => {
@@ -569,7 +790,7 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     lastScrollY.current = currentScrollY;
   };
 
-  // Loading / error states (still show full screen for these)
+  // Loading / error states
   if (loading && !refreshing && displayData.length === 0 && !externalProducts) {
     return (
       <View style={styles.loaderContainer}>
@@ -590,9 +811,6 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     );
   }
 
-  // ----------------------------------------------
-  // Always render the full UI with search bar visible
-  // ----------------------------------------------
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
@@ -606,21 +824,33 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
           ]}
         >
           <View style={styles.searchBarContainer}>
+            {/* Settings Bell Icon - First image area */}
+            <TouchableOpacity 
+              style={styles.settingsButton}
+              onPress={handleSettingsPress}
+            >
+              <Ionicons name="settings-outline" size={24} color="#1C1C1E" />
+            </TouchableOpacity>
+            
             <Ionicons name="search" size={20} color="#999" />
             <TextInput
+              ref={searchInputRef}
               style={styles.searchInput}
               placeholder="Search ads by title, description or category..."
               placeholderTextColor="#999"
               value={searchQuery}
               onChangeText={setSearchQuery}
               clearButtonMode="while-editing"
+              returnKeyType="search"
+              onSubmitEditing={() => {
+                searchInputRef.current?.blur();
+              }}
             />
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => setSearchQuery('')}>
                 <Ionicons name="close-circle" size={20} color="#999" />
               </TouchableOpacity>
             )}
-            {/* 🎤 Voice search button – only if module is available */}
             {SpeechRecognition && (
               <TouchableOpacity
                 onPress={handleVoiceSearch}
@@ -636,6 +866,7 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
             )}
           </View>
           
+          {/* Title List */}
           <View style={styles.tabsWrapper}>
             <ScrollView
               ref={scrollViewRef}
@@ -687,6 +918,66 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
               ]}
             />
           </View>
+
+          {/* Category List - Directly below title list with proper spacing */}
+          {selectedAd && categories.length > 0 && (
+            <View style={styles.categorySection}>
+              <View style={styles.categoryHeader}>
+                <Text style={styles.categorySectionTitle}>
+                  Categories
+                </Text>
+                {selectedCategory && (
+                  <TouchableOpacity 
+                    onPress={() => setSelectedCategory(null)}
+                    style={styles.clearCategoryButton}
+                  >
+                    <Text style={styles.clearCategoryText}>Clear</Text>
+                    <Ionicons name="close-circle" size={16} color="#0A3D2B" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <ScrollView
+                ref={categoryScrollViewRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.categoryScrollView}
+                contentContainerStyle={styles.categoryScrollContent}
+              >
+                {categories.map((category) => (
+                  <CategoryItem
+                    key={category.name}
+                    category={category.name}
+                    image={category.image}
+                    isSelected={selectedCategory === category.name}
+                    onPress={handleCategoryPress}
+                  />
+                ))}
+              </ScrollView>
+              {selectedCategory && filteredProducts.length > 0 && (
+                <View style={styles.categoryResultHeader}>
+                  <Text style={styles.categoryResultText}>
+                    {filteredProducts.length} products in "{selectedCategory}"
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+          
+          {/* Show message when selected ad has no categories */}
+          {selectedAd && categories.length === 0 && (
+            <View style={styles.categorySection}>
+              <View style={styles.categoryHeader}>
+                <Text style={styles.categorySectionTitle}>
+                  Categories
+                </Text>
+              </View>
+              <View style={styles.noCategoryContainer}>
+                <Text style={styles.noCategoryText}>
+                  No categories available for this title
+                </Text>
+              </View>
+            </View>
+          )}
         </Animated.View>
 
         <View style={styles.mainContent}>
@@ -712,9 +1003,10 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
             scrollEventThrottle={16}
             ListHeaderComponent={
               <>
-                <View style={{ height: TOP_BAR_HEIGHT }} />
+                <View style={{ height: TOP_BAR_HEIGHT + 16 }} />
+                
                 {title && <Text style={styles.sectionTitle}>{title}</Text>}
-                {selectedAd && (
+                {selectedAd && displayData.length > 0 && (
                   <View style={styles.selectedAdHeader}>
                     <Text style={styles.selectedAdHeaderTitle}>
                       {selectedAd.title}
@@ -795,6 +1087,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     height: 40,
   },
+  settingsButton: {
+    paddingRight: 10,
+    paddingVertical: 4,
+  },
   searchInput: {
     flex: 1,
     fontSize: 16,
@@ -868,6 +1164,115 @@ const styles = StyleSheet.create({
   mainContent: {
     flex: 1,
     backgroundColor: '#F8F8F8',
+    paddingTop: 4,
+  },
+  // Category Section Styles - Inside top bar with proper spacing
+  categorySection: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    marginTop: 2,
+    paddingBottom: 10,
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    marginBottom: 4,
+  },
+  categorySectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1C1C1E',
+  },
+  clearCategoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  clearCategoryText: {
+    fontSize: 12,
+    color: '#0A3D2B',
+    fontWeight: '500',
+  },
+  categoryScrollView: {
+    maxHeight: 90,
+  },
+  categoryScrollContent: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    gap: 10,
+    alignItems: 'center',
+  },
+  categoryItem: {
+    width: CATEGORY_ITEM_WIDTH,
+    alignItems: 'center',
+    borderRadius: 10,
+    backgroundColor: '#F8F8F8',
+    borderWidth: 2,
+    borderColor: 'transparent',
+    paddingVertical: 3,
+    paddingHorizontal: 3,
+  },
+  categoryItemActive: {
+    borderColor: '#0A3D2B',
+    backgroundColor: '#E8F5E9',
+  },
+  categoryImageContainer: {
+    width: CATEGORY_ITEM_WIDTH - 16,
+    height: CATEGORY_ITEM_WIDTH - 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#F0F0F0',
+    position: 'relative',
+  },
+  categoryImage: {
+    width: '100%',
+    height: '100%',
+  },
+  categorySelectedOverlay: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 10,
+  },
+  categoryText: {
+    fontSize: 10,
+    color: '#666',
+    fontWeight: '500',
+    marginTop: 2,
+    textAlign: 'center',
+    maxWidth: CATEGORY_ITEM_WIDTH - 8,
+  },
+  categoryTextActive: {
+    color: '#0A3D2B',
+    fontWeight: '700',
+  },
+  categoryResultHeader: {
+    marginTop: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 6,
+    marginHorizontal: 4,
+  },
+  categoryResultText: {
+    fontSize: 11,
+    color: '#1C1C1E',
+    fontWeight: '500',
+  },
+  noCategoryContainer: {
+    paddingVertical: 4,
+    alignItems: 'center',
+  },
+  noCategoryText: {
+    fontSize: 12,
+    color: '#999',
+    fontWeight: '400',
   },
   sectionTitle: {
     fontSize: 20,
@@ -1135,8 +1540,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emptyText: { color: '#999999', fontSize: 16, fontWeight: '500', marginTop: 12 },
-  emptySubText: { color: '#CCCCCC', fontSize: 14, marginTop: 4 },
+  emptyText: { 
+    color: '#999999', 
+    fontSize: 16, 
+    fontWeight: '500', 
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptySubText: { 
+    color: '#CCCCCC', 
+    fontSize: 14, 
+    marginTop: 4,
+    textAlign: 'center',
+  },
   footer: { paddingVertical: 16, alignItems: 'center' },
   footerText: { color: '#8E8E93', fontSize: 12 },
 });

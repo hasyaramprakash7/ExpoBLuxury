@@ -100,7 +100,7 @@ const FALLBACK_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCA
 type AddressType = "Home" | "Work" | "Other";
 
 // ================================================================
-// 1. Map Picker Modal
+// 1. Map Picker Modal (unchanged)
 // ================================================================
 interface MapPickerModalProps {
   visible: boolean;
@@ -119,7 +119,7 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
 }) => {
   const mapRef = useRef<MapView>(null);
   const insets = useSafeAreaInsets();
-  
+
   const [region, setRegion] = useState<Region | null>(null);
   const [fetchedAddress, setFetchedAddress] = useState<string>("Locating...");
   const [detailedAddress, setDetailedAddress] = useState<string>("");
@@ -216,7 +216,7 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
       });
       if (geocode.length > 0) {
         const place = geocode[0];
-        
+
         const addressParts = [
           place.name,
           place.street,
@@ -254,14 +254,14 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
   const searchLocations = useCallback((query: string) => {
     setSearchQuery(query);
     setShowSearchResults(query.length > 0);
-    
+
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     if (!query || query.length < 2) {
       setSearchResults([]);
       setIsSearching(false);
       return;
     }
-    
+
     setIsSearching(true);
     searchTimeout.current = setTimeout(async () => {
       try {
@@ -292,18 +292,18 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({
   const selectSearchResult = useCallback((item: any) => {
     const lat = parseFloat(item.lat);
     const lon = parseFloat(item.lon);
-    
+
     const newRegion = {
       latitude: lat,
       longitude: lon,
       latitudeDelta: 0.01,
       longitudeDelta: 0.01,
     };
-    
+
     setRegion(newRegion);
     mapRef.current?.animateToRegion(newRegion, 1000);
     fetchAddressFromCoords(lat, lon);
-    
+
     setSearchQuery("");
     setSearchResults([]);
     setShowSearchResults(false);
@@ -615,7 +615,7 @@ const mapModalStyles = StyleSheet.create({
 });
 
 // ================================================================
-// 2. Address Modal
+// 2. Address Modal (unchanged)
 // ================================================================
 interface AddressModalProps {
   visible: boolean;
@@ -767,7 +767,7 @@ const addressModalStyles = StyleSheet.create({
 });
 
 // ================================================================
-// 3. SUB-COMPONENTS
+// 3. SUB-COMPONENTS (unchanged)
 // ================================================================
 const ViewPropertyCTA = ({ onPress }: { onPress: () => void }) => {
   const arrowTranslateX = useSharedValue(0);
@@ -952,7 +952,7 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
 };
 
 // ================================================================
-// 4. MAIN SCREEN - WITH SCROLL PRESERVATION
+// 4. MAIN SCREEN - WITH FIX FOR LOCATION FILTERING (same as rental version)
 // ================================================================
 const UserPropertyListScreen: React.FC = () => {
   const dispatch = useDispatch<any>();
@@ -986,12 +986,10 @@ const UserPropertyListScreen: React.FC = () => {
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [mapPickerCoords, setMapPickerCoords] = useState<{ lat: number; lng: number } | null>(null);
 
-  // ✅ Animated header
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
   const isHeaderHidden = useRef(false);
 
-  // Store complete state for restoration
   const savedState = useRef({
     scrollOffset: 0,
     isHeaderHidden: false,
@@ -1001,133 +999,168 @@ const UserPropertyListScreen: React.FC = () => {
 
   const flatListRef = useRef<FlatList>(null);
 
-  // Sync local filters when selectedAddress changes
+  // Track previous address to detect changes (for watcher)
+  const prevSelectedAddressRef = useRef<any>(null);
+  const initialFilterApplied = useRef(false);
+
+  // ============================
+  // Sync local filters when selectedAddress changes (for UI display)
+  // ============================
   useEffect(() => {
     if (selectedAddress) {
+      console.log('📍 [PropertyList] selectedAddress updated:', {
+        city: selectedAddress.city,
+        locality: selectedAddress.locality,
+        state: selectedAddress.state,
+        pincode: selectedAddress.pincode,
+        addressString: selectedAddress.addressString?.substring(0, 50),
+        id: selectedAddress.id,
+        type: selectedAddress.type,
+      });
+      setCity(selectedAddress.city || '');
+      setLocality(selectedAddress.locality || '');
+      setState(selectedAddress.state || '');
+      setPincode(selectedAddress.pincode || '');
+    } else {
+      console.log('⚠️ [PropertyList] selectedAddress is null/undefined');
+    }
+  }, [selectedAddress]);
+
+  // Initialize local state from selectedAddress on first mount
+  useEffect(() => {
+    if (selectedAddress) {
+      console.log('🔄 [PropertyList] Initializing state from selectedAddress:', {
+        city: selectedAddress.city,
+        locality: selectedAddress.locality,
+        state: selectedAddress.state,
+        pincode: selectedAddress.pincode,
+      });
       setCity(selectedAddress.city || '');
       setLocality(selectedAddress.locality || '');
       setState(selectedAddress.state || '');
       setPincode(selectedAddress.pincode || '');
     }
-  }, [selectedAddress]);
+  }, []);
+
+  // ============================
+  // WATCH: selectedAddress changes → apply filters (only if changed)
+  // ============================
+  useEffect(() => {
+    if (!selectedAddress) {
+      console.log('⏭️ [PropertyList] selectedAddress is null, skipping watcher');
+      return;
+    }
+
+    // If this is the first time we have a valid address, skip fetch
+    // because the initial load is handled separately.
+    if (!initialFilterApplied.current) {
+      console.log('🚀 [PropertyList] First valid address – marking initialized');
+      initialFilterApplied.current = true;
+      prevSelectedAddressRef.current = selectedAddress;
+      return;
+    }
+
+    const prev = prevSelectedAddressRef.current;
+    if (prev) {
+      const hasChanged =
+        prev.city !== selectedAddress.city ||
+        prev.locality !== selectedAddress.locality ||
+        prev.state !== selectedAddress.state ||
+        prev.pincode !== selectedAddress.pincode;
+
+      if (hasChanged) {
+        console.log('🔄 [PropertyList] Address fields changed – re-fetching with location', {
+          prev: { city: prev.city, locality: prev.locality, state: prev.state, pincode: prev.pincode },
+          current: { city: selectedAddress.city, locality: selectedAddress.locality, state: selectedAddress.state, pincode: selectedAddress.pincode },
+        });
+        // Update local state (already done by the sync effect above)
+        // Now call applyFilters() – it will use selectedAddress via getFilterParams
+        applyFilters();
+      } else {
+        console.log('✅ [PropertyList] Address fields unchanged – no re-fetch');
+      }
+    }
+    prevSelectedAddressRef.current = selectedAddress;
+  }, [selectedAddress, applyFilters]);
 
   // Load addresses when token available
   useEffect(() => {
     if (token) {
+      console.log('🔑 [PropertyList] Token available, fetching addresses');
       dispatch(fetchUserAddresses(token));
     }
   }, [dispatch, token]);
 
-  // ✅ PRESERVE scroll position when returning to screen
-  useFocusEffect(
-    useCallback(() => {
-      console.log('📱 [PropertyList] Screen FOCUSED');
-      console.log('📱 [PropertyList] Current saved scroll position:', savedState.current.scrollOffset);
-
-      isNavigatingAway.current = false;
-
-      // ✅ RESTORE scroll position instead of resetting to top
-      if (savedState.current.scrollOffset > 10) {
-        console.log('📍 [PropertyList] Restoring scroll to:', savedState.current.scrollOffset);
-
-        // Restore header state
-        if (savedState.current.isHeaderHidden) {
-          isHeaderHidden.current = true;
-          headerTranslateY.setValue(-HEADER_HEIGHT);
-        } else {
-          isHeaderHidden.current = false;
-          headerTranslateY.setValue(0);
-        }
-
-        // Restore scroll position with multiple attempts
-        const restoreScroll = (attempt = 0) => {
-          if (flatListRef.current) {
-            flatListRef.current.scrollToOffset({
-              offset: savedState.current.scrollOffset,
-              animated: false,
-            });
-          }
-          if (attempt < 3) {
-            setTimeout(() => restoreScroll(attempt + 1), 100 * (attempt + 1));
-          }
-        };
-        restoreScroll(0);
-      } else {
-        console.log('🔄 [PropertyList] No saved position, staying at top');
-        setTimeout(() => {
-          if (flatListRef.current) {
-            flatListRef.current.scrollToOffset({
-              offset: 0,
-              animated: false,
-            });
-          }
-        }, 100);
-      }
-
-      // Refresh data
-      if (token) {
-        dispatch(fetchUserAddresses(token));
-      }
-      applyFilters();
-      dispatch(fetchAllVendorsAuth());
-
-      return () => {
-        // ✅ SAVE current scroll position when leaving
-        console.log('💾 [PropertyList] Saving scroll position:', lastScrollY.current);
-        savedState.current.scrollOffset = lastScrollY.current;
-        savedState.current.isHeaderHidden = isHeaderHidden.current;
-        isNavigatingAway.current = true;
-        console.log('📱 [PropertyList] Screen UNFOCUSED - saved at:', savedState.current.scrollOffset);
-      };
-    }, [dispatch, token, applyFilters])
-  );
-
-  // Add beforeRemove listener for better scroll saving
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-      savedState.current.scrollOffset = lastScrollY.current;
-      savedState.current.isHeaderHidden = isHeaderHidden.current;
-      console.log('💾 [PropertyList] Before remove, saving scroll:', savedState.current.scrollOffset);
-    });
-
-    return unsubscribe;
-  }, [navigation]);
-
-  // Build filter params
+  // ============================
+  // Build filter params – always use selectedAddress unless overridden
+  // ============================
   const getFilterParams = useCallback((overrides: any = {}) => {
-    return {
+    // Priority: overrides > selectedAddress > local state (fallback)
+    const finalCity = overrides.city !== undefined ? overrides.city : (selectedAddress?.city ?? city);
+    const finalLocality = overrides.locality !== undefined ? overrides.locality : (selectedAddress?.locality ?? locality);
+    const finalState = overrides.state !== undefined ? overrides.state : (selectedAddress?.state ?? state);
+    const finalPincode = overrides.pincode !== undefined ? overrides.pincode : (selectedAddress?.pincode ?? pincode);
+
+    const params = {
       page: 1,
       limit: 10,
       q: searchText || undefined,
       propertyType: selectedType || undefined,
       minPrice: minPrice ? Number(minPrice) : undefined,
       maxPrice: maxPrice ? Number(maxPrice) : undefined,
-      city: city || undefined,
-      state: state || undefined,
-      locality: locality || undefined,
-      pincode: pincode || undefined,
+      city: finalCity || undefined,
+      state: finalState || undefined,
+      locality: finalLocality || undefined,
+      pincode: finalPincode || undefined,
       vendorId: selectedVendorId || undefined,
       ...overrides,
     };
-  }, [searchText, selectedType, minPrice, maxPrice, city, state, locality, pincode, selectedVendorId]);
 
+    console.log('📦 [PropertyList] getFilterParams output:', {
+      city: params.city,
+      locality: params.locality,
+      state: params.state,
+      pincode: params.pincode,
+      q: params.q,
+      propertyType: params.propertyType,
+      vendorId: params.vendorId,
+      minPrice: params.minPrice,
+      maxPrice: params.maxPrice,
+      hasLocation: !!(params.city || params.locality || params.state || params.pincode),
+      page: params.page,
+      limit: params.limit,
+    });
+
+    return params;
+  }, [searchText, selectedType, minPrice, maxPrice, city, state, locality, pincode, selectedVendorId, selectedAddress]);
+
+  // ============================
+  // Apply filters – dispatches fetch
+  // ============================
   const applyFilters = useCallback((overrides?: any) => {
     const params = getFilterParams(overrides);
+    console.log('🚀 [PropertyList] Dispatching fetchProperties with params:', JSON.stringify(params, null, 2));
     dispatch(fetchProperties(params));
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     setFiltersVisible(false);
   }, [dispatch, getFilterParams]);
 
+  // ============================
+  // Clear all filters
+  // ============================
   const clearAllFilters = () => {
+    console.log('🧹 [PropertyList] Clearing all filters');
     setSearchText('');
     setSelectedType('');
     setMinPrice('');
     setMaxPrice('');
+    // Clear location fields (will be refilled by selectedAddress if available)
     setCity('');
     setState('');
     setLocality('');
     setPincode('');
     setSelectedVendorId('');
+    // Apply with empty location overrides
     applyFilters({
       q: '',
       propertyType: '',
@@ -1142,17 +1175,20 @@ const UserPropertyListScreen: React.FC = () => {
     setFiltersVisible(false);
   };
 
-  // ========== Location Handlers ==========
+  // ============================
+  // Location Handlers
+  // ============================
   const handleSelectAddress = useCallback((address: any) => {
+    console.log('📍 [PropertyList] handleSelectAddress called with:', {
+      city: address.city,
+      locality: address.locality,
+      state: address.state,
+      pincode: address.pincode,
+    });
     dispatch(setSelectedAddress(address));
     setShowAddressModal(false);
-    applyFilters({
-      city: address.city || undefined,
-      locality: address.locality || undefined,
-      state: address.state || undefined,
-      pincode: address.pincode || undefined,
-    });
-  }, [dispatch, applyFilters]);
+    // Watcher will trigger applyFilters
+  }, [dispatch]);
 
   const handleAddCurrentLocation = useCallback(async () => {
     if (!token) {
@@ -1179,6 +1215,15 @@ const UserPropertyListScreen: React.FC = () => {
         const finalState = region || '';
         const finalPincode = postalCode || '';
 
+        console.log('📍 [PropertyList] Current location detected:', {
+          finalCity,
+          finalLocality,
+          finalState,
+          finalPincode,
+          latitude,
+          longitude,
+        });
+
         const addressString = [finalLocality, finalCity, finalState, finalPincode].filter(Boolean).join(", ");
 
         const addressData = {
@@ -1195,6 +1240,7 @@ const UserPropertyListScreen: React.FC = () => {
         dispatch(saveUserAddress({ token, addressData }))
           .unwrap()
           .then((savedAddress: any) => {
+            console.log('✅ [PropertyList] Address saved, applying filters');
             dispatch(setSelectedAddress(savedAddress));
             setCity(finalCity);
             setLocality(finalLocality);
@@ -1206,32 +1252,30 @@ const UserPropertyListScreen: React.FC = () => {
               text1: 'Location Detected',
               text2: `📍 ${finalLocality || finalCity}`,
             });
-            applyFilters({
-              city: finalCity || undefined,
-              locality: finalLocality || undefined,
-              state: finalState || undefined,
-              pincode: finalPincode || undefined,
-            });
+            // Watcher will trigger applyFilters
           })
           .catch((error: any) => {
+            console.error('❌ [PropertyList] Failed to save location:', error);
             Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
           });
       }
     } catch (error) {
+      console.error('❌ [PropertyList] Location error:', error);
       Toast.show({ type: 'error', text1: 'Location Error', text2: 'Could not detect location.' });
     } finally {
       setIsLocating(false);
     }
-  }, [dispatch, token, addresses.length, applyFilters]);
+  }, [dispatch, token, addresses.length]);
 
   const handleOpenMapPicker = useCallback(() => {
+    console.log('🗺️ [PropertyList] Opening map picker');
     setShowAddressModal(false);
     setMapPickerCoords(null);
     setShowMapPicker(true);
   }, []);
 
   const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
-    console.log('📍 Map location selected:', lat, lng, addressDetails);
+    console.log('📍 [PropertyList] Map location selected:', { lat, lng, addressDetails });
 
     const city = addressDetails.city || '';
     const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
@@ -1268,44 +1312,135 @@ const UserPropertyListScreen: React.FC = () => {
       dispatch(saveUserAddress({ token, addressData }))
         .unwrap()
         .then((savedAddress: any) => {
+          console.log('✅ [PropertyList] Map address saved, applying filters');
           dispatch(setSelectedAddress(savedAddress));
           setCity(city);
           setLocality(locality || city);
           setState(state);
           setPincode(pincode);
-          applyFilters({
-            city: city || undefined,
-            locality: locality || city || undefined,
-            state: state || undefined,
-            pincode: pincode || undefined,
-          });
           Toast.show({ type: 'success', text1: 'Location Saved', text2: `📍 ${fullAddress}` });
+          // Watcher will trigger applyFilters
         })
         .catch((error: any) => {
+          console.error('❌ [PropertyList] Failed to save map location:', error);
           Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
         });
     }
-  }, [dispatch, token, addresses.length, applyFilters]);
+  }, [dispatch, token, addresses.length]);
 
-  // ========== Lifecycle ==========
+  // ============================
+  // Lifecycle
+  // ============================
   useEffect(() => {
+    console.log('🔄 [PropertyList] Component mounted – initial fetch');
+    // Mark that we've seen the initial address (if any)
+    if (selectedAddress) {
+      initialFilterApplied.current = true;
+      prevSelectedAddressRef.current = selectedAddress;
+    }
     applyFilters();
     dispatch(fetchAllVendorsAuth());
   }, []);
 
+  // PRESERVE scroll position when returning to screen
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 [PropertyList] Screen FOCUSED');
+      console.log('📱 [PropertyList] Current saved scroll position:', savedState.current.scrollOffset);
+
+      isNavigatingAway.current = false;
+
+      if (savedState.current.scrollOffset > 10) {
+        console.log('📍 [PropertyList] Restoring scroll to:', savedState.current.scrollOffset);
+        if (savedState.current.isHeaderHidden) {
+          isHeaderHidden.current = true;
+          headerTranslateY.setValue(-HEADER_HEIGHT);
+        } else {
+          isHeaderHidden.current = false;
+          headerTranslateY.setValue(0);
+        }
+
+        const restoreScroll = (attempt = 0) => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({
+              offset: savedState.current.scrollOffset,
+              animated: false,
+            });
+          }
+          if (attempt < 3) {
+            setTimeout(() => restoreScroll(attempt + 1), 100 * (attempt + 1));
+          }
+        };
+        restoreScroll(0);
+      } else {
+        console.log('🔄 [PropertyList] No saved position, staying at top');
+        setTimeout(() => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({
+              offset: 0,
+              animated: false,
+            });
+          }
+        }, 100);
+      }
+
+      // Refresh data
+      if (token) {
+        console.log('🔄 [PropertyList] Refreshing addresses on focus');
+        dispatch(fetchUserAddresses(token));
+      }
+      console.log('🔄 [PropertyList] Applying filters on focus');
+      applyFilters();
+      dispatch(fetchAllVendorsAuth());
+
+      return () => {
+        console.log('💾 [PropertyList] Saving scroll position:', lastScrollY.current);
+        savedState.current.scrollOffset = lastScrollY.current;
+        savedState.current.isHeaderHidden = isHeaderHidden.current;
+        isNavigatingAway.current = true;
+        console.log('📱 [PropertyList] Screen UNFOCUSED - saved at:', savedState.current.scrollOffset);
+      };
+    }, [dispatch, token, applyFilters])
+  );
+
+  // beforeRemove listener for scroll saving
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      savedState.current.scrollOffset = lastScrollY.current;
+      savedState.current.isHeaderHidden = isHeaderHidden.current;
+      console.log('💾 [PropertyList] Before remove, saving scroll:', savedState.current.scrollOffset);
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
+  // ============================
+  // onRefresh
+  // ============================
   const onRefresh = useCallback(async () => {
+    console.log('🔄 [PropertyList] Pull-to-refresh started');
     setRefreshing(true);
-    if (token) {
-      await dispatch(fetchUserAddresses(token));
+    try {
+      if (token) {
+        console.log('🔄 [PropertyList] Refreshing addresses on pull-to-refresh');
+        await dispatch(fetchUserAddresses(token)).unwrap();
+      }
+      console.log('🔄 [PropertyList] Applying filters after refresh');
+      await applyFilters();
+      await dispatch(fetchAllVendorsAuth());
+      console.log('✅ [PropertyList] Pull-to-refresh completed');
+    } catch (error) {
+      console.error('❌ [PropertyList] Refresh error:', error);
+    } finally {
+      setRefreshing(false);
     }
-    await Promise.all([applyFilters(), dispatch(fetchAllVendorsAuth())]);
-    setRefreshing(false);
   }, [applyFilters, dispatch, token]);
 
   const handleLoadMore = () => {
     if (hasMore && !loading && !refreshing) {
       const nextPage = currentPage + 1;
       const params = getFilterParams();
+      console.log(`📄 [PropertyList] Loading more properties (page ${nextPage})`);
       dispatch(fetchProperties({ ...params, page: nextPage }));
     }
   };
@@ -1330,17 +1465,14 @@ const UserPropertyListScreen: React.FC = () => {
     return parts.length ? parts.join(', ') : 'Select a location';
   }, [selectedAddress, locality, city, state, pincode]);
 
-  // ✅ Handle scroll for header animation with state saving
   const handleScroll = (event: any) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const diff = currentScrollY - lastScrollY.current;
 
-    // ✅ Save state continuously
     savedState.current.scrollOffset = currentScrollY;
     savedState.current.isHeaderHidden = isHeaderHidden.current;
     savedState.current.headerTranslateYValue = currentScrollY > 20 ? -HEADER_HEIGHT : 0;
 
-    // Only trigger animation when scrolling significantly
     if (currentScrollY > 20) {
       if (diff > 5 && !isHeaderHidden.current) {
         isHeaderHidden.current = true;
@@ -1380,7 +1512,6 @@ const UserPropertyListScreen: React.FC = () => {
     lastScrollY.current = currentScrollY;
   };
 
-  // Loading state
   if (locationLoading && addresses.length === 0) {
     return (
       <View style={styles.loadingContainer}>
@@ -1394,7 +1525,6 @@ const UserPropertyListScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
 
-      {/* ✅ ANIMATED HEADER */}
       <Animated.View
         style={[
           styles.headerContainer,
@@ -1422,7 +1552,6 @@ const UserPropertyListScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Location Bar */}
         <TouchableOpacity
           style={styles.locationBar}
           onPress={() => setShowAddressModal(true)}
@@ -1435,7 +1564,6 @@ const UserPropertyListScreen: React.FC = () => {
           <Ionicons name="chevron-down" size={16} color={Colors.textTertiary} />
         </TouchableOpacity>
 
-        {/* Search Bar */}
         <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color={Colors.textTertiary} />
           <TextInput
@@ -1452,7 +1580,6 @@ const UserPropertyListScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Category Scroll */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1485,7 +1612,6 @@ const UserPropertyListScreen: React.FC = () => {
         </ScrollView>
       </Animated.View>
 
-      {/* Results Row */}
       <View style={[styles.resultsRow, { paddingTop: HEADER_HEIGHT + 4 }]}>
         <Text style={styles.resultsText}>
           {properties.length} {properties.length === 1 ? 'property' : 'properties'} found
@@ -1495,7 +1621,6 @@ const UserPropertyListScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Main Content with FlatList */}
       <FlatList
         ref={flatListRef}
         data={properties}
@@ -1520,15 +1645,14 @@ const UserPropertyListScreen: React.FC = () => {
               <Text style={styles.emptySubtitle}>
                 Try adjusting your filters or search terms
               </Text>
-              <TouchableOpacity style={styles.emptyBtn} onPress={clearAllFilters}>
+              {/* <TouchableOpacity style={styles.emptyBtn} onPress={clearAllFilters}>
                 <Text style={styles.emptyBtnText}>Clear Filters</Text>
-              </TouchableOpacity>
+              </TouchableOpacity> */}
             </View>
           ) : null
         }
       />
 
-      {/* Address Modal */}
       <AddressModal
         visible={showAddressModal}
         onClose={() => setShowAddressModal(false)}
@@ -1540,7 +1664,6 @@ const UserPropertyListScreen: React.FC = () => {
         onOpenMap={handleOpenMapPicker}
       />
 
-      {/* Map Picker Modal */}
       <MapPickerModal
         visible={showMapPicker}
         onClose={() => setShowMapPicker(false)}
@@ -1549,7 +1672,6 @@ const UserPropertyListScreen: React.FC = () => {
         initialLng={mapPickerCoords?.lng}
       />
 
-      {/* Filter Modal */}
       <Modal visible={filtersVisible} transparent animationType="slide">
         <TouchableOpacity
           style={styles.modalOverlay}
@@ -1696,14 +1818,13 @@ const UserPropertyListScreen: React.FC = () => {
 };
 
 // ================================================================
-// 5. STYLES
+// 5. STYLES (unchanged)
 // ================================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.white },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.white },
   loadingText: { marginTop: 12, fontSize: 14, color: Colors.textTertiary },
 
-  // ✅ HEADER CONTAINER - Fixed at top with animation
   headerContainer: {
     position: 'absolute',
     top: 0,
@@ -1868,7 +1989,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.accentGreen,
     borderWidth: 1,
   },
-  cardBgImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', opacity: 0.65 },
+  cardBgImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', opacity: 2.65 },
   chipContainer: { width: 40, height: 28, borderRadius: 5, overflow: 'hidden' },
   chipLine: { position: 'absolute', height: 0.5, backgroundColor: 'rgba(0,0,0,0.2)' },
   chipLineVertical: { position: 'absolute', width: 0.5, backgroundColor: 'rgba(0,0,0,0.2)' },

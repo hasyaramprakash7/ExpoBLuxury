@@ -1,3 +1,4 @@
+// screens/HomeScreen.tsx
 import React, {
   useEffect,
   useMemo,
@@ -238,7 +239,7 @@ const ImageBanner: React.FC<ImageBannerProps> = ({ imageUrl, onPress }) => (
 );
 
 // ========================================================
-// 🔥 HOME SCREEN – WITH FLOATING HEADER & SCROLL PRESERVATION
+// 🔥 HOME SCREEN – WITH LOCATION WATCHER & SCROLL PRESERVATION
 // ========================================================
 
 const HomeScreen: React.FC = () => {
@@ -311,6 +312,72 @@ const HomeScreen: React.FC = () => {
   });
   const isNavigatingAway = useRef(false);
 
+  // ============================================================
+  // 🔥 NEW: Watch for selectedAddress changes from any screen
+  // ============================================================
+  const prevSelectedAddressRef = useRef<SavedAddress | null>(null);
+
+  useEffect(() => {
+    if (!selectedAddress) return;
+
+    const prev = prevSelectedAddressRef.current;
+    // If address changed or it's the first time we have one
+    if (
+      !prev ||
+      prev.latitude !== selectedAddress.latitude ||
+      prev.longitude !== selectedAddress.longitude ||
+      prev.city !== selectedAddress.city ||
+      prev.pincode !== selectedAddress.pincode
+    ) {
+      console.log(
+        "[HomeScreen] selectedAddress changed, updating location and refreshing",
+      );
+      // Update userLocation in Redux (this will trigger the location effect below)
+      dispatch(
+        fetchLocationSuccess({
+          latitude: selectedAddress.latitude,
+          longitude: selectedAddress.longitude,
+        }),
+      );
+      // Clear caches so data refreshes
+      lastFetchedCoordsRef.current = null;
+      productCache.current = [];
+      vendorCache.current = [];
+      categoryCache.current = [];
+      // Trigger refresh
+      onRefresh();
+    }
+    prevSelectedAddressRef.current = selectedAddress;
+  }, [selectedAddress]);
+
+  // ============================================================
+  // Location effect – fetch vendors & products when userLocation changes
+  // ============================================================
+  useEffect(() => {
+    if (userLocation?.latitude && userLocation?.longitude) {
+      const coordsKey = `${userLocation.latitude.toFixed(6)},${userLocation.longitude.toFixed(6)}`;
+      if (lastFetchedCoordsRef.current === coordsKey) {
+        console.log("[HomeScreen] Same coordinates, skipping fetch");
+        return;
+      }
+      lastFetchedCoordsRef.current = coordsKey;
+
+      console.log("📍 [HomeScreen] Fetching vendors & products for location:", userLocation);
+      // Clear caches
+      productCache.current = [];
+      vendorCache.current = [];
+      categoryCache.current = [];
+
+      dispatch(
+        fetchNearbyVendors({
+          lat: userLocation.latitude,
+          lng: userLocation.longitude,
+        }),
+      );
+      dispatch(fetchAllVendorProducts());
+    }
+  }, [userLocation, dispatch]);
+
   // Reset and re‑fetch addresses on screen focus + restore state
   useFocusEffect(
     useCallback(() => {
@@ -319,10 +386,7 @@ const HomeScreen: React.FC = () => {
 
       setReentryTrigger((prev) => prev + 1);
       initialLocationRequested.current = false;
-      lastFetchedCoordsRef.current = null;
-      productCache.current = [];
-      vendorCache.current = [];
-      categoryCache.current = [];
+      // Don't reset lastFetchedCoordsRef here – keep location cache
       
       if (token) {
         dispatch(fetchUserAddresses(token));
@@ -332,7 +396,6 @@ const HomeScreen: React.FC = () => {
       if (savedState.current.scrollOffset > 10) {
         console.log('📍 [HomeScreen] Restoring scroll to:', savedState.current.scrollOffset);
         
-        // Restore header state
         if (savedState.current.isHeaderHidden) {
           isHeaderHidden.current = true;
           headerTranslateY.setValue(-HEADER_HEIGHT);
@@ -341,7 +404,6 @@ const HomeScreen: React.FC = () => {
           headerTranslateY.setValue(0);
         }
         
-        // Restore scroll position with multiple attempts
         const restoreScroll = (attempt = 0) => {
           if (scrollViewRef.current) {
             scrollViewRef.current.scrollTo({
@@ -366,11 +428,9 @@ const HomeScreen: React.FC = () => {
         }, 100);
       }
 
-      // Reset the flag after restoring
       isNavigatingAway.current = false;
 
       return () => {
-        // ✅ SAVE current scroll position when leaving
         console.log('💾 [HomeScreen] Saving scroll position:', lastScrollY.current);
         savedState.current.scrollOffset = lastScrollY.current;
         savedState.current.isHeaderHidden = isHeaderHidden.current;
@@ -383,7 +443,6 @@ const HomeScreen: React.FC = () => {
   // Add beforeRemove listener for better scroll saving
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-      // Save scroll position before screen is removed
       savedState.current.scrollOffset = lastScrollY.current;
       savedState.current.isHeaderHidden = isHeaderHidden.current;
       console.log('💾 [HomeScreen] Before remove, saving scroll:', savedState.current.scrollOffset);
@@ -391,10 +450,6 @@ const HomeScreen: React.FC = () => {
 
     return unsubscribe;
   }, [navigation]);
-
-  useEffect(() => {
-    console.log('📦 nearbyVendors in Redux:', nearbyVendors);
-  }, [nearbyVendors]);
 
   // 1. Auto‑request GPS if no saved addresses & no location
   useEffect(() => {
@@ -410,17 +465,6 @@ const HomeScreen: React.FC = () => {
       handleRequestLocation();
     }
   }, [token, addresses.length, userLocation, isLocationLoading]);
-
-  // 2. Fetch vendors & products when location changes
-  useEffect(() => {
-    if (userLocation?.latitude && userLocation?.longitude) {
-      console.log('📍 Dispatching fetchNearbyVendors with:', userLocation);
-      dispatch(fetchNearbyVendors({
-        lat: userLocation.latitude,
-        lng: userLocation.longitude,
-      }));
-    }
-  }, [userLocation]);
 
   // --- Open modal and refresh addresses every time ---
   const onOpenAddressModal = useCallback(() => {
@@ -800,12 +844,10 @@ const HomeScreen: React.FC = () => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const diff = currentScrollY - lastScrollY.current;
 
-    // ✅ Save state continuously
     savedState.current.scrollOffset = currentScrollY;
     savedState.current.isHeaderHidden = isHeaderHidden.current;
     savedState.current.headerTranslateYValue = currentScrollY > 20 ? -HEADER_HEIGHT : 0;
 
-    // Only trigger animation when scrolling significantly
     if (currentScrollY > 20) {
       if (diff > 5 && !isHeaderHidden.current) {
         isHeaderHidden.current = true;

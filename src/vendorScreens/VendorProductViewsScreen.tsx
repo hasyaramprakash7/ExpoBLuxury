@@ -1,10 +1,9 @@
 // src/vendorScreens/VendorProductViewsScreen.tsx
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   ActivityIndicator,
   RefreshControl,
   Image,
@@ -12,16 +11,25 @@ import {
   Dimensions,
   Alert,
   SectionList,
+  Modal,
+  Linking,
+  Platform,
+  SafeAreaView,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Toast from 'react-native-toast-message';
 import { RootState } from '../app/store';
 import { fetchVendorViews, clearViews, addView } from '../features/productViewSlice';
 import socket from '../userScreens/utils/socket';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
+
+// --- Responsive helpers ---
+const scale = (size: number) => (width / 375) * size;
+const verticalScale = (size: number) => (height / 812) * size;
+const moderateScale = (size: number, factor = 0.5) => size + (scale(size) - size) * factor;
 
 const Colors = {
   primary: '#4A148C',
@@ -35,6 +43,14 @@ const Colors = {
   royalGreen: '#1B8C40',
   royalGreenLight: '#2A9D4A',
   textMuted: '#6B7280',
+  accentBlue: '#2563EB',
+  whatsappGreen: '#25D366',
+  accentPurple: '#7C3AED',
+  background: '#0A0A0A',
+  card: '#141414',
+  cardBorder: '#1F1F1F',
+  textPrimary: '#FFFFFF',
+  textSecondary: '#B0B0B0',
 };
 
 // --- Types ---
@@ -46,6 +62,7 @@ interface ProductView {
   viewerUserId: string;
   viewerName: string;
   viewerPhone: string;
+  viewerEmail?: string;
   viewedAt: string;
   product?: {
     _id: string;
@@ -63,6 +80,7 @@ interface GroupedView {
   userId: string;
   userName: string;
   userPhone: string;
+  userEmail?: string;
   productId: string;
   productType: string;
   productTitle: string;
@@ -72,6 +90,158 @@ interface GroupedView {
   lastViewedAt: string;
   views: ProductView[];
 }
+
+// --- Contact Modal ---
+const ContactModal: React.FC<{
+  visible: boolean;
+  userName: string;
+  userPhone?: string;
+  userEmail?: string;
+  onClose: () => void;
+  onCall: (phone: string) => void;
+  onWhatsApp: (phone: string, message: string) => void;
+  onEmail: (email: string) => void;
+}> = ({ visible, userName, userPhone, userEmail, onClose, onCall, onWhatsApp, onEmail }) => {
+  if (!visible) return null;
+
+  const message = `Hello ${userName || 'there'}! 👋\n\nI saw you viewed my listing on BLuxury. How can I help you today?`;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={modalStyles.overlay}>
+        <View style={modalStyles.content}>
+          <View style={modalStyles.header}>
+            <Text style={modalStyles.title}>Contact {userName || 'User'}</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={scale(22)} color={Colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={modalStyles.options}>
+            {userPhone && (
+              <>
+                <TouchableOpacity style={modalStyles.option} onPress={() => onCall(userPhone)}>
+                  <View style={[modalStyles.iconWrap, { backgroundColor: Colors.accentBlue + '20' }]}>
+                    <Ionicons name="call-outline" size={scale(22)} color={Colors.accentBlue} />
+                  </View>
+                  <View style={modalStyles.optionInfo}>
+                    <Text style={modalStyles.optionTitle}>Call</Text>
+                    <Text style={modalStyles.optionSub}>{userPhone}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={scale(18)} color={Colors.textMuted} />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={modalStyles.option} onPress={() => onWhatsApp(userPhone, message)}>
+                  <View style={[modalStyles.iconWrap, { backgroundColor: Colors.whatsappGreen + '20' }]}>
+                    <Ionicons name="logo-whatsapp" size={scale(22)} color={Colors.whatsappGreen} />
+                  </View>
+                  <View style={modalStyles.optionInfo}>
+                    <Text style={modalStyles.optionTitle}>WhatsApp</Text>
+                    <Text style={modalStyles.optionSub}>Send quick message</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={scale(18)} color={Colors.textMuted} />
+                </TouchableOpacity>
+              </>
+            )}
+
+            {userEmail && (
+              <TouchableOpacity style={modalStyles.option} onPress={() => onEmail(userEmail)}>
+                <View style={[modalStyles.iconWrap, { backgroundColor: Colors.accentPurple + '20' }]}>
+                  <Ionicons name="mail-outline" size={scale(22)} color={Colors.accentPurple} />
+                </View>
+                <View style={modalStyles.optionInfo}>
+                  <Text style={modalStyles.optionTitle}>Email</Text>
+                  <Text style={modalStyles.optionSub}>{userEmail}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={scale(18)} color={Colors.textMuted} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <TouchableOpacity style={modalStyles.closeBtn} onPress={onClose}>
+            <Text style={modalStyles.closeText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const modalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  content: {
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: moderateScale(20),
+    borderTopRightRadius: moderateScale(20),
+    padding: moderateScale(20),
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: verticalScale(16),
+  },
+  title: {
+    fontSize: moderateScale(18),
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  options: {
+    gap: verticalScale(8),
+  },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    padding: moderateScale(12),
+    borderRadius: moderateScale(10),
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  iconWrap: {
+    width: scale(40),
+    height: scale(40),
+    borderRadius: moderateScale(10),
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: scale(12),
+  },
+  optionInfo: {
+    flex: 1,
+  },
+  optionTitle: {
+    color: Colors.textPrimary,
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+  },
+  optionSub: {
+    color: Colors.textMuted,
+    fontSize: moderateScale(12),
+    marginTop: verticalScale(1),
+  },
+  closeBtn: {
+    marginTop: verticalScale(16),
+    paddingVertical: verticalScale(10),
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
+  },
+  closeText: {
+    color: Colors.textMuted,
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+  },
+});
 
 const VendorProductViewsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -83,6 +253,17 @@ const VendorProductViewsScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
+  // Contact modal state
+  const [contactVisible, setContactVisible] = useState(false);
+  const [contactUser, setContactUser] = useState<{
+    name: string;
+    phone?: string;
+    email?: string;
+  } | null>(null);
+
+  const lastFetchTime = useRef<number>(0);
+  const FETCH_STALE_TIME = 60000;
+
   const fetchViews = useCallback(
     async (pageNum = 1, refresh = false) => {
       if (!vendor?._id) {
@@ -91,19 +272,34 @@ const VendorProductViewsScreen: React.FC = () => {
       }
       if (refresh) setRefreshing(true);
       console.log(`📡 Fetching views for vendor ${vendor._id}, page ${pageNum}`);
-      const result = await dispatch(fetchVendorViews({ vendorId: vendor._id, page: pageNum, limit: 20 }));
-      console.log('📦 Fetch result:', result);
+      await dispatch(fetchVendorViews({ vendorId: vendor._id, page: pageNum, limit: 20 }));
       setRefreshing(false);
     },
     [vendor, dispatch]
   );
 
+  // Fetch only on focus if stale
+  useFocusEffect(
+    useCallback(() => {
+      const now = Date.now();
+      const shouldFetch = now - lastFetchTime.current > FETCH_STALE_TIME || views.length === 0;
+      if (vendor?._id && shouldFetch) {
+        console.log(`📡 Fetching first page on focus (stale or empty)`);
+        fetchViews(1, true);
+        lastFetchTime.current = now;
+      } else {
+        console.log('⏭️ Views are fresh, skipping fetch on focus.');
+      }
+      return () => {};
+    }, [vendor?._id, views.length, fetchViews])
+  );
+
+  // Cleanup
   useEffect(() => {
-    fetchViews(1, true);
     return () => {
       dispatch(clearViews());
     };
-  }, []);
+  }, [dispatch]);
 
   useEffect(() => {
     if (error) {
@@ -111,7 +307,7 @@ const VendorProductViewsScreen: React.FC = () => {
     }
   }, [error]);
 
-  // Listen for real‑time new views via Socket.IO
+  // Real‑time socket listener
   useEffect(() => {
     const handleNewView = (newView: any) => {
       console.log('🔔 New view via socket:', newView);
@@ -134,7 +330,11 @@ const VendorProductViewsScreen: React.FC = () => {
     };
   }, [dispatch]);
 
-  const onRefresh = () => fetchViews(1, true);
+  const onRefresh = () => {
+    lastFetchTime.current = 0;
+    fetchViews(1, true);
+  };
+
   const loadMore = () => {
     if (hasMore && !loading && page < totalPages) {
       fetchViews(page + 1);
@@ -152,7 +352,6 @@ const VendorProductViewsScreen: React.FC = () => {
         const existing = groupMap.get(key)!;
         existing.viewCount += 1;
         existing.views.push(view);
-        // Update last viewed time
         if (new Date(view.viewedAt) > new Date(existing.lastViewedAt)) {
           existing.lastViewedAt = view.viewedAt;
         }
@@ -170,6 +369,7 @@ const VendorProductViewsScreen: React.FC = () => {
           userId: view.viewerUserId,
           userName: view.viewerName || 'Unknown User',
           userPhone: view.viewerPhone || 'N/A',
+          userEmail: view.viewerEmail || undefined,
           productId: view.productId,
           productType: view.productType,
           productTitle: productTitle,
@@ -182,7 +382,6 @@ const VendorProductViewsScreen: React.FC = () => {
       }
     });
 
-    // Sort by view count (most views first) and then by last viewed
     return Array.from(groupMap.values()).sort((a, b) => {
       if (a.viewCount !== b.viewCount) {
         return b.viewCount - a.viewCount;
@@ -191,10 +390,9 @@ const VendorProductViewsScreen: React.FC = () => {
     });
   }, [views]);
 
-  // --- Section Data for SectionList ---
+  // --- Section Data for SectionList (grouped by user) ---
   const sectionData = useMemo(() => {
-    // Group by user
-    const userMap = new Map<string, { user: string; userId: string; phone: string; data: GroupedView[] }>();
+    const userMap = new Map<string, { user: string; userId: string; phone: string; email?: string; data: GroupedView[] }>();
     
     groupedViews.forEach((item) => {
       if (userMap.has(item.userId)) {
@@ -204,6 +402,7 @@ const VendorProductViewsScreen: React.FC = () => {
           user: item.userName,
           userId: item.userId,
           phone: item.userPhone,
+          email: item.userEmail,
           data: [item],
         });
       }
@@ -213,6 +412,7 @@ const VendorProductViewsScreen: React.FC = () => {
       userId: userGroup.userId,
       title: userGroup.user,
       phone: userGroup.phone,
+      email: userGroup.email,
       data: userGroup.data,
       totalViews: userGroup.data.reduce((sum, item) => sum + item.viewCount, 0),
     }));
@@ -241,55 +441,90 @@ const VendorProductViewsScreen: React.FC = () => {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  // --- Render Section Header ---
+  // --- Contact handlers ---
+  const openContact = (user: { name: string; phone?: string; email?: string }) => {
+    setContactUser(user);
+    setContactVisible(true);
+  };
+
+  const handleCall = (phone: string) => {
+    Linking.openURL(`tel:${phone}`).catch(() => Alert.alert('Error', 'Unable to make call'));
+    setContactVisible(false);
+  };
+
+  const handleWhatsApp = (phone: string, message: string) => {
+    Linking.openURL(`whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`)
+      .catch(() => Alert.alert('Error', 'WhatsApp not installed'));
+    setContactVisible(false);
+  };
+
+  const handleEmail = (email: string) => {
+    Linking.openURL(`mailto:${email}`).catch(() => Alert.alert('Error', 'Unable to open email'));
+    setContactVisible(false);
+  };
+
+  // --- Render Section Header (with Contact button) ---
   const renderSectionHeader = ({ section }: { section: any }) => {
     const isExpanded = expandedSections.has(section.userId);
     
     return (
-      <TouchableOpacity
-        style={styles.sectionHeader}
-        onPress={() => toggleSection(section.userId)}
-        activeOpacity={0.8}
-      >
-        <View style={styles.sectionHeaderLeft}>
-          <View style={styles.userAvatar}>
-            <Text style={styles.userAvatarText}>
-              {section.title?.charAt(0)?.toUpperCase() || 'U'}
-            </Text>
-          </View>
-          <View>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-            <View style={styles.sectionSubtitle}>
-              <Ionicons name="call-outline" size={12} color={Colors.slate} />
-              <Text style={styles.sectionPhone}>{section.phone}</Text>
+      <View style={styles.sectionHeaderWrapper}>
+        <TouchableOpacity
+          style={styles.sectionHeader}
+          onPress={() => toggleSection(section.userId)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.sectionHeaderLeft}>
+            <View style={styles.userAvatar}>
+              <Text style={styles.userAvatarText}>
+                {section.title?.charAt(0)?.toUpperCase() || 'U'}
+              </Text>
+            </View>
+            <View>
+              <Text style={styles.sectionTitle}>{section.title}</Text>
+              <View style={styles.sectionSubtitle}>
+                <Ionicons name="call-outline" size={12} color={Colors.slate} />
+                <Text style={styles.sectionPhone}>{section.phone}</Text>
+              </View>
             </View>
           </View>
-        </View>
-        <View style={styles.sectionHeaderRight}>
-          <View style={styles.viewCountBadge}>
-            <Text style={styles.viewCountText}>{section.totalViews}</Text>
+          <View style={styles.sectionHeaderRight}>
+            <View style={styles.viewCountBadge}>
+              <Text style={styles.viewCountText}>{section.totalViews}</Text>
+            </View>
+            <Ionicons
+              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color={Colors.slate}
+            />
           </View>
-          <Ionicons
-            name={isExpanded ? 'chevron-up' : 'chevron-down'}
-            size={20}
-            color={Colors.slate}
-          />
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+
+        {/* Contact button below the header */}
+        {(section.phone !== 'N/A' || section.email) && (
+          <TouchableOpacity
+            style={styles.contactButton}
+            onPress={() => openContact({ name: section.title, phone: section.phone, email: section.email })}
+          >
+            <Ionicons name="chatbubble-outline" size={16} color={Colors.white} />
+            <Text style={styles.contactButtonText}>Contact</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     );
   };
 
   // --- Render Item ---
+  // 🔥 REMOVED product navigation – now shows an alert with product title
   const renderItem = ({ item }: { item: GroupedView }) => (
     <TouchableOpacity
       style={styles.viewCard}
-      onPress={() => {
-        if (item.productType === 'Property') {
-          navigation.navigate('PropertyDetailScreen', { propertyId: item.productId });
-        } else {
-          navigation.navigate('RentalDetail', { rentalId: item.productId });
-        }
-      }}
+      // onPress={() => {
+      //   Alert.alert(
+      //     'Product View',
+      //     `You viewed "${item.productTitle}" (${item.productType})`
+      //   );
+      // }}
       activeOpacity={0.8}
     >
       <View style={styles.productPreview}>
@@ -337,71 +572,75 @@ const VendorProductViewsScreen: React.FC = () => {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={Colors.white} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Product Views</Text>
-        <TouchableOpacity onPress={onRefresh} style={styles.refreshBtn}>
-          <Ionicons name="refresh" size={24} color={Colors.white} />
-        </TouchableOpacity>
-      </View>
-
-      <DebugInfo />
-
-      {groupedViews.length === 0 && !loading ? (
-        <View style={styles.empty}>
-          <Ionicons name="eye-off-outline" size={60} color={Colors.slate} />
-          <Text style={styles.emptyText}>No product views yet</Text>
-          <Text style={styles.emptySub}>
-            When users view your properties or rentals, they'll appear here
-          </Text>
-          <TouchableOpacity style={styles.emptyRefreshBtn} onPress={onRefresh}>
-            <Text style={styles.emptyRefreshText}>Refresh</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={Colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Product Views</Text>
+          <TouchableOpacity onPress={onRefresh} style={styles.refreshBtn}>
+            <Ionicons name="refresh" size={24} color={Colors.white} />
           </TouchableOpacity>
         </View>
-      ) : (
-        <SectionList
-          sections={sectionData}
-          keyExtractor={(item, index) => `${item.userId}-${item.productId}-${index}`}
-          renderSectionHeader={renderSectionHeader}
-          renderItem={renderItem}
-          stickySectionHeadersEnabled={false}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={Colors.royalGreen}
-              colors={[Colors.royalGreen]}
-            />
-          }
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.3}
-          ListFooterComponent={
-            loading && views.length > 0 ? (
-              <ActivityIndicator size="small" color={Colors.royalGreen} style={styles.footerLoader} />
-            ) : null
-          }
-          ListEmptyComponent={
-            !loading && sectionData.length === 0 ? (
-              <View style={styles.empty}>
-                <Ionicons name="eye-off-outline" size={60} color={Colors.slate} />
-                <Text style={styles.emptyText}>No views yet</Text>
-                <Text style={styles.emptySub}>
-                  When users view your listings, they'll appear here
-                </Text>
-              </View>
-            ) : null
-          }
-        />
-      )}
-    </View>
+
+        <DebugInfo />
+
+        {groupedViews.length === 0 && !loading ? (
+          <View style={styles.empty}>
+            <Ionicons name="eye-off-outline" size={60} color={Colors.slate} />
+            <Text style={styles.emptyText}>No product views yet</Text>
+            <Text style={styles.emptySub}>
+              When users view your properties or rentals, they'll appear here
+            </Text>
+            <TouchableOpacity style={styles.emptyRefreshBtn} onPress={onRefresh}>
+              <Text style={styles.emptyRefreshText}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <SectionList
+            sections={sectionData}
+            keyExtractor={(item, index) => `${item.userId}-${item.productId}-${index}`}
+            renderSectionHeader={renderSectionHeader}
+            renderItem={renderItem}
+            stickySectionHeadersEnabled={false}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={Colors.royalGreen}
+                colors={[Colors.royalGreen]}
+              />
+            }
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.3}
+            ListFooterComponent={
+              loading && views.length > 0 ? (
+                <ActivityIndicator size="small" color={Colors.royalGreen} style={styles.footerLoader} />
+              ) : null
+            }
+          />
+        )}
+      </View>
+
+      <ContactModal
+        visible={contactVisible}
+        userName={contactUser?.name || ''}
+        userPhone={contactUser?.phone}
+        userEmail={contactUser?.email}
+        onClose={() => setContactVisible(false)}
+        onCall={handleCall}
+        onWhatsApp={handleWhatsApp}
+        onEmail={handleEmail}
+      />
+      <Toast />
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: Colors.lightBg },
   container: { flex: 1, backgroundColor: Colors.lightBg },
   header: {
     flexDirection: 'row',
@@ -421,6 +660,10 @@ const styles = StyleSheet.create({
   footerLoader: { paddingVertical: 20 },
   
   // Section Header
+  sectionHeaderWrapper: {
+    marginBottom: 8,
+    marginTop: 8,
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -428,8 +671,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     padding: 14,
     borderRadius: 12,
-    marginBottom: 8,
-    marginTop: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -490,7 +731,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
-  
+
+  // Contact button below header
+  contactButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.accentBlue,
+    marginTop: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    gap: 6,
+  },
+  contactButtonText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
   // View Card
   viewCard: {
     backgroundColor: Colors.white,
@@ -562,7 +822,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: Colors.slate,
   },
-  
+
   // Empty State
   empty: {
     alignItems: 'center',
@@ -593,7 +853,7 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontWeight: 'bold',
   },
-  
+
   // Debug
   debugContainer: {
     backgroundColor: '#f0f0f0',

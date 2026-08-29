@@ -15,7 +15,7 @@ import {
 import { WebView } from 'react-native-webview';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import * as FileSystem from 'expo-file-system'; // <-- Replaced react-native-fs with Expo FileSystem
+import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CACHE_DIR = (FileSystem.documentDirectory || '') + 'webview_cache/';
@@ -34,8 +34,10 @@ const WebViewScreen = () => {
   const [cachedHtml, setCachedHtml] = useState<string | null>(null);
   const [isCached, setIsCached] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Throttle progress updates
+  const lastProgress = useRef(0);
 
-  // ---- Initialize cache directory using Expo FileSystem ----
+  // ---- Initialize cache directory ----
   useEffect(() => {
     const initCache = async () => {
       try {
@@ -50,7 +52,7 @@ const WebViewScreen = () => {
     initCache();
   }, []);
 
-  // ---- Load cached HTML from file (fast) ----
+  // ---- Load cached HTML ----
   useEffect(() => {
     const loadCache = async () => {
       try {
@@ -64,7 +66,7 @@ const WebViewScreen = () => {
           });
           setCachedHtml(html);
           setIsCached(true);
-          setLoading(false); // hide spinner instantly
+          setLoading(false);
         } else {
           setLoading(true);
         }
@@ -76,7 +78,7 @@ const WebViewScreen = () => {
     loadCache();
   }, [url]);
 
-  // ---- Save HTML to file using Expo FileSystem ----
+  // ---- Save HTML to cache ----
   const saveHtmlToCache = async (html: string) => {
     try {
       const fileName = encodeURIComponent(url) + '.html';
@@ -91,8 +93,10 @@ const WebViewScreen = () => {
     }
   };
 
-  // ---- Get HTML from WebView ----
+  // ---- Get HTML from WebView (only once) ----
   const extractHtml = () => {
+    // Only extract if not already cached
+    if (isCached) return;
     const script = `
       (function() {
         const html = document.documentElement.outerHTML;
@@ -102,40 +106,13 @@ const WebViewScreen = () => {
     webViewRef.current?.injectJavaScript(script);
   };
 
-  // ---- Handle messages (HTML extraction) ----
+  // ---- Handle messages ----
   const handleMessage = (event: any) => {
     const data = event.nativeEvent.data;
     if (data && (data.startsWith('<!DOCTYPE') || data.startsWith('<html'))) {
       saveHtmlToCache(data);
+      setIsCached(true);
     }
-  };
-
-  // ---- Background refresh (stale‑while‑revalidate) ----
-  const refreshInBackground = () => {
-    if (isRefreshing) return;
-    setIsRefreshing(true);
-    
-    const fetchAndUpdate = async () => {
-      try {
-        const response = await fetch(url);
-        const freshHtml = await response.text();
-        await saveHtmlToCache(freshHtml);
-        
-        if (webViewRef.current) {
-          const injectScript = `
-            (function() {
-              document.documentElement.outerHTML = ${JSON.stringify(freshHtml)};
-            })();
-          `;
-          webViewRef.current.injectJavaScript(injectScript);
-        }
-      } catch (error) {
-        console.warn('Background refresh failed:', error);
-      } finally {
-        setIsRefreshing(false);
-      }
-    };
-    fetchAndUpdate();
   };
 
   // ---- WebView events ----
@@ -145,6 +122,7 @@ const WebViewScreen = () => {
 
   const onLoadEnd = () => {
     setLoading(false);
+    setIsRefreshing(false);
     if (!isCached) {
       extractHtml();
     }
@@ -157,18 +135,13 @@ const WebViewScreen = () => {
   };
 
   const onLoadProgress = (event: any) => {
-    setProgress(event.nativeEvent.progress);
-  };
-
-  // ---- After mounting, if we have cached HTML, trigger background refresh ----
-  useEffect(() => {
-    if (isCached && cachedHtml) {
-      const timer = setTimeout(() => {
-        refreshInBackground();
-      }, 100);
-      return () => clearTimeout(timer);
+    const newProgress = event.nativeEvent.progress;
+    // Only update if progress changed significantly (avoid excessive re-renders)
+    if (Math.abs(newProgress - lastProgress.current) > 0.05) {
+      setProgress(newProgress);
+      lastProgress.current = newProgress;
     }
-  }, [isCached, cachedHtml]);
+  };
 
   // ---- Navigation ----
   const handleBack = () => {

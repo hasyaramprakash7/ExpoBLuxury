@@ -20,11 +20,11 @@ interface AddressModalProps {
   visible: boolean;
   onClose: () => void;
   onSelectAddress: (address: any) => void;
-  onAddAddress: () => void;
+  onAddAddress: () => void;         // For "Use my current location"
   selectedAddress: any;
   addresses: any[];
   isLoading: boolean;
-  onOpenMap: () => void;
+  onOpenMap: () => void;            // For "Pick from Map"
 }
 
 export const AddressModal: React.FC<AddressModalProps> = ({
@@ -61,8 +61,8 @@ export const AddressModal: React.FC<AddressModalProps> = ({
           </View>
 
           <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
-            {/* Use Current Location */}
-            {/* <TouchableOpacity
+            {/* 🔥 UNCOMMENTED: Use my current location */}
+            <TouchableOpacity
               style={addressModalStyles.currentLocationContainer}
               onPress={onAddAddress}
             >
@@ -80,7 +80,7 @@ export const AddressModal: React.FC<AddressModalProps> = ({
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={Colors.textGray} />
-            </TouchableOpacity> */}
+            </TouchableOpacity>
 
             {/* Pick from Map */}
             <TouchableOpacity
@@ -113,6 +113,7 @@ export const AddressModal: React.FC<AddressModalProps> = ({
                   let iconName = "location";
                   if (addr.type === "Home") iconName = "home";
                   if (addr.type === "Work") iconName = "briefcase";
+                  if (addr.type === "Current Location") iconName = "locate";
 
                   return (
                     <TouchableOpacity
@@ -151,6 +152,11 @@ export const AddressModal: React.FC<AddressModalProps> = ({
                         <Text style={addressModalStyles.addressString} numberOfLines={2}>
                           {addr.addressString}
                         </Text>
+                        {addr.landmark && (
+                          <Text style={addressModalStyles.landmarkText}>
+                            📍 {addr.landmark}
+                          </Text>
+                        )}
                       </View>
                       {isSelected && (
                         <Ionicons
@@ -260,6 +266,11 @@ const addressModalStyles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textGray,
     lineHeight: 18,
+  },
+  landmarkText: {
+    fontSize: 12,
+    color: Colors.textGray,
+    marginTop: 2,
   },
   sectionDivider: {
     height: 8,

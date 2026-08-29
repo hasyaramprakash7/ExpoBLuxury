@@ -1,4 +1,4 @@
-// App.tsx - Complete updated file
+// App.tsx - Complete updated file with vendor tab navigator
 import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
@@ -111,9 +111,11 @@ import AllCategoriesScreen from './src/screens/AllCategoriesScreen';
 import AddAddressScreen from './src/screens/AddAddressScreen';
 import AdGroupDetailScreen from "./src/screens/AdGroupDetailScreen";
 
-
 import VendorLeadsScreen from "./src/vendorScreens/VendorLeadsScreen";
 import { navigationRef, RootStackParamList } from "./src/userScreens/utils/navigationRef";
+
+// ✅ Import the vendor tab navigator
+import VendorTabNavigator from "./src/navigation/VendorTabNavigator";
 
 SplashScreenExpo.preventAutoHideAsync();
 
@@ -521,17 +523,16 @@ const AppNavigator = () => {
 
   let MainNavigator;
   if (vendorAuthToken) {
+    // Vendor is logged in → show tab navigator inside a stack
     MainNavigator = (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {/* Existing vendor screens */}
-        <Stack.Screen name="VendorDashboard" component={VendorDashboardScreen} />
-        <Stack.Screen name="RentalCRUD" component={RentalCRUDScreen} />
-        <Stack.Screen name="SubscriptionChoice" component={SubscriptionChoiceScreen} />
-        <Stack.Screen name="SubscriptionManagement" component={SubscriptionManagementScreen} />
-        <Stack.Screen name="SubscriptionPending" component={SubscriptionPendingScreen} />
+        {/* Main tab navigator – this shows the bottom bar */}
+        <Stack.Screen name="VendorTabs" component={VendorTabNavigator} />
+
+        {/* Extra screens that are NOT part of the tabs (pushed on top) */}
         <Stack.Screen name="VendorProductViews" component={VendorProductViewsScreen} />
-        <Stack.Screen name="VendorProductCRUD" component={VendorProductCRUDScreen} />
         <Stack.Screen name="VendorChatScreen" component={VendorChatScreen} />
+        <Stack.Screen name="VendorProductCRUD" component={VendorProductCRUDScreen} />
         <Stack.Screen name="VendorOrderList" component={VendorOrderList} />
         <Stack.Screen name="ActiveDeliveryBoys" component={AllDeliveryBoys} />
         <Stack.Screen name="VendorGenerateInvoice" component={WhatsappInvoiceSender} />
@@ -539,8 +540,13 @@ const AppNavigator = () => {
         <Stack.Screen name="PropertyCRUDScreen" component={PropertyCRUDScreen} />
         <Stack.Screen name="VendorAppointmentsList" component={VendorAppointmentsList} />
         <Stack.Screen name="VendorLeads" component={VendorLeadsScreen} />
+        <Stack.Screen name="RentalCRUD" component={RentalCRUDScreen} />
+        <Stack.Screen name="SubscriptionChoice" component={SubscriptionChoiceScreen} />
+        <Stack.Screen name="SubscriptionManagement" component={SubscriptionManagementScreen} />
+        <Stack.Screen name="SubscriptionPending" component={SubscriptionPendingScreen} />
+
+        {/* User‑facing screens the vendor may need to see */}
         <Stack.Screen name="CategoryShopsScreen" component={CategoryShopsScreen} />
-        {/* User-facing screens for vendor access */}
         <Stack.Screen name="HomeScreen" component={HomeScreen} />
         <Stack.Screen name="ProductSearchScreen" component={ProductSearchScreen} />
         <Stack.Screen name="Search" component={Search} />
@@ -551,6 +557,13 @@ const AppNavigator = () => {
         <Stack.Screen name="ShopDetails" component={ShopDetails} />
         <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />
         <Stack.Screen name="AllCategoriesScreen" component={AllCategoriesScreen} />
+        <Stack.Screen name="UserPropertyListScreen" component={UserPropertyListScreen} />
+        <Stack.Screen name="PropertyDetailScreen" component={PropertyDetailScreen} />
+        <Stack.Screen name="RentalList" component={UserRentalListScreen} />
+        <Stack.Screen name="RentalDetail" component={RentalDetailScreen} />
+        <Stack.Screen name="AdListScreen" component={AdListScreen} />
+        <Stack.Screen name="AdGroupDetail" component={AdGroupDetailScreen} />
+        <Stack.Screen name="WebViewScreen" component={WebViewScreen} />
       </Stack.Navigator>
     );
   } else if (deliveryBoy?._id) {
@@ -587,14 +600,12 @@ const AppNavigator = () => {
         <Stack.Screen name="RentalList" component={UserRentalListScreen} />
         <Stack.Screen name="RentalDetail" component={RentalDetailScreen} />
         <Stack.Screen name="AdListScreen" component={AdListScreen} />
-
         <Stack.Screen name="AdGroupDetail" component={AdGroupDetailScreen} />
-
         <Stack.Screen name="WebViewScreen" component={WebViewScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AllCategoriesScreen" component={AllCategoriesScreen} />
         <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />
         
-        {/* ✅ ADD Vendor Login/Signup screens here for user to switch to vendor */}
+        {/* Vendor Login/Signup screens for user to switch to vendor */}
         <Stack.Screen name="VendorLogin" component={VendorLoginScreen} />
         <Stack.Screen name="SignupVendor" component={SignupVendorScreen} />
       </Stack.Navigator>
