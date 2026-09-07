@@ -62,6 +62,9 @@ import {
   selectAllAddresses,
 } from '../features/locationSlice';
 
+// Import the new AddAddressScreen (WebView based)
+import AddAddressScreen from './AddAddressScreen';
+
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
 const isSmallPhone = width < 375;
@@ -100,522 +103,7 @@ const FALLBACK_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCA
 type AddressType = "Home" | "Work" | "Other";
 
 // ================================================================
-// 1. Map Picker Modal (unchanged)
-// ================================================================
-interface MapPickerModalProps {
-  visible: boolean;
-  onClose: () => void;
-  onLocationSelect: (lat: number, lng: number, addressDetails: any) => void;
-  initialLat?: number;
-  initialLng?: number;
-}
-
-const MapPickerModal: React.FC<MapPickerModalProps> = ({
-  visible,
-  onClose,
-  onLocationSelect,
-  initialLat,
-  initialLng,
-}) => {
-  const mapRef = useRef<MapView>(null);
-  const insets = useSafeAreaInsets();
-
-  const [region, setRegion] = useState<Region | null>(null);
-  const [fetchedAddress, setFetchedAddress] = useState<string>("Locating...");
-  const [detailedAddress, setDetailedAddress] = useState<string>("");
-  const [selectedType, setSelectedType] = useState<AddressType>("Home");
-  const [isMapMoving, setIsMapMoving] = useState<boolean>(false);
-  const [isLocating, setIsLocating] = useState<boolean>(true);
-  const [addressDetails, setAddressDetails] = useState({
-    pincode: "",
-    state: "",
-    district: "",
-    city: "",
-    country: "India",
-    street: "",
-    colony: "",
-    suburb: "",
-    neighbourhood: "",
-  });
-
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [isSearching, setIsSearching] = useState<boolean>(false);
-  const [showSearchResults, setShowSearchResults] = useState<boolean>(false);
-  const searchTimeout = useRef<NodeJS.Timeout | null>(null);
-
-  const defaultLocation = {
-    latitude: 17.6868,
-    longitude: 83.2185,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
-  };
-
-  useEffect(() => {
-    if (visible) {
-      getCurrentLocation();
-    }
-  }, [visible]);
-
-  useEffect(() => {
-    if (visible && initialLat && initialLng) {
-      const newRegion = {
-        latitude: initialLat,
-        longitude: initialLng,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      };
-      setRegion(newRegion);
-      fetchAddressFromCoords(initialLat, initialLng);
-    }
-  }, [visible, initialLat, initialLng]);
-
-  const getCurrentLocation = async () => {
-    setIsLocating(true);
-    setFetchedAddress("Locating your position...");
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission Denied", "We need location access to pin your address.");
-        setRegion(defaultLocation);
-        setIsLocating(false);
-        return;
-      }
-
-      let location = await Location.getLastKnownPositionAsync();
-      if (!location) {
-        location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-      }
-
-      const newRegion = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      };
-
-      setRegion(newRegion);
-      mapRef.current?.animateToRegion(newRegion, 1000);
-      fetchAddressFromCoords(newRegion.latitude, newRegion.longitude);
-    } catch (error) {
-      console.warn("Error getting location:", error);
-      setRegion(defaultLocation);
-      setFetchedAddress("Could not determine location");
-    } finally {
-      setIsLocating(false);
-    }
-  };
-
-  const fetchAddressFromCoords = async (latitude: number, longitude: number) => {
-    try {
-      const geocode = await Location.reverseGeocodeAsync({
-        latitude,
-        longitude,
-      });
-      if (geocode.length > 0) {
-        const place = geocode[0];
-
-        const addressParts = [
-          place.name,
-          place.street,
-          place.subregion,
-          place.district,
-          place.city,
-          place.region,
-          place.postalCode,
-          place.country,
-        ]
-          .filter((part) => part && part !== "Unnamed Road")
-          .join(", ");
-
-        setFetchedAddress(addressParts || "Unknown Location");
-        setAddressDetails({
-          pincode: place.postalCode || "",
-          state: place.region || "",
-          district: place.district || "",
-          city: place.city || "",
-          country: place.country || "India",
-          street: place.street || place.name || "",
-          colony: place.subregion || place.district || "",
-          suburb: place.suburb || "",
-          neighbourhood: place.neighbourhood || "",
-        });
-      } else {
-        setFetchedAddress("Unknown Location");
-      }
-    } catch (error) {
-      console.error("Geocoding error:", error);
-      setFetchedAddress("Could not fetch address details");
-    }
-  };
-
-  const searchLocations = useCallback((query: string) => {
-    setSearchQuery(query);
-    setShowSearchResults(query.length > 0);
-
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    if (!query || query.length < 2) {
-      setSearchResults([]);
-      setIsSearching(false);
-      return;
-    }
-
-    setIsSearching(true);
-    searchTimeout.current = setTimeout(async () => {
-      try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=15&countrycodes=in`,
-          { headers: { "User-Agent": "BLuxuryApp/1.0" } }
-        );
-        const data = await response.json();
-        const results = data.sort((a: any, b: any) => {
-          const getPriority = (item: any) => {
-            const cls = item.class || '';
-            const type = item.type || '';
-            if (['neighbourhood', 'suburb', 'city', 'town', 'village', 'district', 'county', 'state'].includes(type)) return 1;
-            if (['highway', 'road', 'street', 'amenity', 'place', 'boundary'].includes(cls)) return 2;
-            return 3;
-          };
-          return getPriority(a) - getPriority(b);
-        });
-        setSearchResults(results);
-      } catch (error) {
-        setSearchResults([]);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 500);
-  }, []);
-
-  const selectSearchResult = useCallback((item: any) => {
-    const lat = parseFloat(item.lat);
-    const lon = parseFloat(item.lon);
-
-    const newRegion = {
-      latitude: lat,
-      longitude: lon,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    };
-
-    setRegion(newRegion);
-    mapRef.current?.animateToRegion(newRegion, 1000);
-    fetchAddressFromCoords(lat, lon);
-
-    setSearchQuery("");
-    setSearchResults([]);
-    setShowSearchResults(false);
-    setIsSearching(false);
-  }, []);
-
-  const handleRegionChangeComplete = (newRegion: Region) => {
-    setIsMapMoving(false);
-    setRegion(newRegion);
-    fetchAddressFromCoords(newRegion.latitude, newRegion.longitude);
-    setSearchResults([]);
-    setShowSearchResults(false);
-    setSearchQuery("");
-  };
-
-  const confirmLocation = () => {
-    if (!region) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Please select a location on the map.' });
-      return;
-    }
-
-    const finalAddressString = detailedAddress.trim()
-      ? `${detailedAddress.trim()}, ${fetchedAddress}`
-      : fetchedAddress;
-
-    const addressData = {
-      ...addressDetails,
-      street: detailedAddress.trim() || addressDetails.street,
-      addressString: finalAddressString,
-      type: selectedType,
-      city: addressDetails.city || '',
-      state: addressDetails.state || '',
-      pincode: addressDetails.pincode || '',
-      colony: addressDetails.colony || addressDetails.suburb || '',
-      district: addressDetails.district || '',
-      country: addressDetails.country || 'India',
-    };
-
-    onLocationSelect(region.latitude, region.longitude, addressData);
-    onClose();
-  };
-
-  if (!visible) return null;
-
-  return (
-    <Modal visible={visible} transparent animationType="slide">
-      <KeyboardAvoidingView
-        style={mapModalStyles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={mapModalStyles.container}>
-            <View style={mapModalStyles.mapContainer}>
-              {region ? (
-                <MapView
-                  ref={mapRef}
-                  style={mapModalStyles.map}
-                  initialRegion={region}
-                  showsUserLocation={true}
-                  showsMyLocationButton={false}
-                  onRegionChange={() => setIsMapMoving(true)}
-                  onRegionChangeComplete={handleRegionChangeComplete}
-                />
-              ) : (
-                <View style={mapModalStyles.mapLoading}>
-                  <ActivityIndicator size="large" color={Colors.accentGreen} />
-                  <Text style={mapModalStyles.mapLoadingText}>Finding your location...</Text>
-                </View>
-              )}
-
-              <View style={mapModalStyles.centerMarkerContainer} pointerEvents="none">
-                <View style={[mapModalStyles.markerBubble, isMapMoving && mapModalStyles.markerBubbleMoving]}>
-                  <Text style={mapModalStyles.markerText}>
-                    {isMapMoving ? "Move map to adjust" : "Location selected here"}
-                  </Text>
-                </View>
-                <Ionicons
-                  name="location"
-                  size={42}
-                  color={Colors.textPrimary}
-                  style={[mapModalStyles.markerIcon, isMapMoving && mapModalStyles.markerIconMoving]}
-                />
-                <View style={mapModalStyles.markerShadow} />
-              </View>
-
-              <View style={[mapModalStyles.searchContainer, { top: Math.max(insets.top, 20) }]}>
-                <View style={mapModalStyles.searchBar}>
-                  <Ionicons name="search" size={20} color={Colors.textTertiary} />
-                  <TextInput
-                    style={mapModalStyles.searchInput}
-                    placeholder="Search locality, city, pincode..."
-                    placeholderTextColor={Colors.textTertiary}
-                    value={searchQuery}
-                    onChangeText={searchLocations}
-                    onFocus={() => { if (searchQuery.length > 0) setShowSearchResults(true); }}
-                  />
-                  {isSearching && <ActivityIndicator size="small" color={Colors.accentGreen} />}
-                  {searchQuery.length > 0 && (
-                    <TouchableOpacity onPress={() => {
-                      setSearchQuery("");
-                      setSearchResults([]);
-                      setShowSearchResults(false);
-                    }}>
-                      <Ionicons name="close-circle" size={20} color={Colors.textTertiary} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {showSearchResults && searchResults.length > 0 && (
-                  <View style={mapModalStyles.searchResultsContainer}>
-                    <FlatList
-                      data={searchResults}
-                      keyExtractor={(item, index) => `${item.place_id || index}`}
-                      renderItem={({ item }) => (
-                        <TouchableOpacity
-                          style={mapModalStyles.searchResultItem}
-                          onPress={() => selectSearchResult(item)}
-                        >
-                          <Ionicons name="location-outline" size={18} color={Colors.accentGreen} />
-                          <View style={mapModalStyles.searchResultTextContainer}>
-                            <Text style={mapModalStyles.searchResultText} numberOfLines={2}>
-                              {item.display_name}
-                            </Text>
-                            <Text style={mapModalStyles.searchResultType}>
-                              {item.type || item.class || 'Location'}
-                            </Text>
-                          </View>
-                          <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
-                        </TouchableOpacity>
-                      )}
-                      keyboardShouldPersistTaps="always"
-                      style={mapModalStyles.searchResultsList}
-                    />
-                  </View>
-                )}
-              </View>
-
-              <TouchableOpacity
-                style={[mapModalStyles.closeButton, { top: Math.max(insets.top, 20) }]}
-                onPress={onClose}
-              >
-                <Ionicons name="close" size={24} color={Colors.textPrimary} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={mapModalStyles.myLocationButton}
-                onPress={getCurrentLocation}
-              >
-                <Ionicons name="locate" size={24} color={Colors.accentGreen} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={mapModalStyles.bottomSheet}>
-              <View style={mapModalStyles.locationHeader}>
-                <View style={mapModalStyles.locationIconContainer}>
-                  <Ionicons name="location" size={24} color={Colors.accentGreen} />
-                </View>
-                <View style={mapModalStyles.locationTextContainer}>
-                  <Text style={mapModalStyles.locationTitle}>Property Location</Text>
-                  <Text style={mapModalStyles.locationSubtitle} numberOfLines={2}>
-                    {isLocating ? "Fetching address..." : fetchedAddress}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={mapModalStyles.divider} />
-
-              <TextInput
-                style={mapModalStyles.input}
-                placeholder="House / Flat / Block No."
-                placeholderTextColor={Colors.textTertiary}
-                value={detailedAddress}
-                onChangeText={setDetailedAddress}
-              />
-
-              <Text style={mapModalStyles.saveAsLabel}>Save as</Text>
-              <View style={mapModalStyles.typeContainer}>
-                {(["Home", "Work", "Other"] as AddressType[]).map((type) => {
-                  const isSelected = selectedType === type;
-                  let iconName = "location-outline";
-                  if (type === "Home") iconName = "home-outline";
-                  if (type === "Work") iconName = "briefcase-outline";
-
-                  return (
-                    <TouchableOpacity
-                      key={type}
-                      style={[mapModalStyles.typeChip, isSelected && mapModalStyles.typeChipSelected]}
-                      onPress={() => setSelectedType(type)}
-                    >
-                      <Ionicons name={iconName as any} size={16} color={isSelected ? Colors.accentGreen : Colors.textPrimary} />
-                      <Text style={[mapModalStyles.typeChipText, isSelected && mapModalStyles.typeChipTextSelected]}>
-                        {type}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <View style={mapModalStyles.buttonRow}>
-                <TouchableOpacity style={mapModalStyles.cancelButton} onPress={onClose}>
-                  <Text style={mapModalStyles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={mapModalStyles.confirmButton} onPress={confirmLocation}>
-                  <Text style={mapModalStyles.confirmButtonText}>Confirm Location</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-};
-
-const mapModalStyles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.white },
-  mapContainer: { flex: 1, position: "relative" },
-  map: { ...StyleSheet.absoluteFillObject },
-  mapLoading: { ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center", backgroundColor: Colors.offWhite },
-  mapLoadingText: { marginTop: 12, color: Colors.textPrimary, fontWeight: "600" },
-  centerMarkerContainer: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    marginLeft: -100,
-    marginTop: -85,
-    width: 200,
-    alignItems: "center",
-    zIndex: 2,
-  },
-  markerBubble: { backgroundColor: Colors.textPrimary, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginBottom: 5 },
-  markerBubbleMoving: { opacity: 0.5 },
-  markerText: { color: Colors.white, fontSize: 12, fontWeight: "600" },
-  markerIcon: { transform: [{ translateY: 0 }] },
-  markerIconMoving: { transform: [{ translateY: -12 }] },
-  markerShadow: { width: 8, height: 4, backgroundColor: "rgba(0,0,0,0.2)", borderRadius: 4, marginTop: -6, transform: [{ scaleX: 2.5 }] },
-  searchContainer: { position: "absolute", left: 16, right: 16, zIndex: 10 },
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    height: 50,
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  searchInput: { flex: 1, color: Colors.textPrimary, fontSize: 15, paddingVertical: 0, marginLeft: 10, marginRight: 8 },
-  searchResultsContainer: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    marginTop: 4,
-    maxHeight: 250,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 4,
-    overflow: 'hidden',
-  },
-  searchResultsList: { maxHeight: 250 },
-  searchResultItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  searchResultTextContainer: { flex: 1, marginLeft: 12, marginRight: 8 },
-  searchResultText: { color: Colors.textPrimary, fontSize: 14, fontWeight: '500' },
-  searchResultType: { color: Colors.textTertiary, fontSize: 12, marginTop: 2, textTransform: 'capitalize' },
-  closeButton: { position: "absolute", left: 16, backgroundColor: Colors.white, width: 44, height: 44, borderRadius: 22, justifyContent: "center", alignItems: "center", elevation: 5, shadowColor: Colors.shadowDark, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4 },
-  myLocationButton: { position: "absolute", right: 16, bottom: 24, backgroundColor: Colors.white, width: 48, height: 48, borderRadius: 24, justifyContent: "center", alignItems: "center", elevation: 4, shadowColor: Colors.shadowDark, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4 },
-  bottomSheet: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    paddingBottom: Platform.OS === "ios" ? 40 : 20,
-    elevation: 15,
-    shadowColor: Colors.shadowDark,
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    marginTop: -20,
-    zIndex: 5,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  locationHeader: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
-  locationIconContainer: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.accentGreenLight, justifyContent: "center", alignItems: "center", marginRight: 12 },
-  locationTextContainer: { flex: 1 },
-  locationTitle: { fontSize: 16, fontWeight: "700", color: Colors.textPrimary, marginBottom: 4 },
-  locationSubtitle: { fontSize: 13, color: Colors.textTertiary, lineHeight: 18 },
-  divider: { height: 1, backgroundColor: Colors.border, marginBottom: 16 },
-  input: { borderWidth: 1, borderColor: Colors.border, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: Colors.textPrimary, backgroundColor: Colors.offWhite, marginBottom: 20 },
-  saveAsLabel: { fontSize: 14, fontWeight: "600", color: Colors.textTertiary, marginBottom: 12 },
-  typeContainer: { flexDirection: "row", marginBottom: 24 },
-  typeChip: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginRight: 10, backgroundColor: Colors.white },
-  typeChipSelected: { borderColor: Colors.accentGreen, backgroundColor: Colors.accentGreenLight },
-  typeChipText: { fontSize: 14, fontWeight: "600", color: Colors.textPrimary, marginLeft: 6 },
-  typeChipTextSelected: { color: Colors.accentGreen },
-  buttonRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  cancelButton: { flex: 1, backgroundColor: Colors.offWhite, borderRadius: 12, paddingVertical: 16, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border },
-  cancelButtonText: { color: Colors.textPrimary, fontSize: 16, fontWeight: "600" },
-  confirmButton: { flex: 2, backgroundColor: Colors.accentGreen, borderRadius: 12, paddingVertical: 16, alignItems: "center", justifyContent: "center", elevation: 2, shadowColor: Colors.accentGreen, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
-  confirmButtonText: { color: Colors.white, fontSize: 16, fontWeight: "bold", letterSpacing: 0.5 },
-});
-
-// ================================================================
-// 2. Address Modal (unchanged)
+// 1. Address Modal (unchanged)
 // ================================================================
 interface AddressModalProps {
   visible: boolean;
@@ -767,7 +255,8 @@ const addressModalStyles = StyleSheet.create({
 });
 
 // ================================================================
-// 3. SUB-COMPONENTS (unchanged)
+// 2. SUB-COMPONENTS (ViewPropertyCTA, RealisticChip, PropertyCard)
+//    Unchanged – keep as is
 // ================================================================
 const ViewPropertyCTA = ({ onPress }: { onPress: () => void }) => {
   const arrowTranslateX = useSharedValue(0);
@@ -846,8 +335,9 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
     opacity: rotateY.value > 90 ? 1 : 0,
     position: 'absolute',
     top: 0,
-    width: '100%',
-    height: '100%',
+    left: 0,
+    right: 0,
+    bottom: 0,
   }));
 
   const displayPrice =
@@ -861,9 +351,18 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
     <GestureDetector gesture={panGesture}>
       <View style={styles.cardWrapper}>
         <ReAnimated.View style={[styles.cardBase, frontAnimatedStyle]}>
-          <TouchableOpacity activeOpacity={1} onPress={navigateToDetails} style={{ flex: 1 }}>
-            <Image source={{ uri: coverImage }} style={styles.cardBgImage} />
-            <LinearGradient colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.6)', '#000']} style={StyleSheet.absoluteFillObject} />
+          <TouchableOpacity activeOpacity={1} onPress={navigateToDetails} style={styles.cardTouchable}>
+            <Image 
+              source={{ uri: coverImage }} 
+              style={styles.cardBgImage} 
+              resizeMode="cover"
+              onError={() => console.log('Image failed to load:', coverImage)}
+            />
+            <LinearGradient 
+              colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.85)']} 
+              style={styles.cardGradient} 
+            />
+            
             <View style={styles.frontHeader}>
               <View style={styles.chipBrandGroup}>
                 <RealisticChip />
@@ -873,12 +372,14 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
                 <Text style={styles.badgeText}>{item.propertyType?.toUpperCase() || 'PROPERTY'}</Text>
               </View>
             </View>
+            
             <View style={styles.frontBody}>
               <Text style={styles.miniLabel}>ESTATE VALUATION</Text>
               <Text style={styles.priceValue}>{displayPrice}</Text>
             </View>
+            
             <View style={styles.frontFooter}>
-              <View style={{ flex: 1 }}>
+              <View style={styles.footerLeft}>
                 <Text style={styles.miniLabel}>PROPERTY TITLE</Text>
                 <Text style={styles.boldTitle} numberOfLines={1}>
                   {item.title?.toUpperCase() || 'UNTITLED'}
@@ -952,7 +453,7 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
 };
 
 // ================================================================
-// 4. MAIN SCREEN - WITH FIX FOR LOCATION FILTERING (same as rental version)
+// 3. MAIN SCREEN
 // ================================================================
 const UserPropertyListScreen: React.FC = () => {
   const dispatch = useDispatch<any>();
@@ -983,8 +484,8 @@ const UserPropertyListScreen: React.FC = () => {
 
   const [isLocating, setIsLocating] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
-  const [showMapPicker, setShowMapPicker] = useState(false);
-  const [mapPickerCoords, setMapPickerCoords] = useState<{ lat: number; lng: number } | null>(null);
+  // We'll use AddAddressScreen as a full-screen modal
+  const [showAddAddressScreen, setShowAddAddressScreen] = useState(false);
 
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
@@ -999,13 +500,18 @@ const UserPropertyListScreen: React.FC = () => {
 
   const flatListRef = useRef<FlatList>(null);
 
-  // Track previous address to detect changes (for watcher)
   const prevSelectedAddressRef = useRef<any>(null);
   const initialFilterApplied = useRef(false);
 
-  // ============================
-  // Sync local filters when selectedAddress changes (for UI display)
-  // ============================
+  // Load addresses when token available
+  useEffect(() => {
+    if (token) {
+      console.log('🔑 [PropertyList] Token available, fetching addresses');
+      dispatch(fetchUserAddresses(token));
+    }
+  }, [dispatch, token]);
+
+  // Sync local filters when selectedAddress changes
   useEffect(() => {
     if (selectedAddress) {
       console.log('📍 [PropertyList] selectedAddress updated:', {
@@ -1013,28 +519,17 @@ const UserPropertyListScreen: React.FC = () => {
         locality: selectedAddress.locality,
         state: selectedAddress.state,
         pincode: selectedAddress.pincode,
-        addressString: selectedAddress.addressString?.substring(0, 50),
-        id: selectedAddress.id,
-        type: selectedAddress.type,
       });
       setCity(selectedAddress.city || '');
       setLocality(selectedAddress.locality || '');
       setState(selectedAddress.state || '');
       setPincode(selectedAddress.pincode || '');
-    } else {
-      console.log('⚠️ [PropertyList] selectedAddress is null/undefined');
     }
   }, [selectedAddress]);
 
   // Initialize local state from selectedAddress on first mount
   useEffect(() => {
     if (selectedAddress) {
-      console.log('🔄 [PropertyList] Initializing state from selectedAddress:', {
-        city: selectedAddress.city,
-        locality: selectedAddress.locality,
-        state: selectedAddress.state,
-        pincode: selectedAddress.pincode,
-      });
       setCity(selectedAddress.city || '');
       setLocality(selectedAddress.locality || '');
       setState(selectedAddress.state || '');
@@ -1042,19 +537,11 @@ const UserPropertyListScreen: React.FC = () => {
     }
   }, []);
 
-  // ============================
-  // WATCH: selectedAddress changes → apply filters (only if changed)
-  // ============================
+  // WATCH: selectedAddress changes → apply filters
   useEffect(() => {
-    if (!selectedAddress) {
-      console.log('⏭️ [PropertyList] selectedAddress is null, skipping watcher');
-      return;
-    }
+    if (!selectedAddress) return;
 
-    // If this is the first time we have a valid address, skip fetch
-    // because the initial load is handled separately.
     if (!initialFilterApplied.current) {
-      console.log('🚀 [PropertyList] First valid address – marking initialized');
       initialFilterApplied.current = true;
       prevSelectedAddressRef.current = selectedAddress;
       return;
@@ -1069,33 +556,15 @@ const UserPropertyListScreen: React.FC = () => {
         prev.pincode !== selectedAddress.pincode;
 
       if (hasChanged) {
-        console.log('🔄 [PropertyList] Address fields changed – re-fetching with location', {
-          prev: { city: prev.city, locality: prev.locality, state: prev.state, pincode: prev.pincode },
-          current: { city: selectedAddress.city, locality: selectedAddress.locality, state: selectedAddress.state, pincode: selectedAddress.pincode },
-        });
-        // Update local state (already done by the sync effect above)
-        // Now call applyFilters() – it will use selectedAddress via getFilterParams
+        console.log('🔄 [PropertyList] Address changed – re-fetching');
         applyFilters();
-      } else {
-        console.log('✅ [PropertyList] Address fields unchanged – no re-fetch');
       }
     }
     prevSelectedAddressRef.current = selectedAddress;
-  }, [selectedAddress, applyFilters]);
+  }, [selectedAddress]);
 
-  // Load addresses when token available
-  useEffect(() => {
-    if (token) {
-      console.log('🔑 [PropertyList] Token available, fetching addresses');
-      dispatch(fetchUserAddresses(token));
-    }
-  }, [dispatch, token]);
-
-  // ============================
-  // Build filter params – always use selectedAddress unless overridden
-  // ============================
+  // Build filter params
   const getFilterParams = useCallback((overrides: any = {}) => {
-    // Priority: overrides > selectedAddress > local state (fallback)
     const finalCity = overrides.city !== undefined ? overrides.city : (selectedAddress?.city ?? city);
     const finalLocality = overrides.locality !== undefined ? overrides.locality : (selectedAddress?.locality ?? locality);
     const finalState = overrides.state !== undefined ? overrides.state : (selectedAddress?.state ?? state);
@@ -1116,51 +585,38 @@ const UserPropertyListScreen: React.FC = () => {
       ...overrides,
     };
 
-    console.log('📦 [PropertyList] getFilterParams output:', {
-      city: params.city,
-      locality: params.locality,
-      state: params.state,
-      pincode: params.pincode,
-      q: params.q,
-      propertyType: params.propertyType,
-      vendorId: params.vendorId,
-      minPrice: params.minPrice,
-      maxPrice: params.maxPrice,
-      hasLocation: !!(params.city || params.locality || params.state || params.pincode),
-      page: params.page,
-      limit: params.limit,
+    // Remove undefined values
+    Object.keys(params).forEach(key => {
+      if (params[key] === undefined) {
+        delete params[key];
+      }
     });
 
+    console.log('📦 [PropertyList] Final params:', params);
     return params;
   }, [searchText, selectedType, minPrice, maxPrice, city, state, locality, pincode, selectedVendorId, selectedAddress]);
 
-  // ============================
-  // Apply filters – dispatches fetch
-  // ============================
+  // Apply filters
   const applyFilters = useCallback((overrides?: any) => {
     const params = getFilterParams(overrides);
-    console.log('🚀 [PropertyList] Dispatching fetchProperties with params:', JSON.stringify(params, null, 2));
+    console.log('🚀 [PropertyList] Dispatching fetchProperties');
     dispatch(fetchProperties(params));
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     setFiltersVisible(false);
   }, [dispatch, getFilterParams]);
 
-  // ============================
   // Clear all filters
-  // ============================
   const clearAllFilters = () => {
     console.log('🧹 [PropertyList] Clearing all filters');
     setSearchText('');
     setSelectedType('');
     setMinPrice('');
     setMaxPrice('');
-    // Clear location fields (will be refilled by selectedAddress if available)
     setCity('');
     setState('');
     setLocality('');
     setPincode('');
     setSelectedVendorId('');
-    // Apply with empty location overrides
     applyFilters({
       q: '',
       propertyType: '',
@@ -1175,19 +631,10 @@ const UserPropertyListScreen: React.FC = () => {
     setFiltersVisible(false);
   };
 
-  // ============================
   // Location Handlers
-  // ============================
   const handleSelectAddress = useCallback((address: any) => {
-    console.log('📍 [PropertyList] handleSelectAddress called with:', {
-      city: address.city,
-      locality: address.locality,
-      state: address.state,
-      pincode: address.pincode,
-    });
     dispatch(setSelectedAddress(address));
     setShowAddressModal(false);
-    // Watcher will trigger applyFilters
   }, [dispatch]);
 
   const handleAddCurrentLocation = useCallback(async () => {
@@ -1215,15 +662,6 @@ const UserPropertyListScreen: React.FC = () => {
         const finalState = region || '';
         const finalPincode = postalCode || '';
 
-        console.log('📍 [PropertyList] Current location detected:', {
-          finalCity,
-          finalLocality,
-          finalState,
-          finalPincode,
-          latitude,
-          longitude,
-        });
-
         const addressString = [finalLocality, finalCity, finalState, finalPincode].filter(Boolean).join(", ");
 
         const addressData = {
@@ -1240,7 +678,6 @@ const UserPropertyListScreen: React.FC = () => {
         dispatch(saveUserAddress({ token, addressData }))
           .unwrap()
           .then((savedAddress: any) => {
-            console.log('✅ [PropertyList] Address saved, applying filters');
             dispatch(setSelectedAddress(savedAddress));
             setCity(finalCity);
             setLocality(finalLocality);
@@ -1252,50 +689,34 @@ const UserPropertyListScreen: React.FC = () => {
               text1: 'Location Detected',
               text2: `📍 ${finalLocality || finalCity}`,
             });
-            // Watcher will trigger applyFilters
           })
           .catch((error: any) => {
-            console.error('❌ [PropertyList] Failed to save location:', error);
+            console.error('❌ Failed to save location:', error);
             Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
           });
       }
     } catch (error) {
-      console.error('❌ [PropertyList] Location error:', error);
+      console.error('❌ Location error:', error);
       Toast.show({ type: 'error', text1: 'Location Error', text2: 'Could not detect location.' });
     } finally {
       setIsLocating(false);
     }
   }, [dispatch, token, addresses.length]);
 
+  // Open AddAddressScreen (WebView map picker)
   const handleOpenMapPicker = useCallback(() => {
-    console.log('🗺️ [PropertyList] Opening map picker');
     setShowAddressModal(false);
-    setMapPickerCoords(null);
-    setShowMapPicker(true);
+    setShowAddAddressScreen(true);
   }, []);
 
+  // Callback from AddAddressScreen when location is selected
   const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
-    console.log('📍 [PropertyList] Map location selected:', { lat, lng, addressDetails });
-
+    // addressDetails contains fullAddress, city, state, pincode, etc.
     const city = addressDetails.city || '';
-    const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
+    const locality = addressDetails.locality || addressDetails.colony || addressDetails.suburb || addressDetails.street || '';
     const state = addressDetails.state || '';
     const pincode = addressDetails.pincode || '';
-
-    const addressParts = [
-      addressDetails.street,
-      addressDetails.colony,
-      addressDetails.suburb,
-      addressDetails.neighbourhood,
-      locality,
-      city,
-      addressDetails.district,
-      state,
-      pincode,
-      addressDetails.country,
-    ].filter(Boolean);
-
-    const fullAddress = addressParts.join(', ');
+    const fullAddress = addressDetails.fullAddress || addressDetails.addressString || '';
 
     const addressData = {
       type: "Home" as "Home" | "Work" | "Other" | "Current Location",
@@ -1312,28 +733,31 @@ const UserPropertyListScreen: React.FC = () => {
       dispatch(saveUserAddress({ token, addressData }))
         .unwrap()
         .then((savedAddress: any) => {
-          console.log('✅ [PropertyList] Map address saved, applying filters');
           dispatch(setSelectedAddress(savedAddress));
           setCity(city);
           setLocality(locality || city);
           setState(state);
           setPincode(pincode);
           Toast.show({ type: 'success', text1: 'Location Saved', text2: `📍 ${fullAddress}` });
-          // Watcher will trigger applyFilters
         })
         .catch((error: any) => {
-          console.error('❌ [PropertyList] Failed to save map location:', error);
+          console.error('❌ Failed to save map location:', error);
           Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
         });
+    } else {
+      // If no token, just update filters directly (fallback)
+      setCity(city);
+      setLocality(locality);
+      setState(state);
+      setPincode(pincode);
+      applyFilters();
     }
-  }, [dispatch, token, addresses.length]);
+    setShowAddAddressScreen(false);
+  }, [dispatch, token, addresses.length, applyFilters]);
 
-  // ============================
   // Lifecycle
-  // ============================
   useEffect(() => {
     console.log('🔄 [PropertyList] Component mounted – initial fetch');
-    // Mark that we've seen the initial address (if any)
     if (selectedAddress) {
       initialFilterApplied.current = true;
       prevSelectedAddressRef.current = selectedAddress;
@@ -1342,16 +766,13 @@ const UserPropertyListScreen: React.FC = () => {
     dispatch(fetchAllVendorsAuth());
   }, []);
 
-  // PRESERVE scroll position when returning to screen
   useFocusEffect(
     useCallback(() => {
       console.log('📱 [PropertyList] Screen FOCUSED');
-      console.log('📱 [PropertyList] Current saved scroll position:', savedState.current.scrollOffset);
 
       isNavigatingAway.current = false;
 
       if (savedState.current.scrollOffset > 10) {
-        console.log('📍 [PropertyList] Restoring scroll to:', savedState.current.scrollOffset);
         if (savedState.current.isHeaderHidden) {
           isHeaderHidden.current = true;
           headerTranslateY.setValue(-HEADER_HEIGHT);
@@ -1359,7 +780,6 @@ const UserPropertyListScreen: React.FC = () => {
           isHeaderHidden.current = false;
           headerTranslateY.setValue(0);
         }
-
         const restoreScroll = (attempt = 0) => {
           if (flatListRef.current) {
             flatListRef.current.scrollToOffset({
@@ -1372,65 +792,40 @@ const UserPropertyListScreen: React.FC = () => {
           }
         };
         restoreScroll(0);
-      } else {
-        console.log('🔄 [PropertyList] No saved position, staying at top');
-        setTimeout(() => {
-          if (flatListRef.current) {
-            flatListRef.current.scrollToOffset({
-              offset: 0,
-              animated: false,
-            });
-          }
-        }, 100);
       }
 
-      // Refresh data
       if (token) {
-        console.log('🔄 [PropertyList] Refreshing addresses on focus');
         dispatch(fetchUserAddresses(token));
       }
-      console.log('🔄 [PropertyList] Applying filters on focus');
       applyFilters();
       dispatch(fetchAllVendorsAuth());
 
       return () => {
-        console.log('💾 [PropertyList] Saving scroll position:', lastScrollY.current);
         savedState.current.scrollOffset = lastScrollY.current;
         savedState.current.isHeaderHidden = isHeaderHidden.current;
         isNavigatingAway.current = true;
-        console.log('📱 [PropertyList] Screen UNFOCUSED - saved at:', savedState.current.scrollOffset);
       };
     }, [dispatch, token, applyFilters])
   );
 
-  // beforeRemove listener for scroll saving
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
       savedState.current.scrollOffset = lastScrollY.current;
       savedState.current.isHeaderHidden = isHeaderHidden.current;
-      console.log('💾 [PropertyList] Before remove, saving scroll:', savedState.current.scrollOffset);
     });
-
     return unsubscribe;
   }, [navigation]);
 
-  // ============================
-  // onRefresh
-  // ============================
   const onRefresh = useCallback(async () => {
-    console.log('🔄 [PropertyList] Pull-to-refresh started');
     setRefreshing(true);
     try {
       if (token) {
-        console.log('🔄 [PropertyList] Refreshing addresses on pull-to-refresh');
         await dispatch(fetchUserAddresses(token)).unwrap();
       }
-      console.log('🔄 [PropertyList] Applying filters after refresh');
       await applyFilters();
       await dispatch(fetchAllVendorsAuth());
-      console.log('✅ [PropertyList] Pull-to-refresh completed');
     } catch (error) {
-      console.error('❌ [PropertyList] Refresh error:', error);
+      console.error('❌ Refresh error:', error);
     } finally {
       setRefreshing(false);
     }
@@ -1440,7 +835,6 @@ const UserPropertyListScreen: React.FC = () => {
     if (hasMore && !loading && !refreshing) {
       const nextPage = currentPage + 1;
       const params = getFilterParams();
-      console.log(`📄 [PropertyList] Loading more properties (page ${nextPage})`);
       dispatch(fetchProperties({ ...params, page: nextPage }));
     }
   };
@@ -1471,7 +865,6 @@ const UserPropertyListScreen: React.FC = () => {
 
     savedState.current.scrollOffset = currentScrollY;
     savedState.current.isHeaderHidden = isHeaderHidden.current;
-    savedState.current.headerTranslateYValue = currentScrollY > 20 ? -HEADER_HEIGHT : 0;
 
     if (currentScrollY > 20) {
       if (diff > 5 && !isHeaderHidden.current) {
@@ -1645,14 +1038,12 @@ const UserPropertyListScreen: React.FC = () => {
               <Text style={styles.emptySubtitle}>
                 Try adjusting your filters or search terms
               </Text>
-              {/* <TouchableOpacity style={styles.emptyBtn} onPress={clearAllFilters}>
-                <Text style={styles.emptyBtnText}>Clear Filters</Text>
-              </TouchableOpacity> */}
             </View>
           ) : null
         }
       />
 
+      {/* Address Modal */}
       <AddressModal
         visible={showAddressModal}
         onClose={() => setShowAddressModal(false)}
@@ -1664,14 +1055,15 @@ const UserPropertyListScreen: React.FC = () => {
         onOpenMap={handleOpenMapPicker}
       />
 
-      <MapPickerModal
-        visible={showMapPicker}
-        onClose={() => setShowMapPicker(false)}
-        onLocationSelect={handleMapLocationSelect}
-        initialLat={mapPickerCoords?.lat}
-        initialLng={mapPickerCoords?.lng}
-      />
+      {/* AddAddressScreen as a full-screen modal */}
+      <Modal visible={showAddAddressScreen} animationType="slide" onRequestClose={() => setShowAddAddressScreen(false)}>
+        <AddAddressScreen
+          onClose={() => setShowAddAddressScreen(false)}
+          onLocationSelect={handleMapLocationSelect}
+        />
+      </Modal>
 
+      {/* Filter Modal */}
       <Modal visible={filtersVisible} transparent animationType="slide">
         <TouchableOpacity
           style={styles.modalOverlay}
@@ -1818,7 +1210,7 @@ const UserPropertyListScreen: React.FC = () => {
 };
 
 // ================================================================
-// 5. STYLES (unchanged)
+// 4. STYLES (unchanged, same as before)
 // ================================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.white },
@@ -1844,7 +1236,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 4,
+    paddingTop: 16,
     paddingBottom: 4,
   },
   headerSubtitle: {
@@ -1969,6 +1361,10 @@ const styles = StyleSheet.create({
 
   listContent: { padding: 16, paddingBottom: 100 },
   cardWrapper: { width: '100%', aspectRatio: 1.586, marginBottom: 20 },
+  cardTouchable: {
+    flex: 1,
+    position: 'relative',
+  },
   cardBase: {
     width: '100%',
     height: '100%',
@@ -1989,19 +1385,63 @@ const styles = StyleSheet.create({
     borderColor: Colors.accentGreen,
     borderWidth: 1,
   },
-  cardBgImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', opacity: 2.65 },
+  cardBgImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+  },
+  cardGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   chipContainer: { width: 40, height: 28, borderRadius: 5, overflow: 'hidden' },
   chipLine: { position: 'absolute', height: 0.5, backgroundColor: 'rgba(0,0,0,0.2)' },
   chipLineVertical: { position: 'absolute', width: 0.5, backgroundColor: 'rgba(0,0,0,0.2)' },
   chipBrandGroup: { flexDirection: 'row', alignItems: 'center' },
-  frontHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, alignItems: 'center' },
+  frontHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+    alignItems: 'center',
+    zIndex: 2,
+  },
   brandText: { color: Colors.white, fontSize: 9, letterSpacing: 2, fontWeight: 'bold', marginLeft: 10 },
   glassBadge: { backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
   badgeText: { color: '#fff', fontSize: 8, fontWeight: 'bold' },
-  frontBody: { paddingHorizontal: 22, flex: 1, justifyContent: 'center' },
+  frontBody: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '40%',
+    paddingHorizontal: 22,
+    zIndex: 2,
+  },
   miniLabel: { color: Colors.luxuryGold, fontSize: 8, fontWeight: 'bold', letterSpacing: 1.5, marginBottom: 4 },
   priceValue: { color: '#fff', fontSize: 24, fontWeight: '300', letterSpacing: 1 },
-  frontFooter: { flexDirection: 'row', alignItems: 'flex-end', padding: 16 },
+  frontFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    padding: 16,
+    zIndex: 2,
+  },
+  footerLeft: {
+    flex: 1,
+  },
   boldTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold', letterSpacing: 0.5 },
   specColumn: { alignItems: 'flex-end' },
   specText: { color: '#fff', fontSize: 12, fontWeight: '900' },

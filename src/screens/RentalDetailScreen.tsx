@@ -12,10 +12,14 @@ import {
   Linking,
   Platform,
   FlatList,
+  Alert,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as FileSystem from 'expo-file-system/legacy';
+import Share from 'react-native-share';
+import { Share as RNShare } from 'react-native';
 import { fetchRentalById, selectCurrentRental, selectRentalLoading } from '../features/rentalSlice';
 import { recordProductView } from '../features/productViewSlice';
 import { RootState } from '../app/store';
@@ -30,7 +34,13 @@ const Colors = {
   slate: '#64748B',
   lightBg: '#F8FAFC',
   border: '#E2E8F0',
+  whatsapp: '#25D366',
+  success: '#10B981',
 };
+
+// Play Store link - replace with your actual app link
+const PLAY_STORE_LINK = 'https://play.google.com/store/apps/details?id=com.ram1234567890.BLuxury';
+const APP_STORE_LINK = 'https://apps.apple.com/app/bluxury/id123456789';
 
 const RentalDetailScreen: React.FC = () => {
   const route = useRoute();
@@ -43,6 +53,7 @@ const RentalDetailScreen: React.FC = () => {
   const { user } = useSelector((state: RootState) => state.auth);
 
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isSharing, setIsSharing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   // Track recorded product to prevent duplicates
@@ -87,6 +98,185 @@ const RentalDetailScreen: React.FC = () => {
     lastRecordedProductId.current = rental._id;
   }, [rental, user, dispatch]);
 
+  // Download image to local cache for sharing
+  const downloadImageToLocal = async (imageUrl: string): Promise<string | null> => {
+    try {
+      const timestamp = Date.now();
+      const filePath = `${FileSystem.cacheDirectory}rental_${timestamp}.jpg`;
+      
+      const downloadResult = await FileSystem.downloadAsync(
+        imageUrl,
+        filePath
+      );
+      
+      if (downloadResult.status === 200) {
+        if (Platform.OS === 'android') {
+          return `file://${downloadResult.uri}`;
+        }
+        return downloadResult.uri;
+      }
+      return null;
+    } catch (error) {
+      console.log('Image download error:', error);
+      return null;
+    }
+  };
+
+  // Get Google Maps link for the location
+  const getGoogleMapsLink = (): string => {
+    if (!rental) return '';
+    
+    const coords = rental.location.coordinates?.coordinates;
+    const fullAddress = `${rental.location.locality}, ${rental.location.city}, ${rental.location.state} - ${rental.location.pincode}`;
+    
+    if (coords && coords.length === 2) {
+      const [lng, lat] = coords;
+      return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    }
+    
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`;
+  };
+
+  // Build share message with ALL rental details + Google Maps link + App link
+  const buildShareMessage = () => {
+    if (!rental) return '';
+    
+    const fullAddress = `${rental.location.locality}, ${rental.location.city}, ${rental.location.state} - ${rental.location.pincode}`;
+    const availableFrom = new Date(rental.availableFrom).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+    const mapsLink = getGoogleMapsLink();
+    const appLink = Platform.OS === 'ios' ? APP_STORE_LINK : PLAY_STORE_LINK;
+    
+    let message = `🏠 *${rental.title || 'Rental Property'}*\n\n`;
+    message += `📍 *Location:* ${fullAddress}\n`;
+    message += `🗺️ *View on Google Maps:* ${mapsLink}\n`;
+    message += `💰 *Monthly Rent:* ₹${rental.monthlyRent}/month\n`;
+    message += `🏷️ *Type:* ${rental.rentalType || 'N/A'}\n`;
+    message += `🛏️ *Bedrooms:* ${rental.bedrooms || 'N/A'}\n`;
+    message += `🛁 *Bathrooms:* ${rental.bathrooms || 'N/A'}\n`;
+    message += `👥 *Max Guests:* ${rental.maxGuests || 'N/A'}\n`;
+    message += `📅 *Available From:* ${availableFrom}\n`;
+    message += `💰 *Deposit:* ₹${rental.deposit || 'N/A'}\n`;
+    message += `🔧 *Maintenance:* ₹${rental.maintenanceCharges || 'N/A'}\n`;
+    message += `📋 *Status:* ${rental.isAvailable ? '✅ Available' : '❌ Booked'}\n`;
+    
+    if (rental.amenities && rental.amenities.length > 0) {
+      message += `\n✨ *Amenities:* ${rental.amenities.join(', ')}\n`;
+    }
+    
+    if (rental.description) {
+      message += `\n📝 *Description:* ${rental.description.substring(0, 150)}${rental.description.length > 150 ? '...' : ''}\n`;
+    }
+    
+    message += `\n📱 *Download App:* ${appLink}`;
+    return message;
+  };
+
+  // Share to WhatsApp with image and full details
+  const handleShareWhatsApp = async () => {
+    if (!rental) return;
+    
+    setIsSharing(true);
+    try {
+      const imageUrl = rental.images?.[0];
+      const message = buildShareMessage();
+      
+      // Try to share with image
+      if (imageUrl) {
+        try {
+          const localFilePath = await downloadImageToLocal(imageUrl);
+          
+          if (localFilePath) {
+            const shareOptions = {
+              title: 'BLuxury Rental',
+              message: message,
+              url: localFilePath,
+              type: 'image/jpeg',
+              social: Share.Social.WHATSAPP,
+            };
+            
+            await Share.shareSingle(shareOptions);
+            setIsSharing(false);
+            return;
+          }
+        } catch (imageError) {
+          console.log('WhatsApp image share failed:', imageError);
+          // Fall through to text-only sharing
+        }
+      }
+      
+      // Fallback: Share text only via WhatsApp URL
+      const phone = rental.vendor?.contact || '';
+      const waUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
+      
+      const canOpen = await Linking.canOpenURL(waUrl);
+      if (canOpen) {
+        await Linking.openURL(waUrl);
+      } else {
+        // If WhatsApp is not installed, try to share via react-native-share without image
+        await Share.open({
+          title: 'BLuxury Rental',
+          message: message,
+        });
+      }
+      
+    } catch (error) {
+      console.error('WhatsApp share error:', error);
+      if (error instanceof Error && error.message !== 'User cancelled') {
+        Alert.alert('Share Error', 'Could not share to WhatsApp. Please try again.');
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  // General share function
+  const handleShare = async () => {
+    if (!rental) return;
+    
+    setIsSharing(true);
+    try {
+      const imageUrl = rental.images?.[0];
+      const message = buildShareMessage();
+      
+      // Try to share with image
+      if (imageUrl) {
+        try {
+          const localFilePath = await downloadImageToLocal(imageUrl);
+          
+          if (localFilePath) {
+            const shareOptions = {
+              title: 'BLuxury Rental',
+              message: message,
+              url: localFilePath,
+              type: 'image/jpeg',
+            };
+            
+            await Share.open(shareOptions);
+            setIsSharing(false);
+            return;
+          }
+        } catch (imageError) {
+          console.log('Image sharing failed:', imageError);
+          // Fall through to text-only sharing
+        }
+      }
+      
+      // Fallback: share text only
+      await RNShare.share({
+        message: message,
+        title: 'BLuxury Rental',
+      });
+      
+    } catch (error) {
+      console.error('Share error:', error);
+      if (error instanceof Error && error.message !== 'User cancelled') {
+        Alert.alert('Share Error', 'Could not share rental. Please try again.');
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   if (loading || !rental) {
     return (
       <View style={styles.center}>
@@ -106,7 +296,7 @@ const RentalDetailScreen: React.FC = () => {
     if (rental.vendor?.contact) Linking.openURL(`tel:${rental.vendor.contact}`);
   };
 
-  const handleWhatsApp = () => {
+  const handleWhatsAppContact = () => {
     if (rental.vendor?.contact) {
       const msg = `Hi, I'm interested in your rental "${rental.title}" on BLuxury.`;
       Linking.openURL(
@@ -179,13 +369,26 @@ const RentalDetailScreen: React.FC = () => {
           >
             <Ionicons name="chevron-back" size={26} color={Colors.white} />
           </TouchableOpacity>
+          
+          {/* Share Button - Same as Property Detail */}
+          <TouchableOpacity
+            style={styles.shareBtn}
+            onPress={handleShare}
+            disabled={isSharing}
+          >
+            {isSharing ? (
+              <ActivityIndicator size="small" color={Colors.white} />
+            ) : (
+              <Ionicons name="share-outline" size={22} color={Colors.white} />
+            )}
+          </TouchableOpacity>
         </View>
 
         <View style={styles.content}>
           <Text style={styles.title}>{rental.title}</Text>
           <View style={styles.row}>
             <Text style={styles.price}>₹{rental.monthlyRent}/month</Text>
-            <View style={styles.statusBadge}>
+            <View style={[styles.statusBadge, rental.isAvailable ? styles.statusAvailable : styles.statusBooked]}>
               <Text style={styles.statusText}>
                 {rental.isAvailable ? 'Available' : 'Booked'}
               </Text>
@@ -269,26 +472,61 @@ const RentalDetailScreen: React.FC = () => {
                 <Ionicons name="call" size={18} color={Colors.white} />
                 <Text style={styles.actionText}>Call</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.actionBtn, styles.waBtn]} onPress={handleWhatsApp}>
+              <TouchableOpacity style={[styles.actionBtn, styles.waBtn]} onPress={handleWhatsAppContact}>
                 <Ionicons name="logo-whatsapp" size={18} color={Colors.white} />
                 <Text style={styles.actionText}>WhatsApp</Text>
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Share Buttons Row - Same as Property Detail */}
+          <View style={styles.shareRow}>
+            <TouchableOpacity 
+              style={[styles.shareActionBtn, styles.shareBtnStyle]} 
+              onPress={handleShare}
+              disabled={isSharing}
+            >
+              <Ionicons name="share-social-outline" size={20} color={Colors.white} />
+              <Text style={styles.shareActionText}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.shareActionBtn, styles.whatsappShareBtn]} 
+              onPress={handleShareWhatsApp}
+              disabled={isSharing}
+            >
+              <Ionicons name="logo-whatsapp" size={20} color={Colors.white} />
+              <Text style={styles.shareActionText}>WhatsApp</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Download App Link Section */}
+          {/* <View style={styles.appDownloadSection}>
+            <Text style={styles.appDownloadText}>
+              📱 Download the BLuxury App
+            </Text>
+            <View style={styles.appLinksContainer}>
+              <TouchableOpacity 
+                style={[styles.appLinkBtn, styles.playStoreBtn]}
+                onPress={() => Linking.openURL(PLAY_STORE_LINK)}
+              >
+                <Ionicons name="logo-google-playstore" size={20} color={Colors.white} />
+                <Text style={styles.appLinkText}>Play Store</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.appLinkBtn, styles.appStoreBtn]}
+                onPress={() => Linking.openURL(APP_STORE_LINK)}
+              >
+                <Ionicons name="logo-apple" size={20} color={Colors.white} />
+                <Text style={styles.appLinkText}>App Store</Text>
+              </TouchableOpacity>
+            </View>
+          </View> */}
         </View>
         <View style={{ height: 100 }} />
       </ScrollView>
 
       <View style={styles.bottomBar}>
         <Text style={styles.bottomPrice}>₹{rental.monthlyRent}/month</Text>
-        {/* <TouchableOpacity
-          style={styles.bookBtn}
-          onPress={() =>
-            navigation.navigate('ChatScreen', { vendorId: rental.vendor.vendorId })
-          }
-        >
-          <Text style={styles.bookBtnText}>Chat with Vendor</Text>
-        </TouchableOpacity> */}
       </View>
     </View>
   );
@@ -347,6 +585,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 10,
   },
+  shareBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 30,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
   dotsContainer: {
     position: 'absolute',
     bottom: 16,
@@ -382,10 +634,15 @@ const styles = StyleSheet.create({
   },
   price: { fontSize: 22, fontWeight: 'bold', color: Colors.primary },
   statusBadge: {
-    backgroundColor: Colors.gold,
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 20,
+  },
+  statusAvailable: {
+    backgroundColor: Colors.success,
+  },
+  statusBooked: {
+    backgroundColor: Colors.slate,
   },
   statusText: { color: Colors.white, fontWeight: 'bold' },
   address: { marginTop: 8, fontSize: 14, color: Colors.slate },
@@ -442,8 +699,72 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   callBtn: { backgroundColor: Colors.primary },
-  waBtn: { backgroundColor: '#25D366' },
+  waBtn: { backgroundColor: Colors.whatsapp },
   actionText: { color: Colors.white, fontWeight: 'bold', marginLeft: 8 },
+  shareRow: {
+    flexDirection: 'row',
+    marginTop: 24,
+    gap: 12,
+  },
+  shareActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  shareBtnStyle: {
+    backgroundColor: Colors.primary,
+  },
+  whatsappShareBtn: {
+    backgroundColor: Colors.whatsapp,
+  },
+  shareActionText: {
+    color: Colors.white,
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  appDownloadSection: {
+    marginTop: 24,
+    padding: 16,
+    backgroundColor: Colors.lightBg,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  appDownloadText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.black,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  appLinksContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  appLinkBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 8,
+  },
+  playStoreBtn: {
+    backgroundColor: '#3DDC84',
+  },
+  appStoreBtn: {
+    backgroundColor: '#000000',
+  },
+  appLinkText: {
+    color: Colors.white,
+    fontWeight: '600',
+    fontSize: 14,
+  },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -451,21 +772,19 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: Colors.white,
     padding: 16,
-    paddingBottom: 30,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 46,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: Colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
   },
   bottomPrice: { fontSize: 18, fontWeight: 'bold', color: Colors.primary },
-  bookBtn: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 30,
-  },
-  bookBtnText: { color: Colors.white, fontWeight: 'bold' },
 });
 
 export default RentalDetailScreen;

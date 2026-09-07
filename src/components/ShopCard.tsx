@@ -6,11 +6,22 @@ import {
   Text,
   Image,
   TouchableOpacity,
+  Alert,
+  Linking,
+  Platform,
+  ActivityIndicator,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Vendor } from "../types";
 import { Colors, getFullAddress, scale, verticalScale, moderateScale } from "../constants/colors";
 import VendorHorizontalScroll from "./VendorHorizontalScroll";
+import Share from 'react-native-share';
+import { Share as RNShare } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+
+// Play Store link - replace with your actual app link
+const PLAY_STORE_LINK = 'https://play.google.com/store/apps/details?id=com.ram1234567890.BLuxury';
+const APP_STORE_LINK = 'https://apps.apple.com/app/bluxury/id123456789';
 
 // 🔥 Helper to parse array fields (categories, services, tags)
 const parseArrayField = (field: any): string[] => {
@@ -126,6 +137,7 @@ const formatAllDays = (hours: any): Array<{ day: string; hours: string; isToday:
 
 export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
   const [showFullHours, setShowFullHours] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
   
   // 🔥 Parse categories, services, and tags using the helper
   const categories = useMemo(() => parseArrayField(shop.categories), [shop.categories]);
@@ -149,6 +161,206 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
   const serviceTags = useMemo(() => {
     return services.slice(0, 3);
   }, [services]);
+
+  // Get shop image URL
+  const getShopImageUrl = (): string => {
+    return shop.shopImage || 'https://via.placeholder.com/600x400?text=Shop';
+  };
+
+  // Get Google Maps link
+  const getGoogleMapsLink = (): string => {
+    const lat = shop.address?.latitude;
+    const lng = shop.address?.longitude;
+    const fullAddressStr = getFullAddress(shop.address);
+    
+    if (lat && lng) {
+      return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    }
+    
+    if (fullAddressStr) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddressStr)}`;
+    }
+    
+    return '';
+  };
+
+  // Download image to local cache for sharing
+  const downloadImageToLocal = async (imageUrl: string): Promise<string | null> => {
+    try {
+      const timestamp = Date.now();
+      const filePath = `${FileSystem.cacheDirectory}shop_${timestamp}.jpg`;
+      
+      const downloadResult = await FileSystem.downloadAsync(
+        imageUrl,
+        filePath
+      );
+      
+      if (downloadResult.status === 200) {
+        if (Platform.OS === 'android') {
+          return `file://${downloadResult.uri}`;
+        }
+        return downloadResult.uri;
+      }
+      return null;
+    } catch (error) {
+      console.log('Image download error:', error);
+      return null;
+    }
+  };
+
+  // Build share message with shop details
+  const buildShareMessage = (): string => {
+    const shopName = shop.shopName || 'Shop';
+    const fullAddressStr = getFullAddress(shop.address);
+    const mapsLink = getGoogleMapsLink();
+    const appLink = Platform.OS === 'ios' ? APP_STORE_LINK : PLAY_STORE_LINK;
+    const categoryStr = categories.length > 0 ? categories.join(', ') : 'N/A';
+    const serviceStr = services.length > 0 ? services.join(', ') : 'N/A';
+    const productCount = shop.productsCount || 0;
+    
+    let message = `🏪 *${shopName}*\n\n`;
+    message += `📋 *Business Type:* ${shop.businessType || 'Shop'}\n`;
+    
+    if (fullAddressStr) {
+      message += `📍 *Location:* ${fullAddressStr}\n`;
+    }
+    
+    if (mapsLink) {
+      message += `🗺️ *View on Google Maps:* ${mapsLink}\n`;
+    }
+    
+    if (shop.phone) {
+      message += `📞 *Phone:* ${shop.phone}\n`;
+    }
+    
+    if (shop.distance !== undefined && shop.distance !== null) {
+      message += `📏 *Distance:* ${shop.distance.toFixed(1)} km\n`;
+    }
+    
+    if (categoryStr && categoryStr !== 'N/A') {
+      message += `📂 *Categories:* ${categoryStr}\n`;
+    }
+    
+    if (serviceStr && serviceStr !== 'N/A') {
+      message += `🛠️ *Services:* ${serviceStr}\n`;
+    }
+    
+    message += `🛍️ *Products:* ${productCount} items\n`;
+    
+    if (shop.deliveryRange && shop.deliveryRange > 0) {
+      message += `🚚 *Delivery Range:* ${shop.deliveryRange} km\n`;
+    }
+    
+    // Status
+    message += `🕐 *Status:* ${isOpen ? '✅ Open Now' : '❌ Closed'}\n`;
+    
+    // Rating
+    if (shop.averageRating) {
+      message += `⭐ *Rating:* ${shop.averageRating.toFixed(1)} (${shop.reviewCount || 0} reviews)\n`;
+    }
+    
+    message += `\n📱 *Download App:* ${appLink}`;
+    return message;
+  };
+
+  // Share to WhatsApp
+  const handleShareWhatsApp = async () => {
+    setIsSharing(true);
+    try {
+      const imageUrl = getShopImageUrl();
+      const message = buildShareMessage();
+      
+      // Try to share with image
+      if (imageUrl && !imageUrl.includes('placeholder')) {
+        try {
+          const localFilePath = await downloadImageToLocal(imageUrl);
+          
+          if (localFilePath) {
+            const shareOptions = {
+              title: 'BLuxury Shop',
+              message: message,
+              url: localFilePath,
+              type: 'image/jpeg',
+              social: Share.Social.WHATSAPP,
+            };
+            
+            await Share.shareSingle(shareOptions);
+            setIsSharing(false);
+            return;
+          }
+        } catch (imageError) {
+          console.log('WhatsApp image share failed:', imageError);
+        }
+      }
+      
+      // Fallback: Share text only via WhatsApp URL
+      const phone = shop.phone || '';
+      const waUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
+      
+      const canOpen = await Linking.canOpenURL(waUrl);
+      if (canOpen) {
+        await Linking.openURL(waUrl);
+      } else {
+        await Share.open({
+          title: 'BLuxury Shop',
+          message: message,
+        });
+      }
+      
+    } catch (error) {
+      console.error('WhatsApp share error:', error);
+      if (error instanceof Error && error.message !== 'User cancelled') {
+        Alert.alert('Share Error', 'Could not share to WhatsApp. Please try again.');
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  // General share function
+  const handleShare = async () => {
+    setIsSharing(true);
+    try {
+      const imageUrl = getShopImageUrl();
+      const message = buildShareMessage();
+      
+      // Try to share with image
+      if (imageUrl && !imageUrl.includes('placeholder')) {
+        try {
+          const localFilePath = await downloadImageToLocal(imageUrl);
+          
+          if (localFilePath) {
+            const shareOptions = {
+              title: 'BLuxury Shop',
+              message: message,
+              url: localFilePath,
+              type: 'image/jpeg',
+            };
+            
+            await Share.open(shareOptions);
+            setIsSharing(false);
+            return;
+          }
+        } catch (imageError) {
+          console.log('Image sharing failed:', imageError);
+        }
+      }
+      
+      // Fallback: share text only
+      await RNShare.share({
+        message: message,
+        title: 'BLuxury Shop',
+      });
+      
+    } catch (error) {
+      console.error('Share error:', error);
+      if (error instanceof Error && error.message !== 'User cancelled') {
+        Alert.alert('Share Error', 'Could not share shop. Please try again.');
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  };
 
   return (
     <TouchableOpacity
@@ -330,6 +542,7 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
 
       <View style={shopCardStyles.divider} />
 
+      {/* Bottom Row with Share Buttons */}
       <View style={shopCardStyles.bottomRow}>
         <View style={shopCardStyles.bottomLeft}>
           <View style={shopCardStyles.offerIconBadge}>
@@ -342,21 +555,51 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
             <Text style={shopCardStyles.offerSubtitle}>AVAILABLE NOW | VIEW ALL</Text>
           </View>
         </View>
-        <View style={shopCardStyles.productImagesContainer}>
-          {shop.productImages && shop.productImages.length > 0 ? (
-            shop.productImages.slice(0, 3).map((img, idx) => (
-              <Image
-                key={idx}
-                source={{ uri: img }}
-                style={[
-                  shopCardStyles.miniProductImg,
-                  { marginLeft: idx > 0 ? -scale(12) : 0, zIndex: 3 - idx },
-                ]}
-              />
-            ))
-          ) : (
-            <Ionicons name="arrow-forward-circle" size={moderateScale(28)} color={Colors.accentGreen} />
-          )}
+        
+        <View style={shopCardStyles.rightSection}>
+          {/* Product Images */}
+          <View style={shopCardStyles.productImagesContainer}>
+            {shop.productImages && shop.productImages.length > 0 ? (
+              shop.productImages.slice(0, 3).map((img, idx) => (
+                <Image
+                  key={idx}
+                  source={{ uri: img }}
+                  style={[
+                    shopCardStyles.miniProductImg,
+                    { marginLeft: idx > 0 ? -scale(12) : 0, zIndex: 3 - idx },
+                  ]}
+                />
+              ))
+            ) : (
+              <Ionicons name="arrow-forward-circle" size={moderateScale(28)} color={Colors.accentGreen} />
+            )}
+          </View>
+
+          {/* Share Buttons - Small */}
+          <View style={shopCardStyles.shareButtonsContainer}>
+            <TouchableOpacity 
+              style={[shopCardStyles.shareBtnSmall, shopCardStyles.shareBtnStyle]} 
+              onPress={handleShare}
+              disabled={isSharing}
+            >
+              {isSharing ? (
+                <ActivityIndicator size="small" color={Colors.white} />
+              ) : (
+                <Ionicons name="share-social-outline" size={12} color={Colors.white} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[shopCardStyles.shareBtnSmall, shopCardStyles.whatsappShareBtn]} 
+              onPress={handleShareWhatsApp}
+              disabled={isSharing}
+            >
+              {isSharing ? (
+                <ActivityIndicator size="small" color={Colors.white} />
+              ) : (
+                <Ionicons name="logo-whatsapp" size={12} color={Colors.white} />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -671,6 +914,11 @@ const shopCardStyles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
+  rightSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(6),
+  },
   offerIconBadge: {
     width: scale(38),
     height: scale(38),
@@ -703,6 +951,25 @@ const shopCardStyles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.cardWhite,
     backgroundColor: Colors.dividerGray,
+  },
+  shareButtonsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(4),
+    marginLeft: scale(4),
+  },
+  shareBtnSmall: {
+    width: scale(28),
+    height: scale(28),
+    borderRadius: scale(14),
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareBtnStyle: {
+    backgroundColor: Colors.accentGreen,
+  },
+  whatsappShareBtn: {
+    backgroundColor: '#25D366',
   },
 });
 

@@ -829,7 +829,7 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
               style={styles.settingsButton}
               onPress={handleSettingsPress}
             >
-              <Ionicons name="settings-outline" size={24} color="#1C1C1E" />
+              {/* <Ionicons name="settings-outline" size={24} color="#1C1C1E" /> */}
             </TouchableOpacity>
             
             <Ionicons name="search" size={20} color="#999" />
@@ -857,11 +857,11 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
                 style={styles.voiceButton}
                 disabled={isRecording}
               >
-                <Ionicons
+                {/* <Ionicons
                   name={isRecording ? "mic" : "mic-outline"}
                   size={24}
                   color={isRecording ? "#0A3D2B" : "#999"}
-                />
+                /> */}
               </TouchableOpacity>
             )}
           </View>

@@ -40,7 +40,7 @@ import { StackNavigationProp } from "@react-navigation/stack";
 import Toast from "react-native-toast-message";
 import WhatsappInvoiceSender from "./WhatsappInvoiceSender";
 import { ShoppingCart, Truck } from "lucide-react-native";
-import { Audio } from "expo-av";
+import { AudioPlayer } from "expo-audio"; // Import from expo-audio
 
 // --- DayJS Configuration ---
 dayjs.extend(relativeTime);
@@ -147,9 +147,6 @@ const BUTTON_SIZE = 55;
 const PADDING = 15;
 const INITIAL_X = SCREEN_WIDTH - BUTTON_SIZE - PADDING;
 const INITIAL_Y = Platform.OS === "android" ? 65 : 40;
-
-// --- Audio Sound Object (Global ref to avoid recreation) ---
-let soundObject: Audio.Sound | null = null;
 
 // --- Helper: Infer product unit ---
 const getProductUnit = (product: any): string => {
@@ -275,66 +272,15 @@ const FloatingLogisticsButtons = () => {
   );
 };
 
-// --- Audio Helper Functions ---
-const loadNewOrderSound = async () => {
-  try {
-    if (soundObject) {
-      await soundObject.unloadAsync();
-      soundObject = null;
-    }
-    const { sound } = await Audio.Sound.createAsync(
-      require("../../assets/ttsMP3.com_VoiceText_2025-8-18_11-48-44.mp3")
-    );
-    soundObject = sound;
-    await soundObject.setIsLoopingAsync(true);
-    return soundObject;
-  } catch (error) {
-    console.error("Failed to load sound:", error);
-    return null;
-  }
-};
-
-const playNewOrderSound = async () => {
-  try {
-    if (!soundObject) {
-      await loadNewOrderSound();
-    }
-    if (soundObject) {
-      await soundObject.playAsync();
-    }
-  } catch (error) {
-    console.error("Failed to play sound:", error);
-  }
-};
-
-const stopNewOrderSound = async () => {
-  try {
-    if (soundObject) {
-      await soundObject.stopAsync();
-      await soundObject.setPositionAsync(0);
-    }
-  } catch (error) {
-    // Silently handle audio errors
-  }
-};
-
-const unloadSound = async () => {
-  try {
-    if (soundObject) {
-      await soundObject.unloadAsync();
-      soundObject = null;
-    }
-  } catch (error) {
-    // Silently handle audio errors
-  }
-};
-
 // --- Main Component ---
 const VendorOrderList = () => {
   const dispatch: AppDispatch = useDispatch();
   const navigation = useNavigation<VendorOrderListNavigationProp>();
   const isFocused = useIsFocused();
   const scrollRef = useRef<ScrollView>(null);
+
+  // Audio player ref
+  const soundPlayerRef = useRef<AudioPlayer | null>(null);
 
   const {
     orders = [],
@@ -359,6 +305,64 @@ const VendorOrderList = () => {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // --- Audio Helper Functions (using expo-audio) ---
+  const loadNewOrderSound = async () => {
+    try {
+      if (soundPlayerRef.current) {
+        await soundPlayerRef.current.stop();
+        await soundPlayerRef.current.release();
+        soundPlayerRef.current = null;
+      }
+      // Create a new AudioPlayer instance with the sound file
+      const player = await AudioPlayer.create(
+        require("../../assets/ttsMP3.com_VoiceText_2025-8-18_11-48-44.mp3")
+      );
+      await player.setLooping(true);
+      soundPlayerRef.current = player;
+      return player;
+    } catch (error) {
+      console.error("Failed to load sound:", error);
+      return null;
+    }
+  };
+
+  const playNewOrderSound = async () => {
+    try {
+      if (!soundPlayerRef.current) {
+        await loadNewOrderSound();
+      }
+      if (soundPlayerRef.current) {
+        await soundPlayerRef.current.play();
+      }
+    } catch (error) {
+      console.error("Failed to play sound:", error);
+    }
+  };
+
+  const stopNewOrderSound = async () => {
+    try {
+      if (soundPlayerRef.current) {
+        await soundPlayerRef.current.stop();
+        // Optionally reset position if seek method exists:
+        // await soundPlayerRef.current.seekTo(0);
+      }
+    } catch (error) {
+      // Silently handle audio errors
+    }
+  };
+
+  const unloadSound = async () => {
+    try {
+      if (soundPlayerRef.current) {
+        await soundPlayerRef.current.stop();
+        await soundPlayerRef.current.release();
+        soundPlayerRef.current = null;
+      }
+    } catch (error) {
+      // Silently handle audio errors
+    }
+  };
 
   // --- Load sound on mount ---
   useEffect(() => {

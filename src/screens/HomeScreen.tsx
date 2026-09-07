@@ -55,7 +55,7 @@ import {
 
 // Custom Components
 import NewProductCard1 from "../components/NewProductCard10";
-import NewProductCard2 from "../components/NewProductCard11";
+import NewProductCard2 from "../components/NewProductCard10";
 import ShopCard from "./ShopCard";
 
 // Local Assets
@@ -1445,12 +1445,12 @@ const HomeScreen: React.FC = () => {
       style={allStyles.safeArea as ViewStyle}
       edges={["top", "left", "right"]}
     >
-      <Image
+      {/* <Image
         source={backgroundImage}
         style={StyleSheet.absoluteFillObject}
         resizeMode="cover"
         blurRadius={Platform.OS === "ios" ? 10 : 3}
-      />
+      /> */}
       <View
         style={[
           StyleSheet.absoluteFillObject,

@@ -33,8 +33,8 @@ import {
   selectPropertyError,
   selectPropertyPagination,
 } from '../features/propertySlice';
-// 👇 Import AddAddressScreen (exactly the same as rental's map picker)
 import AddAddressScreen from '../screens/AddAddressScreen';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // --------------------- Types ---------------------
 type PropertyTypeEnum =
@@ -256,7 +256,6 @@ const AddressModal: React.FC<AddressModalProps> = ({
           </View>
 
           <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
-            {/* Use Current Location */}
             <TouchableOpacity
               style={addressModalStyles.currentLocationContainer}
               onPress={onAddCurrentLocation}
@@ -276,7 +275,6 @@ const AddressModal: React.FC<AddressModalProps> = ({
               <Ionicons name="chevron-forward" size={18} color="#6B7280" />
             </TouchableOpacity>
 
-            {/* Pick from Map – opens AddAddressScreen modal */}
             <TouchableOpacity
               style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]}
               onPress={onOpenMap}
@@ -551,6 +549,8 @@ const PropertyCRUDScreen: React.FC = () => {
   const vendor = useSelector((state: RootState) => state.vendorAuth.vendor);
   const currentVendorId = vendor?._id || vendor?.vendorId;
 
+  const insets = useSafeAreaInsets();
+
   const [formData, setFormData] = useState<PropertyFormData>(initialFormData);
   const [existingImages, setExistingImages] = useState<string[]>([]);
   const [newImages, setNewImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -558,12 +558,18 @@ const PropertyCRUDScreen: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Location modal states
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [showAddAddressModal, setShowAddAddressModal] = useState(false);
 
-  // 🔥 Enhanced getLocationSummary – falls back to coordinates
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const getLocationSummary = useCallback(() => {
     const parts = [];
     if (formData.locationLocality && formData.locationLocality !== 'Unknown Locality')
@@ -632,17 +638,13 @@ const PropertyCRUDScreen: React.FC = () => {
     }
   }, []);
 
-  // 🔥 Open AddAddressScreen modal
   const handleOpenAddAddress = useCallback(() => {
     setShowAddressModal(false);
     setShowAddAddressModal(true);
   }, []);
 
-  // 🔥 Location callback – exactly same extraction as rental's handleMapLocationSelect
   const handleLocationFromAddAddress = useCallback((lat: number, lng: number, addressDetails: any) => {
     console.log('📍 Property location selected:', { lat, lng, addressDetails });
-
-    // Extract all available address components with fallbacks (exactly like rental)
     const city = addressDetails.city || '';
     const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
     const state = addressDetails.state || '';
@@ -651,7 +653,6 @@ const PropertyCRUDScreen: React.FC = () => {
     const district = addressDetails.district || '';
     const street = addressDetails.street || '';
 
-    // Build a comprehensive address string for display
     const addressParts = [
       street,
       addressDetails.colony,
@@ -666,7 +667,6 @@ const PropertyCRUDScreen: React.FC = () => {
     ].filter(Boolean);
     const fullAddress = addressParts.join(', ');
 
-    // Update form data with all available address fields
     setFormData((prev) => ({
       ...prev,
       lat: lat.toString(),
@@ -688,7 +688,7 @@ const PropertyCRUDScreen: React.FC = () => {
     setShowAddAddressModal(false);
   }, []);
 
-  // ========== CRUD Logic (unchanged) ==========
+  // ========== CRUD Logic ==========
   useEffect(() => {
     if (currentVendorId) {
       dispatch(fetchProperties({ vendorId: currentVendorId, page: 1, limit: 10 }));
@@ -756,12 +756,33 @@ const PropertyCRUDScreen: React.FC = () => {
         quality: 0.7,
         base64: false,
       });
-      if (!result.canceled) {
+      if (!result.canceled && isMounted.current) {
         setNewImages((prev) => [...prev, ...result.assets]);
       }
     } catch (error) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to open image picker.' });
+      console.error('❌ Image picker error:', error);
+      if (isMounted.current) {
+        Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to open image picker. Please try again.' });
+      }
     }
+  };
+
+  const removeExistingImage = (index: number) => {
+    Alert.alert(
+      'Remove Image',
+      'This image will be deleted from the server. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            setExistingImages((prev) => prev.filter((_, i) => i !== index));
+            Toast.show({ type: 'info', text1: 'Image marked for removal' });
+          }
+        },
+      ]
+    );
   };
 
   const removeNewImage = (index: number) => {
@@ -844,6 +865,10 @@ const PropertyCRUDScreen: React.FC = () => {
       ],
       images: newImages,
     };
+
+    if (editingId) {
+      payload.existingImages = JSON.stringify(existingImages);
+    }
 
     let resultAction;
     if (editingId) {
@@ -948,7 +973,7 @@ const PropertyCRUDScreen: React.FC = () => {
 
     return (
       <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
-        <View style={styles.formHeader}>
+        <View style={[styles.formHeader, { paddingTop: insets.top + 20 }]}>
           <TouchableOpacity onPress={closeForm} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#1A1A1A" />
           </TouchableOpacity>
@@ -957,11 +982,16 @@ const PropertyCRUDScreen: React.FC = () => {
           </Text>
         </View>
 
-        {/* Basic Details */}
         <View style={styles.cardSection}>
           <SectionTitle title="Basic Details" />
           <Text style={styles.label}>Property Title</Text>
-          <TextInput style={styles.input} value={formData.title} onChangeText={(t) => handleChange('title', t)} placeholder="e.g. 3BHK Luxury Villa" />
+          <TextInput
+            style={styles.input}
+            value={formData.title}
+            onChangeText={(t) => handleChange('title', t)}
+            placeholder="e.g. 3BHK Luxury Villa"
+            placeholderTextColor="#94A3B8"
+          />
 
           <Text style={styles.label}>Property Type</Text>
           <View style={styles.pillContainer}>
@@ -992,33 +1022,65 @@ const PropertyCRUDScreen: React.FC = () => {
           <View style={styles.row}>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Possession Date</Text>
-              <TextInput style={styles.input} value={formData.possessionDate} onChangeText={(t) => handleChange('possessionDate', t)} placeholder="YYYY-MM-DD" />
+              <TextInput
+                style={styles.input}
+                value={formData.possessionDate}
+                onChangeText={(t) => handleChange('possessionDate', t)}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor="#94A3B8"
+              />
             </View>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Built Year</Text>
-              <TextInput style={styles.input} value={formData.builtYear} onChangeText={(t) => handleChange('builtYear', t)} placeholder="e.g. 2022" keyboardType="numeric" />
+              <TextInput
+                style={styles.input}
+                value={formData.builtYear}
+                onChangeText={(t) => handleChange('builtYear', t)}
+                placeholder="e.g. 2022"
+                placeholderTextColor="#94A3B8"
+                keyboardType="numeric"
+              />
             </View>
           </View>
         </View>
 
-        {/* Pricing & Area */}
         <View style={styles.cardSection}>
           <SectionTitle title="Pricing & Area" />
           <View style={styles.row}>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Min Price (Cr)</Text>
-              <TextInput style={styles.input} value={formData.minPriceCr} onChangeText={(t) => handleChange('minPriceCr', t)} placeholder="e.g. 1.5" keyboardType="decimal-pad" />
+              <TextInput
+                style={styles.input}
+                value={formData.minPriceCr}
+                onChangeText={(t) => handleChange('minPriceCr', t)}
+                placeholder="e.g. 1.5"
+                placeholderTextColor="#94A3B8"
+                keyboardType="decimal-pad"
+              />
             </View>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Max Price (Cr)</Text>
-              <TextInput style={styles.input} value={formData.maxPriceCr} onChangeText={(t) => handleChange('maxPriceCr', t)} placeholder="e.g. 2.0" keyboardType="decimal-pad" />
+              <TextInput
+                style={styles.input}
+                value={formData.maxPriceCr}
+                onChangeText={(t) => handleChange('maxPriceCr', t)}
+                placeholder="e.g. 2.0"
+                placeholderTextColor="#94A3B8"
+                keyboardType="decimal-pad"
+              />
             </View>
           </View>
           <Text style={styles.label}>Super Built-up Area (Sq.Ft)</Text>
-          <TextInput style={styles.input} value={formData.superBuiltUpSqFt} onChangeText={(t) => handleChange('superBuiltUpSqFt', t)} placeholder="e.g. 1500" keyboardType="numeric" />
+          <TextInput
+            style={styles.input}
+            value={formData.superBuiltUpSqFt}
+            onChangeText={(t) => handleChange('superBuiltUpSqFt', t)}
+            placeholder="e.g. 1500"
+            placeholderTextColor="#94A3B8"
+            keyboardType="numeric"
+          />
         </View>
 
-        {/* Deep Specifications */}
         <View style={styles.cardSection}>
           <SectionTitle title="Deep Specifications" />
           <Text style={styles.label}>Furnishing Status</Text>
@@ -1040,27 +1102,61 @@ const PropertyCRUDScreen: React.FC = () => {
           <View style={styles.row}>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>BHK Format</Text>
-              <TextInput style={styles.input} value={formData.bhk} onChangeText={(t) => handleChange('bhk', t)} placeholder="e.g. 3 BHK" />
+              <TextInput
+                style={styles.input}
+                value={formData.bhk}
+                onChangeText={(t) => handleChange('bhk', t)}
+                placeholder="e.g. 3 BHK"
+                placeholderTextColor="#94A3B8"
+              />
             </View>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Total Floors in Bldg</Text>
-              <TextInput style={styles.input} value={formData.totalFloors} onChangeText={(t) => handleChange('totalFloors', t)} placeholder="e.g. 15" keyboardType="numeric" />
+              <TextInput
+                style={styles.input}
+                value={formData.totalFloors}
+                onChangeText={(t) => handleChange('totalFloors', t)}
+                placeholder="e.g. 15"
+                placeholderTextColor="#94A3B8"
+                keyboardType="numeric"
+              />
             </View>
           </View>
 
           <View style={styles.row}>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Bathrooms</Text>
-              <TextInput style={styles.input} value={formData.bathrooms} onChangeText={(t) => handleChange('bathrooms', t)} placeholder="e.g. 2" keyboardType="numeric" />
+              <TextInput
+                style={styles.input}
+                value={formData.bathrooms}
+                onChangeText={(t) => handleChange('bathrooms', t)}
+                placeholder="e.g. 2"
+                placeholderTextColor="#94A3B8"
+                keyboardType="numeric"
+              />
             </View>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Balconies</Text>
-              <TextInput style={styles.input} value={formData.balconies} onChangeText={(t) => handleChange('balconies', t)} placeholder="e.g. 1" keyboardType="numeric" />
+              <TextInput
+                style={styles.input}
+                value={formData.balconies}
+                onChangeText={(t) => handleChange('balconies', t)}
+                placeholder="e.g. 1"
+                placeholderTextColor="#94A3B8"
+                keyboardType="numeric"
+              />
             </View>
           </View>
 
           <Text style={styles.label}>Property Floor Number</Text>
-          <TextInput style={styles.input} value={formData.propertyFloor} onChangeText={(t) => handleChange('propertyFloor', t)} placeholder="e.g. 4" keyboardType="numeric" />
+          <TextInput
+            style={styles.input}
+            value={formData.propertyFloor}
+            onChangeText={(t) => handleChange('propertyFloor', t)}
+            placeholder="e.g. 4"
+            placeholderTextColor="#94A3B8"
+            keyboardType="numeric"
+          />
 
           <View style={styles.switchRow}>
             <Text style={styles.label}>Car Parking Available</Text>
@@ -1110,24 +1206,28 @@ const PropertyCRUDScreen: React.FC = () => {
             value={formData.locationCity}
             onChangeText={(t) => handleChange('locationCity', t)}
             placeholder="City"
+            placeholderTextColor="#94A3B8"
           />
           <TextInput
             style={[styles.input, { marginBottom: 10 }]}
             value={formData.locationLocality}
             onChangeText={(t) => handleChange('locationLocality', t)}
             placeholder="Locality"
+            placeholderTextColor="#94A3B8"
           />
           <TextInput
             style={[styles.input, { marginBottom: 10 }]}
             value={formData.locationState}
             onChangeText={(t) => handleChange('locationState', t)}
             placeholder="State"
+            placeholderTextColor="#94A3B8"
           />
           <TextInput
             style={[styles.input, { marginBottom: 10 }]}
             value={formData.locationPincode}
             onChangeText={(t) => handleChange('locationPincode', t)}
             placeholder="Pincode"
+            placeholderTextColor="#94A3B8"
             keyboardType="numeric"
           />
           <View style={styles.row}>
@@ -1137,6 +1237,7 @@ const PropertyCRUDScreen: React.FC = () => {
                 value={formData.lat}
                 onChangeText={(t) => handleChange('lat', t)}
                 placeholder="Latitude"
+                placeholderTextColor="#94A3B8"
                 keyboardType="numeric"
               />
             </View>
@@ -1146,26 +1247,54 @@ const PropertyCRUDScreen: React.FC = () => {
                 value={formData.lng}
                 onChangeText={(t) => handleChange('lng', t)}
                 placeholder="Longitude"
+                placeholderTextColor="#94A3B8"
                 keyboardType="numeric"
               />
             </View>
           </View>
         </View>
 
-        {/* Legal & External Links */}
         <View style={styles.cardSection}>
           <SectionTitle title="Legal & External Links" />
           <Text style={styles.label}>RERA / Registration ID</Text>
-          <TextInput style={styles.input} value={formData.registrationId} onChangeText={(t) => handleChange('registrationId', t)} placeholder="e.g. RERA-AP-12345" />
+          <TextInput
+            style={styles.input}
+            value={formData.registrationId}
+            onChangeText={(t) => handleChange('registrationId', t)}
+            placeholder="e.g. RERA-AP-12345"
+            placeholderTextColor="#94A3B8"
+          />
           <Text style={styles.label}>Monthly Maintenance (₹)</Text>
-          <TextInput style={styles.input} value={formData.maintenanceCharges} onChangeText={(t) => handleChange('maintenanceCharges', t)} placeholder="e.g. 5000" keyboardType="numeric" />
+          <TextInput
+            style={styles.input}
+            value={formData.maintenanceCharges}
+            onChangeText={(t) => handleChange('maintenanceCharges', t)}
+            placeholder="e.g. 5000"
+            placeholderTextColor="#94A3B8"
+            keyboardType="numeric"
+          />
           <Text style={styles.label}>Project Website URL</Text>
-          <TextInput style={styles.input} value={formData.websiteUrl} onChangeText={(t) => handleChange('websiteUrl', t)} placeholder="https://..." keyboardType="url" autoCapitalize="none" />
+          <TextInput
+            style={styles.input}
+            value={formData.websiteUrl}
+            onChangeText={(t) => handleChange('websiteUrl', t)}
+            placeholder="https://..."
+            placeholderTextColor="#94A3B8"
+            keyboardType="url"
+            autoCapitalize="none"
+          />
           <Text style={styles.label}>Virtual Tour URL</Text>
-          <TextInput style={styles.input} value={formData.virtualTourUrl} onChangeText={(t) => handleChange('virtualTourUrl', t)} placeholder="https://..." keyboardType="url" autoCapitalize="none" />
+          <TextInput
+            style={styles.input}
+            value={formData.virtualTourUrl}
+            onChangeText={(t) => handleChange('virtualTourUrl', t)}
+            placeholder="https://..."
+            placeholderTextColor="#94A3B8"
+            keyboardType="url"
+            autoCapitalize="none"
+          />
         </View>
 
-        {/* Highlights & Tags */}
         <View style={styles.cardSection}>
           <SectionTitle title="Highlights & Tags" />
           <Text style={styles.label}>Select Amenities</Text>
@@ -1188,7 +1317,7 @@ const PropertyCRUDScreen: React.FC = () => {
           />
         </View>
 
-        {/* Property Media */}
+        {/* ========== PROPERTY MEDIA – with delete for all images ========== */}
         <View style={[styles.cardSection, { marginBottom: 40 }]}>
           <SectionTitle title="Property Media" />
           <TouchableOpacity style={styles.uploadBtn} onPress={pickImages}>
@@ -1198,13 +1327,26 @@ const PropertyCRUDScreen: React.FC = () => {
           <View style={styles.galleryGrid}>
             {allImages.map((uri, index) => {
               const isNew = index >= existingImages.length;
+              const imageIndex = isNew ? index - existingImages.length : index;
               return (
                 <View key={`${uri}-${index}`} style={styles.galleryItem}>
                   <Image source={{ uri }} style={styles.galleryImage} />
-                  {isNew && (
-                    <TouchableOpacity style={styles.deleteBadge} onPress={() => removeNewImage(index - existingImages.length)}>
-                      <Ionicons name="close" size={16} color="#fff" />
-                    </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.deleteBadge}
+                    onPress={() => {
+                      if (isNew) {
+                        removeNewImage(imageIndex);
+                      } else {
+                        removeExistingImage(imageIndex);
+                      }
+                    }}
+                  >
+                    <Ionicons name="close" size={16} color="#fff" />
+                  </TouchableOpacity>
+                  {!isNew && (
+                    <View style={styles.existingBadge}>
+                      <Text style={styles.existingBadgeText}>Saved</Text>
+                    </View>
                   )}
                 </View>
               );
@@ -1212,18 +1354,22 @@ const PropertyCRUDScreen: React.FC = () => {
           </View>
           {existingImages.length > 0 && (
             <Text style={{ fontSize: 12, color: '#94A3B8', marginTop: 8 }}>
-              {existingImages.length} existing image(s) – new images will be added.
+              {existingImages.length} existing image(s) – tap ✕ to remove.
+            </Text>
+          )}
+          {newImages.length > 0 && (
+            <Text style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>
+              {newImages.length} new image(s) – will be uploaded.
             </Text>
           )}
         </View>
 
-        <View style={styles.stickyFooter}>
+        <View style={[styles.stickyFooter, { paddingBottom: insets.bottom + 20 }]}>
           <TouchableOpacity onPress={handleSubmit} style={styles.submitBtn} disabled={loading}>
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{editingId ? 'Update Property' : 'Publish Listing'}</Text>}
           </TouchableOpacity>
         </View>
 
-        {/* Address Modal (for GPS & Map) */}
         <AddressModal
           visible={showAddressModal}
           onClose={() => setShowAddressModal(false)}
@@ -1233,7 +1379,6 @@ const PropertyCRUDScreen: React.FC = () => {
           isLoading={isLocating}
         />
 
-        {/* 🔥 AddAddressScreen as a full-screen modal */}
         <Modal
           visible={showAddAddressModal}
           animationType="slide"
@@ -1264,21 +1409,32 @@ const PropertyCRUDScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.listHeader}>
+      <View style={[styles.listHeader, { paddingTop: insets.top + 20 }]}>
         <View>
           <Text style={styles.greetingText}>Vendor Dashboard</Text>
           <Text style={styles.mainTitle}>My Properties</Text>
         </View>
-        <TouchableOpacity onPress={() => setIsFormVisible(true)} style={styles.floatingAddBtn}>
-          <Ionicons name="add" size={28} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.bellButton}
+            onPress={() => Toast.show({ type: 'info', text1: 'Notifications', text2: 'Coming soon!' })}
+          >
+            <Ionicons name="notifications-outline" size={24} color="#0F172A" />
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>5</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setIsFormVisible(true)} style={styles.floatingAddBtn}>
+            <Ionicons name="add" size={28} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
         data={properties}
         keyExtractor={(item) => item._id}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 80 }]}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.3}
         ListFooterComponent={renderFooter}
@@ -1337,13 +1493,12 @@ const PropertyCRUDScreen: React.FC = () => {
 };
 
 // ================================================================
-// 5. Styles (green & white theme)
+// 5. Styles (green & white theme) – with bell & safe‑area
 // ================================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC' },
 
-  // ---- Dropdown ----
   dropdownButton: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
@@ -1388,7 +1543,6 @@ const styles = StyleSheet.create({
   dropdownOptionText: { fontSize: 16, color: '#475569', textAlign: 'center' },
   dropdownOptionTextActive: { color: '#1B8C40', fontWeight: '700' },
 
-  // ---- Pills ----
   pillContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1440,17 +1594,40 @@ const styles = StyleSheet.create({
     color: '#E53E3E',
   },
 
-  // ---- Header ----
   listHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
     paddingHorizontal: 20,
-    paddingTop: 60,
     paddingBottom: 20,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bellButton: {
+    marginRight: 16,
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    backgroundColor: '#E53E3E',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
   },
   greetingText: { fontSize: 14, color: '#64748B', fontWeight: '600', textTransform: 'uppercase' },
   mainTitle: { fontSize: 28, fontWeight: '800', color: '#0F172A', marginTop: 4 },
@@ -1468,8 +1645,7 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
 
-  // ---- Listing Card ----
-  listContent: { padding: 20, paddingBottom: 100 },
+  listContent: { padding: 20 },
   listingCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1524,18 +1700,15 @@ const styles = StyleSheet.create({
   editBtnText: { color: '#1B8C40', fontWeight: '700', marginLeft: 6 },
   deleteBtn: { backgroundColor: '#FEF2F2', flex: 0.3 },
 
-  // ---- Empty State ----
   emptyState: { alignItems: 'center', justifyContent: 'center', marginTop: 80 },
   emptyStateText: { fontSize: 18, fontWeight: '700', color: '#334155', marginTop: 16 },
   emptyStateSub: { fontSize: 14, color: '#94A3B8', marginTop: 8 },
 
-  // ---- Form ----
   formContainer: { flex: 1, backgroundColor: '#F8FAFC' },
   formHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 60,
     paddingBottom: 20,
     backgroundColor: '#fff',
   },
@@ -1592,7 +1765,6 @@ const styles = StyleSheet.create({
   switchThumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff' },
   switchThumbActive: { transform: [{ translateX: 22 }] },
 
-  // ---- Location Picker ----
   locationHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1639,7 +1811,6 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
 
-  // ---- Image Upload ----
   uploadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1654,7 +1825,13 @@ const styles = StyleSheet.create({
   },
   uploadBtnText: { color: '#1B8C40', fontWeight: '700', fontSize: 15, marginLeft: 10 },
   galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  galleryItem: { width: '30%', aspectRatio: 1, borderRadius: 12, backgroundColor: '#F1F5F9' },
+  galleryItem: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    position: 'relative',
+  },
   galleryImage: { width: '100%', height: '100%', borderRadius: 12 },
   deleteBadge: {
     position: 'absolute',
@@ -1668,11 +1845,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderColor: '#fff',
+    zIndex: 2,
+  },
+  existingBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    backgroundColor: 'rgba(27, 140, 64, 0.8)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  existingBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '600',
   },
   stickyFooter: {
     paddingHorizontal: 20,
     paddingVertical: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     backgroundColor: '#fff',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',

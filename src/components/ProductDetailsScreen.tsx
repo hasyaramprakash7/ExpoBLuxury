@@ -63,17 +63,20 @@ type ProductDetailRouteProp = RouteProp<RootStackParamList, "ProductDetails">;
 const Colors = {
   white: "#FFFFFF",
   textDark: "#000000",
-  textGray: "#A3A3A3",
-  textLightGray: "#E5E5E5",
+  textGray: "#888888",
+  textLightGray: "#CCCCCC",
   accentGreen: "#22C55E",
   redAlert: "#EF4444",
   saveYellow: "#FACC15",
   bgOverlay: "rgba(0,0,0,0.6)",
   goldPrimary: "#FFFFFF",
   royalGreen: "#1B8C40",
+  lightBackground: "#F5F5F5",
 };
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
+
+const CAROUSEL_HEIGHT = SCREEN_HEIGHT * 0.45; // 45% of screen height
 
 const FloatingProductDetailScreen = () => {
   const dispatch = useDispatch();
@@ -219,14 +222,11 @@ const FloatingProductDetailScreen = () => {
     const bulkMin = product.bulkMinimumUnits || Infinity;
     const largeQtyMin = product.largeQuantityMinimumUnits || Infinity;
     const hasBulkTier = !!(product.bulkPrice && product.bulkMinimumUnits);
-    const hasLargeQtyTier = !!(
-      product.largeQuantityPrice && product.largeQuantityMinimumUnits
-    );
+    const hasLargeQtyTier = !!(product.largeQuantityPrice && product.largeQuantityMinimumUnits);
 
     const defaultMax = Math.min(bulkMin - 1, largeQtyMin - 1);
     const unit = unitLabel;
 
-    // Default tier
     if (defaultMax >= 1 || (!hasBulkTier && !hasLargeQtyTier)) {
       const label =
         defaultMax === Infinity
@@ -238,11 +238,10 @@ const FloatingProductDetailScreen = () => {
         minQty: 1,
         maxQty: defaultMax,
         price: product.discountedPrice || product.price,
-        label: label,
+        label,
       });
     }
 
-    // Bulk tier
     if (hasBulkTier) {
       const bulkMax = largeQtyMin - 1;
       const label =
@@ -253,18 +252,17 @@ const FloatingProductDetailScreen = () => {
         minQty: product.bulkMinimumUnits!,
         maxQty: bulkMax,
         price: product.bulkPrice!,
-        label: label,
+        label,
       });
     }
 
-    // Large quantity tier
     if (hasLargeQtyTier) {
       const label = `≥ ${product.largeQuantityMinimumUnits} ${unit}`;
       tiers.push({
         minQty: product.largeQuantityMinimumUnits!,
         maxQty: Infinity,
         price: product.largeQuantityPrice!,
-        label: label,
+        label,
       });
     }
 
@@ -277,11 +275,7 @@ const FloatingProductDetailScreen = () => {
           currentNumericalQuantity >= tier.minQty &&
           (tier.maxQty === Infinity || currentNumericalQuantity <= tier.maxQty),
       }));
-  }, [
-    currentNumericalQuantity,
-    product,
-    unitLabel,
-  ]);
+  }, [currentNumericalQuantity, product, unitLabel]);
 
   useEffect(() => {
     let currentPrice = basePrice;
@@ -320,7 +314,6 @@ const FloatingProductDetailScreen = () => {
 
   // --- CART ACTIONS ---
   const handleCartAction = async (qtyToDispatch: number) => {
-    // Prevent adding to cart if stock is 0 (walk-in product)
     if (displayStock === 0) {
       return showToast("This is a walk-in product. Please visit the store.", "info");
     }
@@ -376,9 +369,7 @@ const FloatingProductDetailScreen = () => {
   };
 
   const handleQuantityBlur = async () => {
-    // Don't allow quantity changes for walk-in products
     if (displayStock === 0) return;
-    
     setIsEditingQty(false);
     let numericalQuantity = currentNumericalQuantity;
     if (numericalQuantity === 0 && (cartItem?.quantity || 0) > 0) {
@@ -398,7 +389,6 @@ const FloatingProductDetailScreen = () => {
   };
 
   const handleQuantityButtonClick = async (increment: boolean) => {
-    // Don't allow quantity changes for walk-in products
     if (displayStock === 0) {
       return showToast("This is a walk-in product. Please visit the store.", "info");
     }
@@ -418,7 +408,6 @@ const FloatingProductDetailScreen = () => {
   };
 
   const handleAddToCartClick = async () => {
-    // Prevent adding to cart for walk-in products
     if (displayStock === 0) {
       return showToast("This is a walk-in product. Please visit the store to purchase.", "info");
     }
@@ -435,7 +424,7 @@ const FloatingProductDetailScreen = () => {
 
   const isDisabled = isVendorOffline || isVendorOutOfRange;
   const isWalkIn = displayStock === 0;
-  
+
   const isAddToCartButtonDisabled =
     isDisabled ||
     isWalkIn ||
@@ -478,73 +467,73 @@ const FloatingProductDetailScreen = () => {
       </TouchableWithoutFeedback>
 
       <View style={styles.sheetContainer}>
-        {/* --- IMAGE CAROUSEL (No overlay for walk-in) --- */}
-        {images.length > 0 ? (
-          <>
-            <FlatList
-              ref={flatListRef}
-              data={images}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              renderItem={renderImageItem}
-              keyExtractor={(item, index) => index.toString()}
-              onScroll={onScroll}
-              scrollEventThrottle={16}
-              style={styles.carousel}
-            />
-            {/* Dot indicators */}
-            {images.length > 1 && (
-              <View style={styles.dotContainer}>
-                {images.map((_, idx) => (
-                  <View
-                    key={idx}
-                    style={[
-                      styles.dot,
-                      activeImageIndex === idx && styles.dotActive,
-                    ]}
-                  />
-                ))}
-              </View>
-            )}
-          </>
-        ) : (
-          <View style={[styles.carouselImage, styles.noImageBg]}>
-            <Ionicons name="image-outline" size={50} color={Colors.textGray} />
-          </View>
-        )}
+        {/* --- CAROUSEL SECTION (fixed height, swipeable) --- */}
+        <View style={styles.carouselWrapper}>
+          {images.length > 0 ? (
+            <>
+              <FlatList
+                ref={flatListRef}
+                data={images}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                renderItem={renderImageItem}
+                keyExtractor={(item, index) => index.toString()}
+                onScroll={onScroll}
+                scrollEventThrottle={16}
+                style={styles.carousel}
+              />
+              {images.length > 1 && (
+                <View style={styles.dotContainer}>
+                  {images.map((_, idx) => (
+                    <View
+                      key={idx}
+                      style={[
+                        styles.dot,
+                        activeImageIndex === idx && styles.dotActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+              )}
+            </>
+          ) : (
+            <View style={[styles.carouselImage, styles.noImageBg]} />
+          )}
 
-        {/* Gradient Overlay - Only for non-walk-in products or keep it subtle */}
-        <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.8)", "#000000"]}
-          locations={[0.2, 0.65, 1]}
-          style={StyleSheet.absoluteFillObject}
-          pointerEvents="none"
-        />
+          {/* Gradient Overlay (only over the carousel area) */}
+          <LinearGradient
+            colors={["transparent", "rgba(0,0,0,0.6)", "#000000"]}
+            locations={[0.2, 0.65, 1]}
+            style={StyleSheet.absoluteFillObject}
+            pointerEvents="none"
+          />
 
-        {/* Top Header Row */}
-        <View style={styles.topRow}>
-          <View>
-            {!!amountSaved && (
-              <View style={styles.saveBadge}>
-                <Text style={styles.saveBadgeText}>Save ₹{amountSaved}</Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.topRightControls}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={[styles.iconButton, { marginLeft: 10 }]}
-            >
-              <Ionicons name="close" size={22} color={Colors.white} />
-            </TouchableOpacity>
+          {/* Top Row (Save badge & Close button) */}
+          <View style={styles.topRow}>
+            <View>
+              {!!amountSaved && (
+                <View style={styles.saveBadge}>
+                  <Text style={styles.saveBadgeText}>Save ₹{amountSaved}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.topRightControls}>
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={[styles.iconButton, { marginLeft: 10 }]}
+              >
+                <Ionicons name="close" size={22} color={Colors.white} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        {/* Scrollable Content */}
+        {/* --- SCROLLABLE CONTENT (below carousel) --- */}
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           <View style={styles.mainInfoRow}>
             <View style={styles.leftInfoSide}>
@@ -576,15 +565,13 @@ const FloatingProductDetailScreen = () => {
                   )}
               </View>
 
-              {/* Walk-in Badge - Royal Green */}
               {isWalkIn && (
                 <View style={styles.walkInBadge}>
                   <Ionicons name="storefront-outline" size={16} color={Colors.royalGreen} />
-                  <Text style={styles.walkInBadgeText}>Available in-store only</Text>
+                  <Text style={styles.walkInBadgeText}>Available in‑store only</Text>
                 </View>
               )}
 
-              {/* --- SIZE PILLS --- */}
               {requiresSizeSelection && (
                 <ScrollView
                   horizontal
@@ -615,7 +602,6 @@ const FloatingProductDetailScreen = () => {
                 </ScrollView>
               )}
 
-              {/* Price Tiers - Hidden for walk-in products */}
               {!isWalkIn && priceTiers.length > 0 && (
                 <View style={styles.priceTiersContainer}>
                   {priceTiers.map((tier, index) => (
@@ -642,7 +628,6 @@ const FloatingProductDetailScreen = () => {
               )}
             </View>
 
-            {/* Right side: Add/Quantity controls */}
             <View style={styles.rightActionSide}>
               {isWalkIn ? (
                 <View style={[styles.controlBtnStyle, styles.walkInBtn]}>
@@ -772,16 +757,18 @@ const styles = StyleSheet.create({
   },
   sheetContainer: {
     height: SCREEN_HEIGHT * 0.75,
-    backgroundColor: "#111",
+    backgroundColor: "#FFFFFF", // White background
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: "hidden",
   },
-  // Carousel
+  // Carousel wrapper – fixed height at top
+  carouselWrapper: {
+    height: CAROUSEL_HEIGHT,
+    position: "relative",
+    backgroundColor: "#2C2C2E", // fallback if no image
+  },
   carousel: {
-    position: "absolute",
-    top: 0,
-    left: 0,
     width: "100%",
     height: "100%",
   },
@@ -791,13 +778,13 @@ const styles = StyleSheet.create({
     resizeMode: "cover",
   },
   noImageBg: {
-    backgroundColor: "#2C2C2E",
+    backgroundColor: "#E0E0E0",
     justifyContent: "center",
     alignItems: "center",
   },
   dotContainer: {
     position: "absolute",
-    bottom: 20,
+    bottom: 16,
     alignSelf: "center",
     flexDirection: "row",
     zIndex: 20,
@@ -810,14 +797,17 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   dotActive: {
-    backgroundColor: Colors.white,
+    backgroundColor: "#FFFFFF",
     width: 20,
   },
   topRow: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    right: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    padding: 16,
     zIndex: 10,
   },
   saveBadge: {
@@ -832,18 +822,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   iconButton: {
-    backgroundColor: "rgba(247, 247, 247, 0.2)",
+    backgroundColor: "rgba(0,0,0,0.3)",
     borderRadius: 20,
     width: 36,
     height: 36,
     justifyContent: "center",
     alignItems: "center",
   },
+  // Scrollable content area
   scrollContent: {
-    flexGrow: 1,
-    justifyContent: "flex-end",
     padding: 20,
     paddingBottom: 40,
+    backgroundColor: "#FFFFFF",
+    minHeight: 200,
   },
   mainInfoRow: {
     flexDirection: "row",
@@ -866,15 +857,15 @@ const styles = StyleSheet.create({
   productName: {
     fontSize: 22,
     fontWeight: "bold",
-    color: Colors.white,
+    color: Colors.textDark,
     flexShrink: 1,
   },
   typeIcon: {
     width: 14,
     height: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.7)",
-    backgroundColor: "rgba(0,0,0,0.3)",
+    borderColor: Colors.textGray,
+    backgroundColor: Colors.white,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 8,
@@ -900,14 +891,13 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.redAlert,
   },
   priceRow: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  priceText: { fontSize: 24, fontWeight: "900", color: Colors.white },
+  priceText: { fontSize: 24, fontWeight: "900", color: Colors.textDark },
   originalPriceText: {
     fontSize: 14,
     color: Colors.textGray,
     textDecorationLine: "line-through",
     marginLeft: 10,
   },
-  // Walk-in styles - Royal Green
   walkInBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -926,7 +916,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 6,
   },
-  // Size pills
   sizeScrollView: {
     marginVertical: 8,
   },
@@ -935,24 +924,23 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
+    borderColor: Colors.textGray,
     marginRight: 8,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: Colors.white,
   },
   sizePillActive: {
-    backgroundColor: Colors.white,
-    borderColor: Colors.white,
+    backgroundColor: Colors.textDark,
+    borderColor: Colors.textDark,
   },
   sizePillText: {
     fontSize: 13,
-    color: Colors.white,
+    color: Colors.textDark,
     fontWeight: "600",
   },
   sizePillTextActive: {
-    color: Colors.textDark,
+    color: Colors.white,
     fontWeight: "bold",
   },
-  // Price tiers
   priceTiersContainer: {
     marginTop: 4,
   },
@@ -964,8 +952,7 @@ const styles = StyleSheet.create({
   },
   priceTierLabel: { fontSize: 13, color: Colors.textGray },
   priceTierPrice: { fontSize: 13, color: Colors.textGray },
-  priceTierActiveText: { color: Colors.white, fontWeight: "bold" },
-  // Controls
+  priceTierActiveText: { color: Colors.textDark, fontWeight: "bold" },
   controlBtnStyle: {
     width: "100%",
     backgroundColor: Colors.goldPrimary,
@@ -973,14 +960,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.textDark,
   },
   controlBtnText: {
     color: Colors.textDark,
     fontWeight: "900",
     fontSize: 16,
   },
-  addBtnDisabled: { backgroundColor: "rgba(255,255,255,0.5)", elevation: 0 },
-  disabledBtnText: { color: Colors.textDark, fontWeight: "700", fontSize: 14 },
+  addBtnDisabled: { backgroundColor: "#E0E0E0", borderColor: "#CCCCCC" },
+  disabledBtnText: { color: Colors.textGray, fontWeight: "700", fontSize: 14 },
   floatingStackContainer: {
     width: "100%",
     alignItems: "flex-end",
@@ -988,14 +977,14 @@ const styles = StyleSheet.create({
   floatingAddedBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: Colors.goldPrimary,
+    backgroundColor: Colors.accentGreen,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     marginBottom: 6,
   },
   floatingAddedText: {
-    color: Colors.textDark,
+    color: Colors.white,
     fontSize: 10,
     fontWeight: "bold",
   },
@@ -1004,6 +993,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 6,
     paddingHorizontal: 8,
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.textDark,
   },
   qtyBtn: { padding: 4 },
   qtyInput: {
@@ -1028,7 +1020,7 @@ const styles = StyleSheet.create({
   },
   stockAlertText: {
     fontSize: 11,
-    color: Colors.white,
+    color: Colors.redAlert,
     fontWeight: "bold",
     marginTop: 6,
     textAlign: "right",
@@ -1036,14 +1028,12 @@ const styles = StyleSheet.create({
   },
   descriptionText: {
     fontSize: 14,
-    color: Colors.textLightGray,
+    color: Colors.textDark,
     lineHeight: 22,
     marginTop: 16,
   },
-  // Walk-in button styles
   walkInBtn: {
     backgroundColor: Colors.royalGreen,
-    borderWidth: 1,
     borderColor: Colors.royalGreen,
   },
   walkInBtnText: {

@@ -32,6 +32,9 @@ import NewProductCard from "../components/NewProductCard10";
 import { fetchVendorReviews, createReview, clearReviews } from "../features/reviewSlice";
 import { createViewLead, createCallLead, createWhatsAppLead } from "../features/leadSlice";
 import VendorHorizontalScroll from "../components/VendorHorizontalScroll";
+import * as FileSystem from 'expo-file-system/legacy';
+import Share from 'react-native-share';
+import { Share as RNShare } from 'react-native';
 
 const { width, height } = Dimensions.get("window");
 
@@ -61,7 +64,12 @@ const Colors = {
   starGray: "#D1D5DB",
   shadow: "rgba(0,0,0,0.08)",
   shadowDark: "rgba(0,0,0,0.12)",
+  whatsapp: "#25D366",
 };
+
+// Play Store link - replace with your actual app link
+const PLAY_STORE_LINK = 'https://play.google.com/store/apps/details?id=com.ram1234567890.BLuxury';
+const APP_STORE_LINK = 'https://apps.apple.com/app/bluxury/id123456789';
 
 // ✅ Helper to parse array fields (categories, tags, services)
 const parseArrayField = (field: any): string[] => {
@@ -555,6 +563,7 @@ const ShopDetails = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAllHours, setShowAllHours] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
 
   const vendorData = vendor;
   const isOpen = isShopCurrentlyOpen(vendorData?.operatingHours);
@@ -660,6 +669,224 @@ const ShopDetails = () => {
     }
   }, [dispatch, vendorData]);
 
+  // Get full address for sharing
+  const getFullAddress = useCallback(() => {
+    const addr = vendorData?.address;
+    if (!addr) return null;
+    const parts = [
+      addr.street,
+      addr.locality,
+      addr.city,
+      addr.district,
+      addr.state,
+      addr.pincode,
+      addr.country,
+    ].filter(Boolean);
+    return parts.join(", ");
+  }, [vendorData]);
+
+  // Get Google Maps link
+  const getGoogleMapsLink = useCallback(() => {
+    const { latitude, longitude } = vendorData?.address || {};
+    const fullAddress = getFullAddress();
+    
+    if (latitude && longitude) {
+      return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+    }
+    
+    if (fullAddress) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`;
+    }
+    
+    return '';
+  }, [vendorData, getFullAddress]);
+
+  // Download image to local cache for sharing
+  const downloadImageToLocal = async (imageUrl: string): Promise<string | null> => {
+    try {
+      const timestamp = Date.now();
+      const filePath = `${FileSystem.cacheDirectory}shop_${timestamp}.jpg`;
+      
+      const downloadResult = await FileSystem.downloadAsync(
+        imageUrl,
+        filePath
+      );
+      
+      if (downloadResult.status === 200) {
+        if (Platform.OS === 'android') {
+          return `file://${downloadResult.uri}`;
+        }
+        return downloadResult.uri;
+      }
+      return null;
+    } catch (error) {
+      console.log('Image download error:', error);
+      return null;
+    }
+  };
+
+  // Build share message with ALL shop details
+  const buildShareMessage = useCallback(() => {
+    if (!vendorData) return '';
+    
+    const fullAddress = getFullAddress();
+    const mapsLink = getGoogleMapsLink();
+    const appLink = Platform.OS === 'ios' ? APP_STORE_LINK : PLAY_STORE_LINK;
+    const categories = parsedCategories.length > 0 ? parsedCategories.join(', ') : 'N/A';
+    const tags = parsedTags.length > 0 ? parsedTags.join(', ') : 'N/A';
+    const services = parsedServices.length > 0 ? parsedServices.join(', ') : 'N/A';
+    
+    let message = `🏪 *${vendorData.shopName || 'Shop'}*\n\n`;
+    message += `📋 *Business Type:* ${vendorData.businessType || 'N/A'}\n`;
+    message += `📍 *Location:* ${fullAddress || 'N/A'}\n`;
+    
+    if (mapsLink) {
+      message += `🗺️ *View on Google Maps:* ${mapsLink}\n`;
+    }
+    
+    message += `📞 *Phone:* ${vendorData.phone || 'N/A'}\n`;
+    message += `📧 *Email:* ${vendorData.email || 'N/A'}\n`;
+    message += `🕐 *Status:* ${isOpen ? '✅ Open Now' : '❌ Closed'}\n`;
+    
+    if (vendorData.deliveryRange > 0) {
+      message += `🚚 *Delivery Range:* ${vendorData.deliveryRange} km\n`;
+    }
+    
+    if (categories && categories !== 'N/A') {
+      message += `📂 *Categories:* ${categories}\n`;
+    }
+    
+    if (services && services !== 'N/A') {
+      message += `🛠️ *Services:* ${services}\n`;
+    }
+    
+    if (tags && tags !== 'N/A') {
+      message += `🏷️ *Tags:* ${tags}\n`;
+    }
+    
+    // Operating Hours
+    if (hoursDisplay.length > 0) {
+      message += `\n🕒 *Operating Hours:*\n`;
+      hoursDisplay.forEach(hour => {
+        message += `  ${hour}\n`;
+      });
+    }
+    
+    // Rating
+    if (vendorData.averageRating) {
+      message += `\n⭐ *Rating:* ${vendorData.averageRating.toFixed(1)} (${vendorData.reviewCount || 0} reviews)\n`;
+    }
+    
+    message += `\n📱 *Download App:* ${appLink}`;
+    return message;
+  }, [vendorData, parsedCategories, parsedTags, parsedServices, hoursDisplay, isOpen, getFullAddress, getGoogleMapsLink]);
+
+  // Share to WhatsApp with image and full details
+  const handleShareWhatsApp = useCallback(async () => {
+    if (!vendorData) return;
+    
+    setIsSharing(true);
+    try {
+      const imageUrl = vendorData.shopImage;
+      const message = buildShareMessage();
+      
+      // Try to share with image
+      if (imageUrl) {
+        try {
+          const localFilePath = await downloadImageToLocal(imageUrl);
+          
+          if (localFilePath) {
+            const shareOptions = {
+              title: 'BLuxury Shop',
+              message: message,
+              url: localFilePath,
+              type: 'image/jpeg',
+              social: Share.Social.WHATSAPP,
+            };
+            
+            await Share.shareSingle(shareOptions);
+            setIsSharing(false);
+            return;
+          }
+        } catch (imageError) {
+          console.log('WhatsApp image share failed:', imageError);
+          // Fall through to text-only sharing
+        }
+      }
+      
+      // Fallback: Share text only via WhatsApp URL
+      const phone = vendorData.phone || '';
+      const waUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
+      
+      const canOpen = await Linking.canOpenURL(waUrl);
+      if (canOpen) {
+        await Linking.openURL(waUrl);
+      } else {
+        // If WhatsApp is not installed, try to share via react-native-share without image
+        await Share.open({
+          title: 'BLuxury Shop',
+          message: message,
+        });
+      }
+      
+    } catch (error) {
+      console.error('WhatsApp share error:', error);
+      if (error instanceof Error && error.message !== 'User cancelled') {
+        Alert.alert('Share Error', 'Could not share to WhatsApp. Please try again.');
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  }, [vendorData, buildShareMessage]);
+
+  // General share function
+  const handleShare = useCallback(async () => {
+    if (!vendorData) return;
+    
+    setIsSharing(true);
+    try {
+      const imageUrl = vendorData.shopImage;
+      const message = buildShareMessage();
+      
+      // Try to share with image
+      if (imageUrl) {
+        try {
+          const localFilePath = await downloadImageToLocal(imageUrl);
+          
+          if (localFilePath) {
+            const shareOptions = {
+              title: 'BLuxury Shop',
+              message: message,
+              url: localFilePath,
+              type: 'image/jpeg',
+            };
+            
+            await Share.open(shareOptions);
+            setIsSharing(false);
+            return;
+          }
+        } catch (imageError) {
+          console.log('Image sharing failed:', imageError);
+          // Fall through to text-only sharing
+        }
+      }
+      
+      // Fallback: share text only
+      await RNShare.share({
+        message: message,
+        title: 'BLuxury Shop',
+      });
+      
+    } catch (error) {
+      console.error('Share error:', error);
+      if (error instanceof Error && error.message !== 'User cancelled') {
+        Alert.alert('Share Error', 'Could not share shop. Please try again.');
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  }, [vendorData, buildShareMessage]);
+
   // Handle Call
   const handleCall = useCallback(() => {
     if (vendorData?._id && user?._id) {
@@ -720,22 +947,7 @@ const ShopDetails = () => {
         Alert.alert("Error", "No address available for this shop.");
       }
     }
-  }, [vendorData]);
-
-  const getFullAddress = () => {
-    const addr = vendorData?.address;
-    if (!addr) return null;
-    const parts = [
-      addr.street,
-      addr.locality,
-      addr.city,
-      addr.district,
-      addr.state,
-      addr.pincode,
-      addr.country,
-    ].filter(Boolean);
-    return parts.join(", ");
-  };
+  }, [vendorData, getFullAddress]);
 
   const fullAddress = getFullAddress();
 
@@ -794,7 +1006,7 @@ const ShopDetails = () => {
           />
         }
       >
-        {/* Header Image – no placeholder; show fallback color */}
+        {/* Header Image */}
         <View style={styles.imageContainer}>
           {vendorData?.shopImage ? (
             <Image
@@ -818,7 +1030,20 @@ const ShopDetails = () => {
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={scale(24)} color="#FFFFFF" />
+            <Ionicons name="chevron-back" size={scale(26)} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          {/* Share Button - Same as PropertyDetailScreen */}
+          <TouchableOpacity
+            style={styles.shareBtn}
+            onPress={handleShare}
+            disabled={isSharing}
+          >
+            {isSharing ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="share-outline" size={scale(22)} color="#FFFFFF" />
+            )}
           </TouchableOpacity>
         </View>
 
@@ -1009,6 +1234,26 @@ const ShopDetails = () => {
             </View>
           )}
 
+          {/* Share Buttons Row - Same as PropertyDetailScreen */}
+          <View style={styles.shareRow}>
+            <TouchableOpacity 
+              style={[styles.shareActionBtn, styles.shareBtnStyle]} 
+              onPress={handleShare}
+              disabled={isSharing}
+            >
+              <Ionicons name="share-social-outline" size={moderateScale(20)} color={Colors.white} />
+              <Text style={styles.shareActionText}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.shareActionBtn, styles.whatsappShareBtn]} 
+              onPress={handleShareWhatsApp}
+              disabled={isSharing}
+            >
+              <Ionicons name="logo-whatsapp" size={moderateScale(20)} color={Colors.white} />
+              <Text style={styles.shareActionText}>WhatsApp</Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.divider} />
 
           {/* Reviews Section */}
@@ -1029,7 +1274,6 @@ const ShopDetails = () => {
               <Text style={styles.writeReviewText}>Write Review</Text>
             </TouchableOpacity>
           </View>
-
           {reviewsLoading ? (
             <View style={styles.loadingReviews}>
               <ActivityIndicator size="small" color={Colors.accentGreen} />
@@ -1103,7 +1347,7 @@ const ShopDetails = () => {
               data={filteredProducts}
               renderItem={renderProductItem}
               keyExtractor={(item) => item._id || item.id || Math.random().toString()}
-              scrollEnabled={false}  // disable internal scrolling because parent ScrollView handles it
+              scrollEnabled={false}
               contentContainerStyle={styles.verticalProductList}
             />
           )}
@@ -1117,9 +1361,32 @@ const ShopDetails = () => {
               vendorId={vendorData._id}
               vendorName={vendorData.shopName}
               isVendorOffline={!vendorData.isOnline}
-              horizontal={false}  // <-- request vertical layout (must be supported by the component)
+              horizontal={false}
             />
           </View>
+
+          {/* App Download Section */}
+          {/* <View style={styles.appDownloadSection}>
+            <Text style={styles.appDownloadText}>
+              📱 Download the BLuxury App
+            </Text>
+            <View style={styles.appLinksContainer}>
+              <TouchableOpacity 
+                style={[styles.appLinkBtn, styles.playStoreBtn]}
+                onPress={() => Linking.openURL(PLAY_STORE_LINK)}
+              >
+                <Ionicons name="logo-google-playstore" size={moderateScale(20)} color={Colors.white} />
+                <Text style={styles.appLinkText}>Play Store</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.appLinkBtn, styles.appStoreBtn]}
+                onPress={() => Linking.openURL(APP_STORE_LINK)}
+              >
+                <Ionicons name="logo-apple" size={moderateScale(20)} color={Colors.white} />
+                <Text style={styles.appLinkText}>App Store</Text>
+              </TouchableOpacity>
+            </View>
+          </View> */}
 
         </View>
         <View style={styles.bottomSpacer} />
@@ -1188,9 +1455,27 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === 'ios' ? verticalScale(50) : verticalScale(40),
     left: scale(16),
-    backgroundColor: "transparent",
-    padding: scale(10),
-    borderRadius: moderateScale(24),
+    backgroundColor: "rgba(11, 16, 33, 0.5)",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  shareBtn: {
+    position: "absolute",
+    top: Platform.OS === 'ios' ? verticalScale(50) : verticalScale(40),
+    right: scale(16),
+    backgroundColor: "rgba(11, 16, 33, 0.5)",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
   },
   infoContainer: {
     padding: moderateScale(20),
@@ -1441,6 +1726,31 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: moderateScale(14),
   },
+  shareRow: {
+    flexDirection: "row",
+    marginTop: verticalScale(24),
+    gap: scale(10),
+  },
+  shareActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: verticalScale(14),
+    borderRadius: moderateScale(12),
+    gap: scale(6),
+  },
+  shareBtnStyle: {
+    backgroundColor: Colors.accentGreen,
+  },
+  whatsappShareBtn: {
+    backgroundColor: "#25D366",
+  },
+  shareActionText: {
+    color: Colors.white,
+    fontWeight: "600",
+    fontSize: moderateScale(15),
+  },
   divider: {
     height: 1,
     backgroundColor: Colors.border,
@@ -1580,7 +1890,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
   },
-  // Vertical product list styles
   verticalProductList: {
     paddingBottom: verticalScale(8),
   },
@@ -1590,6 +1899,45 @@ const styles = StyleSheet.create({
   },
   horizontalScrollSection: {
     marginTop: verticalScale(4),
+  },
+  appDownloadSection: {
+    marginTop: verticalScale(24),
+    padding: moderateScale(16),
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  appDownloadText: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: verticalScale(12),
+  },
+  appLinksContainer: {
+    flexDirection: 'row',
+    gap: scale(12),
+  },
+  appLinkBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(10),
+    gap: scale(6),
+  },
+  playStoreBtn: {
+    backgroundColor: '#3DDC84',
+  },
+  appStoreBtn: {
+    backgroundColor: '#000000',
+  },
+  appLinkText: {
+    color: Colors.white,
+    fontWeight: '600',
+    fontSize: moderateScale(14),
   },
   bottomSpacer: {
     height: verticalScale(40),

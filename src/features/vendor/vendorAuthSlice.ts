@@ -6,8 +6,6 @@ import api from "../../userScreens/utils/api";
 import * as SecureStore from 'expo-secure-store';
 import { registerForPushNotificationsAsync } from '../../userScreens/utils/NotificationHelper';
 
-// ❌ REMOVED: import { logoutUser } from '../user/authSlice'; // NOT NEEDED
-
 const getVendorToken = () => AsyncStorage.getItem("vendorToken");
 
 export interface VendorWithSubscription extends Vendor {
@@ -36,8 +34,6 @@ interface AuthState {
   trialEndDate: string | null;
 }
 
-// src/features/vendor/vendorAuthSlice.ts - FIXED
-
 export const loginVendor = createAsyncThunk<
   { vendor: Vendor; token: string },
   { identifier: string; password: string },
@@ -47,18 +43,15 @@ export const loginVendor = createAsyncThunk<
   async ({ identifier, password }, { rejectWithValue }) => {
     console.log('🔐 [loginVendor] Logging in with:', identifier);
     try {
-      // ✅ Step 1: Login WITHOUT pushToken
       const res = await api.post(`/vendors/login`, { identifier, password });
       console.log('✅ [loginVendor] Response:', res.data);
 
       const vendor = res.data.vendor;
       const token = res.data.token;
 
-      // ✅ Step 2: Store token
       await AsyncStorage.setItem("vendorToken", token);
       await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
 
-      // ✅ Step 3: Register push token WITH vendor ID
       if (vendor._id) {
         console.log(`📱 [loginVendor] Registering push token for vendor: ${vendor._id}`);
         await registerForPushNotificationsAsync(vendor._id);
@@ -82,18 +75,15 @@ export const loginVendorWithOtp = createAsyncThunk<
   async ({ phone, otp }, { rejectWithValue }) => {
     console.log('🔐 [loginVendorWithOtp] Logging in with phone:', phone);
     try {
-      // ✅ Step 1: Login WITHOUT pushToken
       const res = await api.post(`/vendors/login-with-otp`, { phone, otp });
       console.log('✅ [loginVendorWithOtp] Response:', res.data);
 
       const vendor = res.data.vendor;
       const token = res.data.token;
 
-      // ✅ Step 2: Store token
       await AsyncStorage.setItem("vendorToken", token);
       await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
 
-      // ✅ Step 3: Register push token WITH vendor ID
       if (vendor._id) {
         console.log(`📱 [loginVendorWithOtp] Registering push token for vendor: ${vendor._id}`);
         await registerForPushNotificationsAsync(vendor._id);
@@ -108,7 +98,6 @@ export const loginVendorWithOtp = createAsyncThunk<
   }
 );
 
-// ✅ Also fix register functions
 export const registerVendor = createAsyncThunk<
   { vendor: Vendor; token: string },
   FormData,
@@ -118,7 +107,6 @@ export const registerVendor = createAsyncThunk<
   async (formData: FormData, { rejectWithValue }) => {
     console.log('📝 [registerVendor] Starting registration...');
     try {
-      // ✅ Don't get push token yet - we don't have vendor ID
       const res = await api.post(`/vendors/register`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -130,7 +118,6 @@ export const registerVendor = createAsyncThunk<
       await AsyncStorage.setItem("vendorToken", token);
       await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
 
-      // ✅ Register push token WITH vendor ID
       if (vendor._id) {
         console.log(`📱 [registerVendor] Registering push token for vendor: ${vendor._id}`);
         await registerForPushNotificationsAsync(vendor._id);
@@ -154,7 +141,6 @@ export const registerVendorWithOtp = createAsyncThunk<
   async (formData: FormData, { rejectWithValue }) => {
     console.log('📝 [registerVendorWithOtp] Starting OTP registration...');
     try {
-      // ✅ Don't get push token yet - we don't have vendor ID
       const res = await api.post(`/vendors/register-with-otp`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -166,7 +152,6 @@ export const registerVendorWithOtp = createAsyncThunk<
       await AsyncStorage.setItem("vendorToken", token);
       await AsyncStorage.setItem("vendor", JSON.stringify(vendor));
 
-      // ✅ Register push token WITH vendor ID
       if (vendor._id) {
         console.log(`📱 [registerVendorWithOtp] Registering push token for vendor: ${vendor._id}`);
         await registerForPushNotificationsAsync(vendor._id);
@@ -181,7 +166,6 @@ export const registerVendorWithOtp = createAsyncThunk<
   }
 );
 
-// ✅ fetchVendorProfile is already correct - keep as is
 export const fetchVendorProfile = createAsyncThunk<
   { vendor: Vendor; token: string },
   void,
@@ -204,7 +188,6 @@ export const fetchVendorProfile = createAsyncThunk<
 
       const vendor = res.data.vendor;
 
-      // ✅ Register push token with vendor ID
       if (vendor._id) {
         console.log(`📱 [fetchVendorProfile] Registering push token for vendor: ${vendor._id}`);
         await registerForPushNotificationsAsync(vendor._id);
@@ -341,9 +324,6 @@ export const fetchVendorConversations = createAsyncThunk<
   }
 );
 
-// =====================================================================
-// 🔥 UPDATED logoutVendor – clears vendor only, keeps user token
-// =====================================================================
 export const logoutVendor = createAsyncThunk(
   "vendorAuth/logoutVendor",
   async (_, { dispatch, rejectWithValue }) => {
@@ -354,22 +334,13 @@ export const logoutVendor = createAsyncThunk(
     } catch (error) {
       console.error("Logout cleanup error", error);
     } finally {
-      // Clear ONLY vendor data
       await AsyncStorage.removeItem("vendorToken");
       await AsyncStorage.removeItem("vendor");
       await SecureStore.deleteItemAsync("deliveryBoyToken");
-      // ✅ DO NOT REMOVE USER TOKEN
-      // await AsyncStorage.removeItem("token"); // ❌ REMOVED
-      // ❌ DO NOT LOG OUT USER
-      // dispatch(logoutUser()); // ❌ REMOVED
     }
     return true;
   }
 );
-
-// =====================================================================
-// SUBSCRIPTION THUNKS (unchanged)
-// =====================================================================
 
 export const fetchSubscriptionStatus = createAsyncThunk<
   {
@@ -537,9 +508,10 @@ export const fetchVendorStats = createAsyncThunk<
   }
 );
 
+// ✅ FIXED: Added 'radius' parameter
 export const searchDirectoryVendors = createAsyncThunk<
   Vendor[],
-  { lat?: number; lng?: number; q?: string; category?: string; minRating?: number; premium?: boolean; page?: number; limit?: number },
+  { lat?: number; lng?: number; q?: string; category?: string; minRating?: number; premium?: boolean; page?: number; limit?: number; radius?: number },
   { rejectValue: string }
 >(
   "vendorAuth/searchDirectoryVendors",
@@ -555,6 +527,7 @@ export const searchDirectoryVendors = createAsyncThunk<
       if (params.premium) query.append('premium', 'true');
       if (params.page) query.append('page', String(params.page));
       if (params.limit) query.append('limit', String(params.limit));
+      if (params.radius) query.append('radius', String(params.radius)); // ✅ ADDED
 
       const res = await api.get(`/vendors/directory?${query.toString()}`);
       const vendors = res.data.data || [];
@@ -566,10 +539,6 @@ export const searchDirectoryVendors = createAsyncThunk<
     }
   }
 );
-
-// =====================================================================
-// INITIAL STATE
-// =====================================================================
 
 const initialState: AuthState = {
   vendor: null,
@@ -584,10 +553,6 @@ const initialState: AuthState = {
   subscriptionStatus: null,
   trialEndDate: null,
 };
-
-// =====================================================================
-// SLICE
-// =====================================================================
 
 const vendorAuthSlice = createSlice({
   name: "vendorAuth",
@@ -762,7 +727,6 @@ const vendorAuthSlice = createSlice({
         state.error = action.payload ?? "Failed to fetch conversations";
         state.conversations = [];
       })
-      // 🔥 logoutVendor – clears vendor state only
       .addCase(logoutVendor.fulfilled, (state) => {
         state.vendor = null;
         state.token = null;

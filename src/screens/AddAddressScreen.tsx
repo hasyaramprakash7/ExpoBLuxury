@@ -1,5 +1,5 @@
 // AddAddressScreen.tsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,11 +11,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  TouchableWithoutFeedback,
   FlatList,
-  Modal,
 } from 'react-native';
-import MapView, { Region } from 'react-native-maps';
+import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
@@ -37,6 +35,13 @@ const Colors = {
 
 type AddressType = 'Home' | 'Work' | 'Other';
 
+interface Region {
+  latitude: number;
+  longitude: number;
+  latitudeDelta?: number;
+  longitudeDelta?: number;
+}
+
 interface AddAddressScreenProps {
   onClose: () => void;
   onSave?: () => void;
@@ -50,13 +55,15 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
 }) => {
   const navigation = useNavigation();
   const dispatch = useDispatch<AppDispatch>();
-  const insets = useSafeAreaInsets();
-  const mapRef = useRef<MapView>(null);
+  const insets = useSafeAreaInsets(); // <-- for top/bottom safe areas
+
+  const webViewRef = useRef<WebView>(null);
   const searchTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const { token } = useSelector((state: RootState) => state.auth);
   const { addressActionLoading } = useSelector((state: RootState) => state.location);
 
+  const [initialCoords, setInitialCoords] = useState<{lat: number, lng: number} | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
   const [fetchedAddress, setFetchedAddress] = useState<string>('Locating...');
   const [detailedAddress, setDetailedAddress] = useState<string>('');
@@ -86,8 +93,6 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
   const defaultLocation = {
     latitude: 17.6868,
     longitude: 83.2185,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
   };
 
   useEffect(() => {
@@ -96,37 +101,41 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
 
   const getCurrentLocation = async () => {
     setIsLocating(true);
-    setFetchedAddress('Locating your position...');
+    setFetchedAddress('Locating your exact position...');
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission Denied', 'We need location access to pin your address.');
-        setRegion(defaultLocation);
-        setIsLocating(false);
+        handleLocationFound(defaultLocation.latitude, defaultLocation.longitude);
         return;
       }
-      let location = await Location.getLastKnownPositionAsync();
-      if (!location) {
-        location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      if (location && location.coords) {
+        handleLocationFound(location.coords.latitude, location.coords.longitude);
+      } else {
+        handleLocationFound(defaultLocation.latitude, defaultLocation.longitude);
       }
-      const newRegion = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      };
-      setRegion(newRegion);
-      mapRef.current?.animateToRegion(newRegion, 1000);
-      fetchAddressFromCoords(newRegion.latitude, newRegion.longitude);
     } catch (error) {
-      console.warn('Error getting location:', error);
-      setRegion(defaultLocation);
-      setFetchedAddress('Could not determine location');
-    } finally {
-      setIsLocating(false);
+      console.warn('Error getting live location:', error);
+      handleLocationFound(defaultLocation.latitude, defaultLocation.longitude);
+      setFetchedAddress('Could not determine current location');
     }
+  };
+
+  const handleLocationFound = (lat: number, lng: number) => {
+    if (!initialCoords) {
+      setInitialCoords({ lat, lng });
+    } else {
+      webViewRef.current?.injectJavaScript(`window.updateMapCenter(${lat}, ${lng}); true;`);
+    }
+    
+    setRegion({ latitude: lat, longitude: lng });
+    fetchAddressFromCoords(lat, lng);
+    setIsLocating(false);
   };
 
   const fetchAddressFromCoords = async (latitude: number, longitude: number) => {
@@ -163,16 +172,8 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
       } else {
         setFetchedAddress('Unknown Location');
         setAddressDetails({
-          city: '',
-          state: '',
-          pincode: '',
-          locality: '',
-          street: '',
-          country: 'India',
-          colony: '',
-          suburb: '',
-          neighbourhood: '',
-          district: '',
+          city: '', state: '', pincode: '', locality: '', street: '',
+          country: 'India', colony: '', suburb: '', neighbourhood: '', district: '',
         });
       }
     } catch (error) {
@@ -205,7 +206,6 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
         );
         const data = await response.json();
         
-        // Sort results by relevance
         const results = data.sort((a: any, b: any) => {
           const getPriority = (item: any) => {
             const cls = item.class || '';
@@ -231,16 +231,8 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
     const lat = parseFloat(item.lat);
     const lon = parseFloat(item.lon);
     
-    const newRegion = {
-      latitude: lat,
-      longitude: lon,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    };
-    
-    setRegion(newRegion);
-    mapRef.current?.animateToRegion(newRegion, 1000);
-    fetchAddressFromCoords(lat, lon);
+    Keyboard.dismiss();
+    handleLocationFound(lat, lon);
     
     setSearchQuery('');
     setSearchResults([]);
@@ -248,14 +240,36 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
     setIsSearching(false);
   }, []);
 
-  const handleRegionChangeComplete = (newRegion: Region) => {
-    setIsMapMoving(false);
-    setRegion(newRegion);
-    fetchAddressFromCoords(newRegion.latitude, newRegion.longitude);
-    // Clear search results when map is moved
-    setSearchResults([]);
-    setShowSearchResults(false);
-    setSearchQuery('');
+  const handleMapMessage = (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'movestart') {
+        setIsMapMoving(true);
+        Keyboard.dismiss();
+      } else if (data.type === 'moveend') {
+        const lat = parseFloat(data.lat);
+        const lng = parseFloat(data.lng);
+
+        if (
+          !isNaN(lat) &&
+          !isNaN(lng) &&
+          lat >= -90 &&
+          lat <= 90 &&
+          lng >= -180 &&
+          lng <= 180
+        ) {
+          setIsMapMoving(false);
+          setRegion({ latitude: lat, longitude: lng });
+          fetchAddressFromCoords(lat, lng);
+          
+          setSearchResults([]);
+          setShowSearchResults(false);
+          setSearchQuery('');
+        }
+      }
+    } catch (error) {
+      console.warn("WebView Message Parsing Error:", error);
+    }
   };
 
   const handleSaveAddress = () => {
@@ -307,189 +321,241 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
     else navigation.goBack();
   };
 
+  const generateMapHtml = useMemo(() => {
+    if (!initialCoords) return '';
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+          body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: ${Colors.lightGray}; }
+          #map { width: 100%; height: 100%; }
+          .leaflet-control-attribution { display: none; }
+        </style>
+      </head>
+      <body>
+        <div id="map"></div>
+        <script>
+          var map = L.map('map', { 
+            zoomControl: false,
+            attributionControl: false 
+          }).setView([${initialCoords.lat}, ${initialCoords.lng}], 17);
+          
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19
+          }).addTo(map);
+
+          map.on('movestart', function() {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'movestart' }));
+          });
+
+          map.on('moveend', function() {
+            var center = map.getCenter();
+            window.ReactNativeWebView.postMessage(JSON.stringify({ 
+              type: 'moveend', 
+              lat: center.lat, 
+              lng: center.lng 
+            }));
+          });
+
+          window.updateMapCenter = function(lat, lng) {
+            map.setView([lat, lng], 17, { animate: true });
+          };
+        </script>
+      </body>
+      </html>
+    `;
+  }, [initialCoords]);
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.container}>
-          <View style={styles.mapContainer}>
-            {region ? (
-              <MapView
-                ref={mapRef}
-                style={styles.map}
-                initialRegion={region}
-                showsUserLocation={true}
-                showsMyLocationButton={false}
-                onRegionChange={() => setIsMapMoving(true)}
-                onRegionChangeComplete={handleRegionChangeComplete}
+      <View style={styles.container}>
+        <View style={styles.mapContainer}>
+          {initialCoords ? (
+            <WebView
+              ref={webViewRef}
+              style={styles.map}
+              source={{ html: generateMapHtml }}
+              onMessage={handleMapMessage}
+              scrollEnabled={false}
+              bounces={false}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : (
+            <View style={styles.mapLoading}>
+              <ActivityIndicator size="large" color={Colors.darkGreen} />
+              <Text style={styles.mapLoadingText}>Finding your current location...</Text>
+            </View>
+          )}
+
+          {/* Fixed Center Marker overlay */}
+          <View style={styles.centerMarkerContainer} pointerEvents="none">
+            <View
+              style={[
+                styles.markerBubble,
+                isMapMoving && styles.markerBubbleMoving,
+              ]}
+            >
+              <Text style={styles.markerText}>
+                {isMapMoving ? 'Move map to adjust' : 'Location selected here'}
+              </Text>
+            </View>
+            <Ionicons
+              name="location"
+              size={42}
+              color={Colors.darkText}
+              style={[styles.markerIcon, isMapMoving && styles.markerIconMoving]}
+            />
+            <View style={styles.markerShadow} />
+          </View>
+
+          {/* Search Bar Overlay – with safe‑area top */}
+          <View style={[styles.searchContainer, { top: Math.max(insets.top, 20) }]}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={20} color={Colors.grayText} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search locality, city, pincode..."
+                placeholderTextColor={Colors.grayText}
+                value={searchQuery}
+                onChangeText={searchLocations}
+                onFocus={() => {
+                  if (searchQuery.length > 0) {
+                    setShowSearchResults(true);
+                  }
+                }}
               />
-            ) : (
-              <View style={styles.mapLoading}>
-                <ActivityIndicator size="large" color={Colors.darkGreen} />
-                <Text style={styles.mapLoadingText}>Finding your location...</Text>
+              {isSearching && <ActivityIndicator size="small" color={Colors.darkGreen} />}
+              {searchQuery.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setSearchQuery('');
+                    setSearchResults([]);
+                    setShowSearchResults(false);
+                    Keyboard.dismiss();
+                  }}
+                >
+                  <Ionicons name="close-circle" size={20} color={Colors.grayText} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Search Results Dropdown */}
+            {showSearchResults && searchResults.length > 0 && (
+              <View style={styles.searchResultsContainer}>
+                <FlatList
+                  data={searchResults}
+                  keyExtractor={(item, index) => `${item.place_id || index}`}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.searchResultItem}
+                      onPress={() => selectSearchResult(item)}
+                    >
+                      <Ionicons name="location-outline" size={18} color={Colors.darkGreen} />
+                      <View style={styles.searchResultTextContainer}>
+                        <Text style={styles.searchResultText} numberOfLines={2}>
+                          {item.display_name}
+                        </Text>
+                        <Text style={styles.searchResultType}>
+                          {item.type || item.class || 'Location'}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={Colors.grayText} />
+                    </TouchableOpacity>
+                  )}
+                  keyboardShouldPersistTaps="always"
+                  style={styles.searchResultsList}
+                />
               </View>
             )}
-
-            <View style={styles.centerMarkerContainer} pointerEvents="none">
-              <View
-                style={[
-                  styles.markerBubble,
-                  isMapMoving && styles.markerBubbleMoving,
-                ]}
-              >
-                <Text style={styles.markerText}>
-                  {isMapMoving ? 'Move map to adjust' : 'Location selected here'}
-                </Text>
-              </View>
-              <Ionicons
-                name="location"
-                size={42}
-                color={Colors.darkText}
-                style={[styles.markerIcon, isMapMoving && styles.markerIconMoving]}
-              />
-              <View style={styles.markerShadow} />
-            </View>
-
-            {/* Search Bar Overlay */}
-            <View style={[styles.searchContainer, { top: Math.max(insets.top, 20) }]}>
-              <View style={styles.searchBar}>
-                <Ionicons name="search" size={20} color={Colors.grayText} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search locality, city, pincode..."
-                  placeholderTextColor={Colors.grayText}
-                  value={searchQuery}
-                  onChangeText={searchLocations}
-                  onFocus={() => {
-                    if (searchQuery.length > 0) {
-                      setShowSearchResults(true);
-                    }
-                  }}
-                />
-                {isSearching && <ActivityIndicator size="small" color={Colors.darkGreen} />}
-                {searchQuery.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      setSearchQuery('');
-                      setSearchResults([]);
-                      setShowSearchResults(false);
-                    }}
-                  >
-                    <Ionicons name="close-circle" size={20} color={Colors.grayText} />
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Search Results Dropdown */}
-              {showSearchResults && searchResults.length > 0 && (
-                <View style={styles.searchResultsContainer}>
-                  <FlatList
-                    data={searchResults}
-                    keyExtractor={(item, index) => `${item.place_id || index}`}
-                    renderItem={({ item }) => (
-                      <TouchableOpacity
-                        style={styles.searchResultItem}
-                        onPress={() => selectSearchResult(item)}
-                      >
-                        <Ionicons name="location-outline" size={18} color={Colors.darkGreen} />
-                        <View style={styles.searchResultTextContainer}>
-                          <Text style={styles.searchResultText} numberOfLines={2}>
-                            {item.display_name}
-                          </Text>
-                          <Text style={styles.searchResultType}>
-                            {item.type || item.class || 'Location'}
-                          </Text>
-                        </View>
-                        <Ionicons name="chevron-forward" size={16} color={Colors.grayText} />
-                      </TouchableOpacity>
-                    )}
-                    keyboardShouldPersistTaps="always"
-                    style={styles.searchResultsList}
-                  />
-                </View>
-              )}
-            </View>
-
-            <TouchableOpacity
-              style={[styles.closeButton, { top: Math.max(insets.top, 20) }]}
-              onPress={handleClose}
-            >
-              <Ionicons name={onClose ? 'close' : 'arrow-back'} size={24} color={Colors.darkText} />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.myLocationButton} onPress={getCurrentLocation}>
-              <Ionicons name="locate" size={24} color={Colors.darkGreen} />
-            </TouchableOpacity>
           </View>
 
-          <View style={styles.bottomSheet}>
-            <View style={styles.locationHeader}>
-              <View style={styles.locationIconContainer}>
-                <Ionicons name="location" size={24} color={Colors.darkGreen} />
-              </View>
-              <View style={styles.locationTextContainer}>
-                <Text style={styles.locationTitle}>Delivery Location</Text>
-                <Text style={styles.locationSubtitle} numberOfLines={2}>
-                  {isLocating ? 'Fetching address...' : fetchedAddress}
-                </Text>
-              </View>
-            </View>
+          {/* Close Button – safe‑area top */}
+          <TouchableOpacity
+            style={[styles.closeButton, { top: Math.max(insets.top, 20) }]}
+            onPress={handleClose}
+          >
+            <Ionicons name={onClose ? 'close' : 'arrow-back'} size={24} color={Colors.darkText} />
+          </TouchableOpacity>
 
-            <View style={styles.divider} />
-
-            <TextInput
-              style={styles.input}
-              placeholder="House / Flat / Block No."
-              placeholderTextColor={Colors.grayText}
-              value={detailedAddress}
-              onChangeText={setDetailedAddress}
-            />
-
-            <Text style={styles.saveAsLabel}>Save as</Text>
-            <View style={styles.typeContainer}>
-              {(['Home', 'Work', 'Other'] as AddressType[]).map((type) => {
-                const isSelected = selectedType === type;
-                let iconName = 'location-outline';
-                if (type === 'Home') iconName = 'home-outline';
-                if (type === 'Work') iconName = 'briefcase-outline';
-
-                return (
-                  <TouchableOpacity
-                    key={type}
-                    style={[styles.typeChip, isSelected && styles.typeChipSelected]}
-                    onPress={() => setSelectedType(type)}
-                  >
-                    <Ionicons
-                      name={iconName as any}
-                      size={16}
-                      color={isSelected ? Colors.darkGreen : Colors.darkText}
-                    />
-                    <Text
-                      style={[styles.typeChipText, isSelected && styles.typeChipTextSelected]}
-                    >
-                      {type}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <TouchableOpacity
-              style={styles.saveButton}
-              onPress={handleSaveAddress}
-              disabled={addressActionLoading}
-            >
-              {addressActionLoading ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
-                <Text style={styles.saveButtonText}>Save Address and Proceed</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={styles.myLocationButton} onPress={getCurrentLocation}>
+            <Ionicons name="locate" size={24} color={Colors.darkGreen} />
+          </TouchableOpacity>
         </View>
-      </TouchableWithoutFeedback>
+
+        {/* Bottom Sheet – safe‑area bottom */}
+        <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + 20 }]}>
+          <View style={styles.locationHeader}>
+            <View style={styles.locationIconContainer}>
+              <Ionicons name="location" size={24} color={Colors.darkGreen} />
+            </View>
+            <View style={styles.locationTextContainer}>
+              <Text style={styles.locationTitle}>Delivery Location</Text>
+              <Text style={styles.locationSubtitle} numberOfLines={2}>
+                {isLocating ? 'Fetching address...' : fetchedAddress}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <TextInput
+            style={styles.input}
+            placeholder="House / Flat / Block No."
+            placeholderTextColor={Colors.grayText}
+            value={detailedAddress}
+            onChangeText={setDetailedAddress}
+          />
+
+          <Text style={styles.saveAsLabel}>Save as</Text>
+          <View style={styles.typeContainer}>
+            {(['Home', 'Work', 'Other'] as AddressType[]).map((type) => {
+              const isSelected = selectedType === type;
+              let iconName = 'location-outline';
+              if (type === 'Home') iconName = 'home-outline';
+              if (type === 'Work') iconName = 'briefcase-outline';
+
+              return (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.typeChip, isSelected && styles.typeChipSelected]}
+                  onPress={() => setSelectedType(type)}
+                >
+                  <Ionicons
+                    name={iconName as any}
+                    size={16}
+                    color={isSelected ? Colors.darkGreen : Colors.darkText}
+                  />
+                  <Text
+                    style={[styles.typeChipText, isSelected && styles.typeChipTextSelected]}
+                  >
+                    {type}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={styles.saveButton}
+            onPress={handleSaveAddress}
+            disabled={addressActionLoading}
+          >
+            {addressActionLoading ? (
+              <ActivityIndicator color={Colors.white} />
+            ) : (
+              <Text style={styles.saveButtonText}>Save Address and Proceed</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
     </KeyboardAvoidingView>
   );
 };
@@ -642,8 +708,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    // paddingBottom is now set dynamically to account for safe area bottom
     elevation: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },

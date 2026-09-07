@@ -1,4 +1,4 @@
-// App.tsx - Complete updated file with vendor tab navigator
+// App.tsx - Complete updated file with vendor tab navigator & global fonts
 import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Modal,
   Linking,
+  Text as RNText,
 } from "react-native";
 import { Provider, useDispatch, useSelector } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
@@ -116,6 +117,31 @@ import { navigationRef, RootStackParamList } from "./src/userScreens/utils/navig
 
 // ✅ Import the vendor tab navigator
 import VendorTabNavigator from "./src/navigation/VendorTabNavigator";
+
+// =========================================================================
+// GLOBAL FONT & TYPOGRAPHY CONFIGURATION
+// =========================================================================
+// Change 'System' to your custom loaded font name if you use expo-font 
+// (e.g. 'Poppins', 'Montserrat', etc.)
+const GLOBAL_FONT_FAMILY = "System"; 
+const GLOBAL_FONT_SIZE_MULTIPLIER = 1.0; // Adjust to scale all fonts up/down globally (e.g., 1.05 for 5% larger)
+
+if ((RNText as any).defaultProps == null) {
+  (RNText as any).defaultProps = {};
+}
+(RNText as any).defaultProps.allowFontScaling = true;
+
+const originalRender = (RNText as any).render;
+(RNText as any).render = function (...args: any[]) {
+  const origin = originalRender.call(this, ...args);
+  return React.cloneElement(origin, {
+    style: [
+      { fontFamily: GLOBAL_FONT_FAMILY },
+      origin.props.style,
+    ],
+  });
+};
+// =========================================================================
 
 SplashScreenExpo.preventAutoHideAsync();
 
@@ -523,13 +549,9 @@ const AppNavigator = () => {
 
   let MainNavigator;
   if (vendorAuthToken) {
-    // Vendor is logged in → show tab navigator inside a stack
     MainNavigator = (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {/* Main tab navigator – this shows the bottom bar */}
         <Stack.Screen name="VendorTabs" component={VendorTabNavigator} />
-
-        {/* Extra screens that are NOT part of the tabs (pushed on top) */}
         <Stack.Screen name="VendorProductViews" component={VendorProductViewsScreen} />
         <Stack.Screen name="VendorChatScreen" component={VendorChatScreen} />
         <Stack.Screen name="VendorProductCRUD" component={VendorProductCRUDScreen} />
@@ -544,8 +566,6 @@ const AppNavigator = () => {
         <Stack.Screen name="SubscriptionChoice" component={SubscriptionChoiceScreen} />
         <Stack.Screen name="SubscriptionManagement" component={SubscriptionManagementScreen} />
         <Stack.Screen name="SubscriptionPending" component={SubscriptionPendingScreen} />
-
-        {/* User‑facing screens the vendor may need to see */}
         <Stack.Screen name="CategoryShopsScreen" component={CategoryShopsScreen} />
         <Stack.Screen name="HomeScreen" component={HomeScreen} />
         <Stack.Screen name="ProductSearchScreen" component={ProductSearchScreen} />
@@ -604,8 +624,6 @@ const AppNavigator = () => {
         <Stack.Screen name="WebViewScreen" component={WebViewScreen} options={{ headerShown: false }} />
         <Stack.Screen name="AllCategoriesScreen" component={AllCategoriesScreen} />
         <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />
-        
-        {/* Vendor Login/Signup screens for user to switch to vendor */}
         <Stack.Screen name="VendorLogin" component={VendorLoginScreen} />
         <Stack.Screen name="SignupVendor" component={SignupVendorScreen} />
       </Stack.Navigator>

@@ -209,15 +209,19 @@ export const registerForPushNotificationsAsync = async (userId?: string) => {
       return null;
     }
 
-    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-    console.log('🔥 YOUR EXPO PUSH TOKEN:', token);
+    let token: string | null = null;
+    try {
+      token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+      console.log('🔥 YOUR EXPO PUSH TOKEN:', token);
 
-    // Send token to backend if userId is provided
-    if (userId && token) {
-      console.log(`📤 Sending token to backend for userId: ${userId}`);
-      await sendTokenToBackend(userId, token, Platform.OS);
-    } else {
-      console.warn('⚠️ No userId provided, token NOT sent to backend');
+      if (userId && token) {
+        console.log(`📤 Sending token to backend for userId: ${userId}`);
+        await sendTokenToBackend(userId, token, Platform.OS);
+      } else {
+        console.warn('⚠️ No userId provided, token NOT sent to backend');
+      }
+    } catch (fcmError) {
+      console.warn('⚠️ Remote push token registration bypassed (Firebase/FCM not configured):', fcmError);
     }
 
     return token;

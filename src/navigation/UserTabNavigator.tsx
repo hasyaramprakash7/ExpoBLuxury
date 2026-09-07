@@ -331,6 +331,7 @@ const tabStyles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 9,
     fontWeight: "800",
+    
   },
   cartLabelText: {
     fontSize: 10,
@@ -360,7 +361,8 @@ const tabStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 0.2,
-    marginTop: 8,
+    marginTop: 1, 
+    paddingBottom: 10,
     textAlign: "center",
     flexShrink: 0,
   },

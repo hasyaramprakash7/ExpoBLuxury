@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,12 +10,15 @@ import {
   TouchableOpacity,
   Linking,
   Platform,
-  Share,
+  Share as RNShare,
+  Alert,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as WebBrowser from "expo-web-browser";
+import * as FileSystem from 'expo-file-system/legacy'; // Use legacy import
+import Share from 'react-native-share';
 import { fetchPropertyById } from "../features/propertySlice";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
 import { recordProductView } from "../features/productViewSlice";
@@ -91,8 +94,8 @@ const PropertyDetailScreen: React.FC = () => {
   const { allVendors } = useSelector((state: RootState) => state.vendorAuth);
   const { user } = useSelector((state: RootState) => state.auth);
 
-  // Prevent duplicate recordings
   const viewRecorded = useRef(false);
+  const [isSharing, setIsSharing] = useState(false);
 
   // Fetch property details
   useEffect(() => {
@@ -125,31 +128,186 @@ const PropertyDetailScreen: React.FC = () => {
     }
   }, [currentProperty, user, dispatch]);
 
-  const handleShare = async () => {
+  // Download image to local cache for sharing - using legacy API
+  const downloadImageToLocal = async (imageUrl: string): Promise<string | null> => {
     try {
-      await Share.share({
-        message: `Check out this property: ${currentProperty?.title}\nPrice: ${displayPrice}\nLocation: ${fullPropertyAddress}`,
-      });
+      const timestamp = Date.now();
+      // Create a local file path
+      const filePath = `${FileSystem.cacheDirectory}property_${timestamp}.jpg`;
+      
+      // Download the image using legacy API
+      const downloadResult = await FileSystem.downloadAsync(
+        imageUrl,
+        filePath
+      );
+      
+      if (downloadResult.status === 200) {
+        // For Android, convert to file:// URI
+        if (Platform.OS === 'android') {
+          return `file://${downloadResult.uri}`;
+        }
+        return downloadResult.uri;
+      }
+      return null;
     } catch (error) {
-      console.error('Error sharing:', error);
+      console.log('Image download error:', error);
+      return null;
     }
   };
 
-  // Manual test button
-  const handleTestRecord = () => {
-    if (currentProperty && user?._id && currentProperty.vendor?.vendorId) {
-      const payload = {
-        productId: currentProperty._id,
-        productType: 'Property' as const,
-        viewerUserId: user._id,
-        viewerName: user.name || 'TestUser',
-        viewerPhone: user.phone || '9999999999',
-        vendorId: currentProperty.vendor.vendorId,
-      };
-      console.log('🧪 Manual test record (Property):', payload);
-      dispatch(recordProductView(payload));
+  // Helper functions for property data
+  const getDisplayPrice = () => {
+    const unitLabel = currentProperty.priceUnit === "Lakhs" ? "Lakhs" : "Cr";
+    const minVal = currentProperty.minPriceValue ?? currentProperty.minPriceCr;
+    const maxVal = currentProperty.maxPriceValue ?? currentProperty.maxPriceCr ?? minVal;
+    return minVal === maxVal
+      ? `₹${minVal} ${unitLabel}`
+      : `₹${minVal} - ${maxVal} ${unitLabel}`;
+  };
+
+  const getArea = () => {
+    return currentProperty.areaOptions?.[0]?.superBuiltUpSqFt || "N/A";
+  };
+
+  const getFullAddress = () => {
+    const loc = currentProperty.location;
+    return [loc?.address, loc?.locality, loc?.city, loc?.state, loc?.pincode || loc?.zipCode, loc?.country]
+      .filter(Boolean)
+      .join(", ");
+  };
+
+  // Build share message with ALL property details
+  const buildShareMessage = () => {
+    const displayPrice = getDisplayPrice();
+    const fullAddress = getFullAddress();
+    const area = getArea();
+    const config = currentProperty.configuration;
+    
+    return `🏠 *${currentProperty.title || 'Property'}*\n\n` +
+      `📍 *Location:* ${fullAddress}\n` +
+      `💰 *Price:* ${displayPrice}\n` +
+      `🏷️ *Type:* ${currentProperty.propertyType || 'N/A'}\n` +
+      `📐 *Area:* ${area} Sq.Ft\n` +
+      `🛏️ *Configuration:* ${config?.bhk || 'N/A'} BHK\n` +
+      `🛁 *Bathrooms:* ${config?.bathrooms || 'N/A'}\n` +
+      `🚗 *Parking:* ${config?.carParkingAvailable ? '✅ Available' : '❌ None'}\n` +
+      `📅 *Possession:* ${currentProperty.possessionDate ? new Date(currentProperty.possessionDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'long' }) : 'N/A'}\n` +
+      `🏢 *Furnishing:* ${config?.furnishingStatus || 'N/A'}\n` +
+      `📋 *Ownership:* ${config?.ownershipType || 'N/A'}\n\n` +
+      `🔗 *Check it out on BLuxury App!*`;
+  };
+
+  // Share to WhatsApp with image and full details
+  const handleShareWhatsApp = async () => {
+    if (!currentProperty) return;
+    
+    setIsSharing(true);
+    try {
+      const imageUrl = currentProperty.images?.[0];
+      const message = buildShareMessage();
+      
+      // Try to share with image
+      if (imageUrl) {
+        try {
+          // Download image to local storage
+          const localFilePath = await downloadImageToLocal(imageUrl);
+          
+          if (localFilePath) {
+            // Share with image using WhatsApp
+            const shareOptions = {
+              title: 'BLuxury Property',
+              message: message,
+              url: localFilePath,
+              type: 'image/jpeg',
+              social: Share.Social.WHATSAPP,
+            };
+            
+            await Share.shareSingle(shareOptions);
+            setIsSharing(false);
+            return;
+          }
+        } catch (imageError) {
+          console.log('WhatsApp image share failed:', imageError);
+          // Fall through to text-only sharing
+        }
+      }
+      
+      // Fallback: Share text only via WhatsApp URL
+      const phone = displayPhone || '';
+      const waUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
+      
+      const canOpen = await Linking.canOpenURL(waUrl);
+      if (canOpen) {
+        await Linking.openURL(waUrl);
+      } else {
+        // If WhatsApp is not installed, try to share via react-native-share without image
+        await Share.open({
+          title: 'BLuxury Property',
+          message: message,
+        });
+      }
+      
+    } catch (error) {
+      console.error('WhatsApp share error:', error);
+      if (error instanceof Error && error.message !== 'User cancelled') {
+        Alert.alert('Share Error', 'Could not share to WhatsApp. Please try again.');
+      }
+    } finally {
+      setIsSharing(false);
     }
   };
+
+  // General share function
+  const handleShare = async () => {
+    if (!currentProperty) return;
+    
+    setIsSharing(true);
+    try {
+      const imageUrl = currentProperty.images?.[0];
+      const message = buildShareMessage();
+      
+      // Try to share with image
+      if (imageUrl) {
+        try {
+          const localFilePath = await downloadImageToLocal(imageUrl);
+          
+          if (localFilePath) {
+            const shareOptions = {
+              title: 'BLuxury Property',
+              message: message,
+              url: localFilePath,
+              type: 'image/jpeg',
+            };
+            
+            await Share.open(shareOptions);
+            setIsSharing(false);
+            return;
+          }
+        } catch (imageError) {
+          console.log('Image sharing failed:', imageError);
+          // Fall through to text-only sharing
+        }
+      }
+      
+      // Fallback: share text only
+      await RNShare.share({
+        message: message,
+        title: 'BLuxury Property',
+      });
+      
+    } catch (error) {
+      console.error('Share error:', error);
+      if (error instanceof Error && error.message !== 'User cancelled') {
+        Alert.alert('Share Error', 'Could not share property. Please try again.');
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const displayPrice = getDisplayPrice();
+  const fullPropertyAddress = getFullAddress();
+  const areaSqFt = getArea();
 
   if (propertyLoading || !currentProperty) {
     return (
@@ -173,21 +331,9 @@ const PropertyDetailScreen: React.FC = () => {
   const amenities = safeParseArray(currentProperty.amenities);
   const projectHighlights = safeParseArray(currentProperty.projectHighlights);
 
-  // DYNAMIC PRICING LOGIC (Lakhs & Crores)
-  const unitLabel = currentProperty.priceUnit === "Lakhs" ? "Lakhs" : "Cr";
-  const minVal = currentProperty.minPriceValue ?? currentProperty.minPriceCr;
-  const maxVal =
-    currentProperty.maxPriceValue ?? currentProperty.maxPriceCr ?? minVal;
-
-  const isFixedPrice = minVal === maxVal;
-  const displayPrice = isFixedPrice
-    ? `₹${minVal} ${unitLabel}`
-    : `₹${minVal} - ${maxVal} ${unitLabel}`;
-
   const formattedPossessionDate = new Date(
     currentProperty.possessionDate,
   ).toLocaleDateString("en-IN", { year: "numeric", month: "long" });
-  const areaSqFt = currentProperty.areaOptions?.[0]?.superBuiltUpSqFt || "N/A";
   const ratePerSqFt = currentProperty.areaOptions?.[0]?.ratePerSqFt || "N/A";
 
   const config = currentProperty.configuration;
@@ -196,16 +342,6 @@ const PropertyDetailScreen: React.FC = () => {
     : `${config.totalFloors} Floors`;
 
   const loc = currentProperty.location;
-  const fullPropertyAddress = [
-    loc?.address,
-    loc?.locality,
-    loc?.city,
-    loc?.state,
-    loc?.pincode || loc?.zipCode,
-    loc?.country,
-  ]
-    .filter(Boolean)
-    .join(", ");
 
   const handleOpenMap = () => {
     if (loc?.mapUrl) {
@@ -292,7 +428,7 @@ const PropertyDetailScreen: React.FC = () => {
     if (displayPhone) Linking.openURL(`tel:${displayPhone}`);
   };
 
-  const handleWhatsApp = () => {
+  const handleWhatsAppContact = () => {
     if (displayPhone) {
       const message = `Hello, I am interested in your property: "${currentProperty.title}" listed on BLuxury.`;
       Linking.openURL(
@@ -349,8 +485,13 @@ const PropertyDetailScreen: React.FC = () => {
           <TouchableOpacity
             style={styles.shareBtn}
             onPress={handleShare}
+            disabled={isSharing}
           >
-            <Ionicons name="share-outline" size={22} color={Colors.pureWhite} />
+            {isSharing ? (
+              <ActivityIndicator size="small" color={Colors.pureWhite} />
+            ) : (
+              <Ionicons name="share-outline" size={22} color={Colors.pureWhite} />
+            )}
           </TouchableOpacity>
 
           <View style={styles.imageIndicatorContainer}>
@@ -666,7 +807,7 @@ const PropertyDetailScreen: React.FC = () => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.waBtn]}
-                onPress={handleWhatsApp}
+                onPress={handleWhatsAppContact}
               >
                 <Ionicons
                   name="logo-whatsapp"
@@ -678,13 +819,25 @@ const PropertyDetailScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* DEBUG: Manual test button – remove after verifying */}
-          {/* <TouchableOpacity
-            style={{ backgroundColor: 'red', padding: 10, margin: 20, borderRadius: 8 }}
-            onPress={handleTestRecord}
-          >
-            <Text style={{ color: 'white', textAlign: 'center' }}>🧪 Test Record View (Property)</Text>
-          </TouchableOpacity> */}
+          {/* Share buttons row */}
+          <View style={styles.shareRow}>
+            <TouchableOpacity 
+              style={[styles.shareActionBtn, styles.shareBtnStyle]} 
+              onPress={handleShare}
+              disabled={isSharing}
+            >
+              <Ionicons name="share-social-outline" size={20} color={Colors.pureWhite} />
+              <Text style={styles.shareActionText}>Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.shareActionBtn, styles.whatsappShareBtn]} 
+              onPress={handleShareWhatsApp}
+              disabled={isSharing}
+            >
+              <Ionicons name="logo-whatsapp" size={20} color={Colors.pureWhite} />
+              <Text style={styles.shareActionText}>WhatsApp</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={{ height: 120 }} />
       </ScrollView>
@@ -703,18 +856,6 @@ const PropertyDetailScreen: React.FC = () => {
             </Text>
           </View>
         </View>
-        {/* <TouchableOpacity
-          style={styles.contactButton}
-          activeOpacity={0.8}
-          onPress={() =>
-            navigation.navigate("ChatScreen", {
-              vendorId,
-              vendorName: displayVendorName,
-            })
-          }
-        >
-          <Text style={styles.contactButtonText}>Chat in App</Text>
-        </TouchableOpacity> */}
       </View>
     </View>
   );
@@ -1218,6 +1359,31 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginLeft: 8,
   },
+  shareRow: {
+    flexDirection: "row",
+    marginTop: 24,
+    gap: 12,
+  },
+  shareActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  shareBtnStyle: {
+    backgroundColor: Colors.royalNavy,
+  },
+  whatsappShareBtn: {
+    backgroundColor: Colors.whatsapp,
+  },
+  shareActionText: {
+    color: Colors.pureWhite,
+    fontWeight: "600",
+    fontSize: 15,
+  },
   bottomBar: {
     position: "absolute",
     bottom: 0,
@@ -1225,7 +1391,7 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: Colors.royalNavy,
     padding: 16,
-    paddingBottom: Platform.OS === "ios" ? 34 : 16,
+    paddingBottom: Platform.OS === "ios" ? 34 : 36,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",

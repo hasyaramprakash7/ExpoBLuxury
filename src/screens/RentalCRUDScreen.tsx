@@ -28,6 +28,9 @@ import Toast from 'react-native-toast-message';
 import { RootState } from '../app/store';
 import MapView, { Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import AddAddressScreen from './AddAddressScreen';
+
 import {
   fetchRentals,
   createRental,
@@ -41,7 +44,6 @@ import {
 } from '../features/rentalSlice';
 
 type RentalType = 'PG' | 'Hotel' | 'Apartment' | 'Villa' | 'Hostel' | 'Guest House';
-type AddressType = "Home" | "Work" | "Other";
 
 interface RentalFormData {
   title: string;
@@ -95,751 +97,88 @@ const AMENITIES_LIST = [
 const { width, height } = Dimensions.get('window');
 
 // ================================================================
-// 1. Map Picker Modal - Updated with AddAddressScreen UI
+// Reusable Dropdown and MultiSelect (unchanged)
 // ================================================================
-interface MapPickerModalProps {
-  visible: boolean;
-  onClose: () => void;
-  onLocationSelect: (lat: number, lng: number, addressDetails: any) => void;
-  initialLat?: number;
-  initialLng?: number;
-}
-
-const MapPickerModal: React.FC<MapPickerModalProps> = ({
-  visible,
-  onClose,
-  onLocationSelect,
-  initialLat,
-  initialLng,
+const CustomDropdown = ({
+  label,
+  options,
+  selectedValue,
+  onSelect,
+  placeholder,
+}: {
+  label: string;
+  options: string[];
+  selectedValue: string;
+  onSelect: (val: any) => void;
+  placeholder: string;
 }) => {
-  const mapRef = useRef<MapView>(null);
-  const insets = useSafeAreaInsets();
-  
-  const [region, setRegion] = useState<Region | null>(null);
-  const [fetchedAddress, setFetchedAddress] = useState<string>("Locating...");
-  const [detailedAddress, setDetailedAddress] = useState<string>("");
-  const [selectedType, setSelectedType] = useState<AddressType>("Home");
-  const [isMapMoving, setIsMapMoving] = useState<boolean>(false);
-  const [isLocating, setIsLocating] = useState<boolean>(true);
-  const [addressDetails, setAddressDetails] = useState({
-    pincode: "",
-    state: "",
-    district: "",
-    city: "",
-    country: "India",
-    street: "",
-    colony: "",
-    suburb: "",
-    neighbourhood: "",
-  });
-
-  const defaultLocation = {
-    latitude: 17.6868,
-    longitude: 83.2185,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
-  };
-
-  useEffect(() => {
-    if (visible) {
-      getCurrentLocation();
-    }
-  }, [visible]);
-
-  useEffect(() => {
-    if (visible && initialLat && initialLng) {
-      const newRegion = {
-        latitude: initialLat,
-        longitude: initialLng,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      };
-      setRegion(newRegion);
-      fetchAddressFromCoords(initialLat, initialLng);
-    }
-  }, [visible, initialLat, initialLng]);
-
-  const getCurrentLocation = async () => {
-    setIsLocating(true);
-    setFetchedAddress("Locating your position...");
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission Denied",
-          "We need location access to pin your address."
-        );
-        setRegion(defaultLocation);
-        setIsLocating(false);
-        return;
-      }
-
-      let location = await Location.getLastKnownPositionAsync();
-      if (!location) {
-        location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-      }
-
-      const newRegion = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      };
-
-      setRegion(newRegion);
-      mapRef.current?.animateToRegion(newRegion, 1000);
-      fetchAddressFromCoords(newRegion.latitude, newRegion.longitude);
-    } catch (error) {
-      console.warn("Error getting location:", error);
-      setRegion(defaultLocation);
-      setFetchedAddress("Could not determine location");
-    } finally {
-      setIsLocating(false);
-    }
-  };
-
-  const fetchAddressFromCoords = async (latitude: number, longitude: number) => {
-    try {
-      const geocode = await Location.reverseGeocodeAsync({
-        latitude,
-        longitude,
-      });
-      if (geocode.length > 0) {
-        const place = geocode[0];
-        
-        // Build comprehensive address parts
-        const addressParts = [
-          place.name,
-          place.street,
-          place.subregion,
-          place.district,
-          place.city,
-          place.region,
-          place.postalCode,
-          place.country,
-        ]
-          .filter((part) => part && part !== "Unnamed Road")
-          .join(", ");
-
-        setFetchedAddress(addressParts || "Unknown Location");
-        
-        // Store all address components
-        setAddressDetails({
-          pincode: place.postalCode || "",
-          state: place.region || "",
-          district: place.district || "",
-          city: place.city || "",
-          country: place.country || "India",
-          street: place.street || place.name || "",
-          colony: place.subregion || place.district || "",
-          suburb: place.suburb || "",
-          neighbourhood: place.neighbourhood || "",
-        });
-      } else {
-        setFetchedAddress("Unknown Location");
-      }
-    } catch (error) {
-      console.error("Geocoding error:", error);
-      setFetchedAddress("Could not fetch address details");
-    }
-  };
-
-  const handleRegionChangeComplete = (newRegion: Region) => {
-    setIsMapMoving(false);
-    setRegion(newRegion);
-    fetchAddressFromCoords(newRegion.latitude, newRegion.longitude);
-  };
-
-  const confirmLocation = () => {
-    if (!region) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Please select a location on the map.' });
-      return;
-    }
-
-    const finalAddressString = detailedAddress.trim()
-      ? `${detailedAddress.trim()}, ${fetchedAddress}`
-      : fetchedAddress;
-
-    const addressData = {
-      ...addressDetails,
-      street: detailedAddress.trim() || addressDetails.street,
-      addressString: finalAddressString,
-      type: selectedType,
-      city: addressDetails.city || '',
-      state: addressDetails.state || '',
-      pincode: addressDetails.pincode || '',
-      colony: addressDetails.colony || addressDetails.suburb || '',
-      district: addressDetails.district || '',
-      country: addressDetails.country || 'India',
-    };
-
-    onLocationSelect(region.latitude, region.longitude, addressData);
-    onClose();
-  };
-
-  if (!visible) return null;
-
+  const [modalVisible, setModalVisible] = useState(false);
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <KeyboardAvoidingView
-        style={mapModalStyles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={mapModalStyles.container}>
-            {/* MAP SECTION */}
-            <View style={mapModalStyles.mapContainer}>
-              {region ? (
-                <MapView
-                  ref={mapRef}
-                  style={mapModalStyles.map}
-                  initialRegion={region}
-                  showsUserLocation={true}
-                  showsMyLocationButton={false}
-                  onRegionChange={() => setIsMapMoving(true)}
-                  onRegionChangeComplete={handleRegionChangeComplete}
-                />
-              ) : (
-                <View style={mapModalStyles.mapLoading}>
-                  <ActivityIndicator size="large" color="#1B8C40" />
-                  <Text style={mapModalStyles.mapLoadingText}>
-                    Finding your location...
+    <View style={{ marginBottom: 20 }}>
+      <Text style={styles.label}>{label}</Text>
+      <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalVisible(true)}>
+        <Text style={[styles.dropdownButtonText, !selectedValue && { color: '#999' }]}>
+          {selectedValue || placeholder}
+        </Text>
+        <Ionicons name="chevron-down" size={20} color="#64748B" />
+      </TouchableOpacity>
+      <Modal visible={modalVisible} transparent animationType="fade">
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalVisible(false)}>
+          <View style={styles.dropdownModalContent}>
+            <Text style={styles.modalTitle}>Select {label}</Text>
+            <FlatList
+              data={options}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.dropdownOption, selectedValue === item && styles.dropdownOptionActive]}
+                  onPress={() => {
+                    onSelect(item);
+                    setModalVisible(false);
+                  }}
+                >
+                  <Text style={[styles.dropdownOptionText, selectedValue === item && styles.dropdownOptionTextActive]}>
+                    {item}
                   </Text>
-                </View>
+                </TouchableOpacity>
               )}
-
-              {/* Fixed Center Pin */}
-              <View style={mapModalStyles.centerMarkerContainer} pointerEvents="none">
-                <View
-                  style={[
-                    mapModalStyles.markerBubble,
-                    isMapMoving && mapModalStyles.markerBubbleMoving,
-                  ]}
-                >
-                  <Text style={mapModalStyles.markerText}>
-                    {isMapMoving
-                      ? "Move map to adjust"
-                      : "Location selected here"}
-                  </Text>
-                </View>
-                <Ionicons
-                  name="location"
-                  size={42}
-                  color="#1C1C1E"
-                  style={[
-                    mapModalStyles.markerIcon,
-                    isMapMoving && mapModalStyles.markerIconMoving,
-                  ]}
-                />
-                <View style={mapModalStyles.markerShadow} />
-              </View>
-
-              {/* Close Button */}
-              <TouchableOpacity
-                style={[mapModalStyles.closeButton, { top: Math.max(insets.top, 20) }]}
-                onPress={onClose}
-              >
-                <Ionicons name="close" size={24} color="#1C1C1E" />
-              </TouchableOpacity>
-
-              {/* Re-center Button */}
-              <TouchableOpacity
-                style={mapModalStyles.myLocationButton}
-                onPress={getCurrentLocation}
-              >
-                <Ionicons name="locate" size={24} color="#1B8C40" />
-              </TouchableOpacity>
-            </View>
-
-            {/* BOTTOM SHEET */}
-            <View style={mapModalStyles.bottomSheet}>
-              <View style={mapModalStyles.locationHeader}>
-                <View style={mapModalStyles.locationIconContainer}>
-                  <Ionicons
-                    name="location"
-                    size={24}
-                    color="#1B8C40"
-                  />
-                </View>
-                <View style={mapModalStyles.locationTextContainer}>
-                  <Text style={mapModalStyles.locationTitle}>Property Location</Text>
-                  <Text style={mapModalStyles.locationSubtitle} numberOfLines={2}>
-                    {isLocating ? "Fetching address..." : fetchedAddress}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={mapModalStyles.divider} />
-
-              <TextInput
-                style={mapModalStyles.input}
-                placeholder="House / Flat / Block No."
-                placeholderTextColor="#6B7280"
-                value={detailedAddress}
-                onChangeText={setDetailedAddress}
-              />
-
-              <Text style={mapModalStyles.saveAsLabel}>Save as</Text>
-              <View style={mapModalStyles.typeContainer}>
-                {(["Home", "Work", "Other"] as AddressType[]).map((type) => {
-                  const isSelected = selectedType === type;
-                  let iconName = "location-outline";
-                  if (type === "Home") iconName = "home-outline";
-                  if (type === "Work") iconName = "briefcase-outline";
-
-                  return (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        mapModalStyles.typeChip,
-                        isSelected && mapModalStyles.typeChipSelected,
-                      ]}
-                      onPress={() => setSelectedType(type)}
-                    >
-                      <Ionicons
-                        name={iconName as any}
-                        size={16}
-                        color={isSelected ? "#1B8C40" : "#1C1C1E"}
-                      />
-                      <Text
-                        style={[
-                          mapModalStyles.typeChipText,
-                          isSelected && mapModalStyles.typeChipTextSelected,
-                        ]}
-                      >
-                        {type}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <View style={mapModalStyles.buttonRow}>
-                <TouchableOpacity
-                  style={mapModalStyles.cancelButton}
-                  onPress={onClose}
-                >
-                  <Text style={mapModalStyles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={mapModalStyles.confirmButton}
-                  onPress={confirmLocation}
-                >
-                  <Text style={mapModalStyles.confirmButtonText}>
-                    Confirm Location
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+            />
           </View>
-        </TouchableWithoutFeedback>
-      </KeyboardAvoidingView>
-    </Modal>
+        </TouchableOpacity>
+      </Modal>
+    </View>
   );
 };
 
-const mapModalStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  mapContainer: {
-    flex: 1,
-    position: "relative",
-  },
-  map: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  mapLoading: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: '#F0F0F0',
-  },
-  mapLoadingText: {
-    marginTop: 12,
-    color: '#1C1C1E',
-    fontWeight: "600",
-  },
-  centerMarkerContainer: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    marginLeft: -100,
-    marginTop: -85,
-    width: 200,
-    alignItems: "center",
-    zIndex: 2,
-  },
-  markerBubble: {
-    backgroundColor: '#1C1C1E',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginBottom: 5,
-  },
-  markerBubbleMoving: {
-    opacity: 0.5,
-  },
-  markerText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  markerIcon: {
-    transform: [{ translateY: 0 }],
-  },
-  markerIconMoving: {
-    transform: [{ translateY: -12 }],
-  },
-  markerShadow: {
-    width: 8,
-    height: 4,
-    backgroundColor: "rgba(0,0,0,0.2)",
-    borderRadius: 4,
-    marginTop: -6,
-    transform: [{ scaleX: 2.5 }],
-  },
-  closeButton: {
-    position: "absolute",
-    left: 16,
-    backgroundColor: '#FFFFFF',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-  },
-  myLocationButton: {
-    position: "absolute",
-    right: 16,
-    bottom: 24,
-    backgroundColor: '#FFFFFF',
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-  },
-  bottomSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    paddingBottom: Platform.OS === "ios" ? 40 : 20,
-    elevation: 15,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    marginTop: -20,
-    zIndex: 5,
-  },
-  locationHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  locationIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(27, 140, 64, 0.1)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  locationTextContainer: {
-    flex: 1,
-  },
-  locationTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: '#1C1C1E',
-    marginBottom: 4,
-  },
-  locationSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 18,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#E5E5EA',
-    marginBottom: 16,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: '#1C1C1E',
-    backgroundColor: '#F9F9F9',
-    marginBottom: 20,
-  },
-  saveAsLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: '#6B7280',
-    marginBottom: 12,
-  },
-  typeContainer: {
-    flexDirection: "row",
-    marginBottom: 24,
-  },
-  typeChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    marginRight: 10,
-    backgroundColor: '#FFFFFF',
-  },
-  typeChipSelected: {
-    borderColor: '#1B8C40',
-    backgroundColor: "rgba(27, 140, 64, 0.05)",
-  },
-  typeChipText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: '#1C1C1E',
-    marginLeft: 6,
-  },
-  typeChipTextSelected: {
-    color: '#1B8C40',
-  },
-  buttonRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: '#F0F0F0',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelButtonText: {
-    color: '#1C1C1E',
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  confirmButton: {
-    flex: 2,
-    backgroundColor: '#1B8C40',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 2,
-    shadowColor: '#1B8C40',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  confirmButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: "bold",
-    letterSpacing: 0.5,
-  },
-});
-
-// ================================================================
-// 2. Address Modal (without delete option)
-// ================================================================
-interface AddressModalProps {
-  visible: boolean;
-  onClose: () => void;
-  onAddCurrentLocation: () => void;
-  onOpenMap: () => void;
-  selectedAddressString?: string;
-  isLoading?: boolean;
-}
-
-const AddressModal: React.FC<AddressModalProps> = ({
-  visible,
-  onClose,
-  onAddCurrentLocation,
-  onOpenMap,
-  selectedAddressString,
-  isLoading,
-}) => {
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onClose}
-    >
-      <View style={addressModalStyles.overlay}>
+const MultiSelectPills = ({
+  options,
+  selectedValues,
+  onToggle,
+}: {
+  options: string[];
+  selectedValues: string[];
+  onToggle: (val: string) => void;
+}) => (
+  <View style={styles.pillContainer}>
+    {options.map((option) => {
+      const isSelected = selectedValues.includes(option);
+      return (
         <TouchableOpacity
-          style={StyleSheet.absoluteFillObject}
-          activeOpacity={1}
-          onPress={onClose}
-        />
-        <View style={addressModalStyles.bottomSheet}>
-          <View style={addressModalStyles.bottomSheetHandle} />
-
-          <View style={addressModalStyles.sheetHeader}>
-            <Text style={addressModalStyles.sheetTitle}>Select Location</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color="#1C1C1E" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
-            {/* Use Current Location */}
-            <TouchableOpacity
-              style={addressModalStyles.currentLocationContainer}
-              onPress={onAddCurrentLocation}
-              disabled={isLoading}
-            >
-              <View style={addressModalStyles.currentLocationIcon}>
-                <Ionicons name="locate" size={22} color="#0B1021" />
-              </View>
-              <View style={addressModalStyles.addressInfo}>
-                <Text style={addressModalStyles.currentLocationTitle}>
-                  Use my current location
-                </Text>
-                <Text style={addressModalStyles.addressString} numberOfLines={1}>
-                  {selectedAddressString || "Fetch GPS & find nearby rentals"}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#6B7280" />
-            </TouchableOpacity>
-
-            {/* Pick from Map */}
-            <TouchableOpacity
-              style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]}
-              onPress={onOpenMap}
-            >
-              <View style={[addressModalStyles.currentLocationIcon, { backgroundColor: 'rgba(27, 140, 64, 0.1)' }]}>
-                <Ionicons name="map" size={22} color="#1B8C40" />
-              </View>
-              <View style={addressModalStyles.addressInfo}>
-                <Text style={[addressModalStyles.currentLocationTitle, { color: "#1B8C40" }]}>
-                  Pick from Map
-                </Text>
-                <Text style={addressModalStyles.addressString} numberOfLines={1}>
-                  Search and select location on map
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#6B7280" />
-            </TouchableOpacity>
-
-            {isLoading && (
-              <View style={addressModalStyles.loadingContainer}>
-                <ActivityIndicator size="small" color="#0B1021" />
-              </View>
-            )}
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-};
-
-const addressModalStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  bottomSheet: {
-    backgroundColor: '#F8F9FA',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
-    maxHeight: height * 0.8,
-    overflow: 'hidden',
-  },
-  bottomSheetHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: '#D1D5DB',
-    borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EAEAEA',
-  },
-  sheetTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1C1C1E',
-    letterSpacing: -0.3,
-  },
-  addressList: {
-    maxHeight: height * 0.55,
-  },
-  currentLocationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#FFFFFF',
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#EAEAEA',
-  },
-  currentLocationIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(11, 16, 33, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  currentLocationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0B1021',
-    marginBottom: 2,
-  },
-  addressInfo: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  addressString: {
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 18,
-  },
-  loadingContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-});
+          key={option}
+          style={[styles.pill, isSelected && styles.pillActive]}
+          onPress={() => onToggle(option)}
+        >
+          <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
+            {option} {isSelected && '✓'}
+          </Text>
+        </TouchableOpacity>
+      );
+    })}
+  </View>
+);
 
 // ================================================================
-// 3. Main RentalCRUD Component
+// Main RentalCRUDScreen Component
 // ================================================================
 const RentalCRUDScreen: React.FC = () => {
   const dispatch = useDispatch<any>();
@@ -851,6 +190,8 @@ const RentalCRUDScreen: React.FC = () => {
   const vendor = useSelector((state: RootState) => state.vendorAuth.vendor);
   const currentVendorId = vendor?._id || vendor?.vendorId;
 
+  const insets = useSafeAreaInsets(); // ✅ for top/bottom spacing
+
   const [formData, setFormData] = useState<RentalFormData>(initialFormData);
   const [existingImages, setExistingImages] = useState<string[]>([]);
   const [newImages, setNewImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -858,97 +199,27 @@ const RentalCRUDScreen: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Location modal states
-  const [showAddressModal, setShowAddressModal] = useState(false);
-  const [showMapPicker, setShowMapPicker] = useState(false);
-  const [mapPickerCoords, setMapPickerCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [isLocating, setIsLocating] = useState(false);
+  // Location screen state
+  const [showAddressScreen, setShowAddressScreen] = useState(false);
 
   // Build a summary string for the selected location
   const getLocationSummary = useCallback(() => {
     const parts = [];
-    if (formData.locationLocality && formData.locationLocality !== 'Unknown Locality') 
+    if (formData.locationLocality && formData.locationLocality !== 'Unknown Locality')
       parts.push(formData.locationLocality);
     if (formData.locationCity) parts.push(formData.locationCity);
     if (formData.locationState) parts.push(formData.locationState);
     if (formData.locationPincode) parts.push(formData.locationPincode);
-    
-    // If we have coordinates but no address, show coordinates
+
     if (parts.length === 0 && formData.lat && formData.lng) {
       return `📍 ${parseFloat(formData.lat).toFixed(6)}, ${parseFloat(formData.lng).toFixed(6)}`;
     }
-    
     return parts.length ? parts.join(', ') : 'Select a location';
   }, [formData]);
 
-  // ========== Location Handlers ==========
-  const handleAddCurrentLocation = useCallback(async () => {
-    setIsLocating(true);
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Toast.show({ type: 'error', text1: 'Permission Denied', text2: 'Location permission required.' });
-        setIsLocating(false);
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const { latitude, longitude } = location.coords;
-
-      const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
-      if (geocode.length > 0) {
-        const { city, region, district, postalCode, street, name, subregion } = geocode[0];
-        const detectedCity = city || district || region || '';
-        const detectedLocality = street || name || subregion || district || '';
-        const detectedState = region || '';
-        const detectedPincode = postalCode || '';
-
-        setFormData((prev) => ({
-          ...prev,
-          lat: latitude.toString(),
-          lng: longitude.toString(),
-          locationCity: detectedCity,
-          locationLocality: detectedLocality,
-          locationState: detectedState,
-          locationPincode: detectedPincode,
-        }));
-
-        Toast.show({
-          type: 'success',
-          text1: 'Location Detected',
-          text2: `📍 ${detectedLocality}, ${detectedCity}`,
-        });
-      } else {
-        setFormData((prev) => ({
-          ...prev,
-          lat: latitude.toString(),
-          lng: longitude.toString(),
-        }));
-        Toast.show({ type: 'info', text1: 'Coordinates filled', text2: 'Enter address manually.' });
-      }
-    } catch (error) {
-      console.error('❌ Location detection error:', error);
-      Toast.show({ type: 'error', text1: 'Location Error', text2: 'Could not detect location.' });
-    } finally {
-      setIsLocating(false);
-      setShowAddressModal(false);
-    }
-  }, []);
-
-  const handleOpenMapPicker = useCallback(() => {
-    setShowAddressModal(false);
-    setMapPickerCoords(
-      formData.lat && formData.lng
-        ? { lat: parseFloat(formData.lat), lng: parseFloat(formData.lng) }
-        : null
-    );
-    setShowMapPicker(true);
-  }, [formData.lat, formData.lng]);
-
-  const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
+  // ========== Location Handler using AddAddressScreen ==========
+  const handleLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
     console.log('📍 Map location selected:', lat, lng, addressDetails);
-    
-    // Extract all available address components with fallbacks
     const city = addressDetails.city || '';
     const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
     const state = addressDetails.state || '';
@@ -956,8 +227,7 @@ const RentalCRUDScreen: React.FC = () => {
     const country = addressDetails.country || 'India';
     const district = addressDetails.district || '';
     const street = addressDetails.street || '';
-    
-    // Build a comprehensive address string for display
+
     const addressParts = [
       street,
       addressDetails.colony,
@@ -970,10 +240,8 @@ const RentalCRUDScreen: React.FC = () => {
       pincode,
       country,
     ].filter(Boolean);
-    
     const fullAddress = addressParts.join(', ');
-    
-    // Update form data with all available address fields
+
     setFormData((prev) => ({
       ...prev,
       lat: lat.toString(),
@@ -983,11 +251,11 @@ const RentalCRUDScreen: React.FC = () => {
       locationState: state,
       locationPincode: pincode,
     }));
-    
-    Toast.show({ 
-      type: 'success', 
-      text1: 'Location Set', 
-      text2: `📍 ${fullAddress || 'Address filled from map.'}` 
+
+    Toast.show({
+      type: 'success',
+      text1: 'Location Set',
+      text2: `📍 ${fullAddress || 'Address filled from map.'}`
     });
   }, []);
 
@@ -995,7 +263,6 @@ const RentalCRUDScreen: React.FC = () => {
   useEffect(() => {
     if (currentVendorId) {
       console.log('🔄 Fetching rentals for vendor:', currentVendorId);
-      // ✅ Pass vendorId
       dispatch(fetchRentals({ page: 1, limit: 10, vendorId: currentVendorId }));
     } else {
       console.warn('⚠️ No vendor ID found, skipping rental fetch.');
@@ -1012,7 +279,6 @@ const RentalCRUDScreen: React.FC = () => {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     if (currentVendorId) {
-      // ✅ Pass vendorId
       await dispatch(fetchRentals({ page: 1, limit: 10, vendorId: currentVendorId }));
     }
     setRefreshing(false);
@@ -1020,7 +286,6 @@ const RentalCRUDScreen: React.FC = () => {
 
   const handleLoadMore = () => {
     if (currentVendorId && hasMore && !loading && !refreshing) {
-      // ✅ Pass vendorId
       dispatch(fetchRentals({ page: currentPage + 1, limit: 10, vendorId: currentVendorId }));
     }
   };
@@ -1045,7 +310,15 @@ const RentalCRUDScreen: React.FC = () => {
     });
   };
 
-  // Image Picker
+  // Image Picker with mount guard – using MediaTypeOptions for compatibility
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const pickImages = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1059,15 +332,37 @@ const RentalCRUDScreen: React.FC = () => {
         quality: 0.7,
         base64: false,
       });
-      if (!result.canceled) {
+      if (!result.canceled && isMounted.current) {
         setNewImages((prev) => [...prev, ...result.assets]);
       }
     } catch (error) {
       console.error('❌ Image picker error:', error);
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to open image picker.' });
+      if (isMounted.current) {
+        Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to open image picker. Please try again.' });
+      }
     }
   };
 
+  // ---- Remove an existing image (already saved on server) ----
+  const removeExistingImage = (index: number) => {
+    Alert.alert(
+      'Remove Image',
+      'This image will be deleted from the server. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            setExistingImages((prev) => prev.filter((_, i) => i !== index));
+            Toast.show({ type: 'info', text1: 'Image marked for removal' });
+          }
+        },
+      ]
+    );
+  };
+
+  // ---- Remove a newly picked image (not yet uploaded) ----
   const removeNewImage = (index: number) => {
     setNewImages((prev) => prev.filter((_, i) => i !== index));
   };
@@ -1190,26 +485,40 @@ const RentalCRUDScreen: React.FC = () => {
   };
 
   // ================================================================
-  // Render Form with Location Picker
+  // Render Form with Location Picker (using AddAddressScreen)
   // ================================================================
   const renderForm = () => {
     const allImages = [...existingImages, ...newImages.map(asset => asset.uri)];
 
     return (
       <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
-        <View style={styles.formHeader}>
+        <View style={[styles.formHeader, { paddingTop: insets.top + 20 }]}>
           <TouchableOpacity onPress={closeForm} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#1A1A1A" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{editingId ? 'Edit Rental' : 'Add New Rental'}</Text>
+          {/* Bell can be added here if needed */}
         </View>
 
         <View style={styles.cardSection}>
           <Text style={styles.sectionTitle}>Basic Details</Text>
           <Text style={styles.label}>Title</Text>
-          <TextInput style={styles.input} value={formData.title} onChangeText={(t) => handleChange('title', t)} placeholder="e.g. Cozy 2BHK Apartment" />
+          <TextInput
+            style={styles.input}
+            value={formData.title}
+            onChangeText={(t) => handleChange('title', t)}
+            placeholder="e.g. Cozy 2BHK Apartment"
+            placeholderTextColor="#94A3B8"
+          />
           <Text style={styles.label}>Description</Text>
-          <TextInput style={[styles.input, { height: 80 }]} value={formData.description} onChangeText={(t) => handleChange('description', t)} placeholder="Describe your rental..." multiline />
+          <TextInput
+            style={[styles.input, { height: 80 }]}
+            value={formData.description}
+            onChangeText={(t) => handleChange('description', t)}
+            placeholder="Describe your rental..."
+            placeholderTextColor="#94A3B8"
+            multiline
+          />
 
           <CustomDropdown
             label="Rental Type"
@@ -1222,22 +531,49 @@ const RentalCRUDScreen: React.FC = () => {
           <View style={styles.row}>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Monthly Rent (₹)</Text>
-              <TextInput style={styles.input} value={formData.monthlyRent} onChangeText={(t) => handleChange('monthlyRent', t)} keyboardType="decimal-pad" placeholder="e.g. 15000" />
+              <TextInput
+                style={styles.input}
+                value={formData.monthlyRent}
+                onChangeText={(t) => handleChange('monthlyRent', t)}
+                keyboardType="decimal-pad"
+                placeholder="e.g. 15000"
+                placeholderTextColor="#94A3B8"
+              />
             </View>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Deposit (₹)</Text>
-              <TextInput style={styles.input} value={formData.deposit} onChangeText={(t) => handleChange('deposit', t)} keyboardType="decimal-pad" placeholder="e.g. 30000" />
+              <TextInput
+                style={styles.input}
+                value={formData.deposit}
+                onChangeText={(t) => handleChange('deposit', t)}
+                keyboardType="decimal-pad"
+                placeholder="e.g. 30000"
+                placeholderTextColor="#94A3B8"
+              />
             </View>
           </View>
 
           <View style={styles.row}>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Maintenance (₹)</Text>
-              <TextInput style={styles.input} value={formData.maintenanceCharges} onChangeText={(t) => handleChange('maintenanceCharges', t)} keyboardType="decimal-pad" placeholder="e.g. 2000" />
+              <TextInput
+                style={styles.input}
+                value={formData.maintenanceCharges}
+                onChangeText={(t) => handleChange('maintenanceCharges', t)}
+                keyboardType="decimal-pad"
+                placeholder="e.g. 2000"
+                placeholderTextColor="#94A3B8"
+              />
             </View>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Available From</Text>
-              <TextInput style={styles.input} value={formData.availableFrom} onChangeText={(t) => handleChange('availableFrom', t)} placeholder="YYYY-MM-DD" />
+              <TextInput
+                style={styles.input}
+                value={formData.availableFrom}
+                onChangeText={(t) => handleChange('availableFrom', t)}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor="#94A3B8"
+              />
             </View>
           </View>
 
@@ -1252,15 +588,36 @@ const RentalCRUDScreen: React.FC = () => {
           <View style={styles.row}>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Max Guests</Text>
-              <TextInput style={styles.input} value={formData.maxGuests} onChangeText={(t) => handleChange('maxGuests', t)} keyboardType="numeric" placeholder="e.g. 4" />
+              <TextInput
+                style={styles.input}
+                value={formData.maxGuests}
+                onChangeText={(t) => handleChange('maxGuests', t)}
+                keyboardType="numeric"
+                placeholder="e.g. 4"
+                placeholderTextColor="#94A3B8"
+              />
             </View>
             <View style={styles.halfWidth}>
               <Text style={styles.label}>Bedrooms</Text>
-              <TextInput style={styles.input} value={formData.bedrooms} onChangeText={(t) => handleChange('bedrooms', t)} keyboardType="numeric" placeholder="e.g. 2" />
+              <TextInput
+                style={styles.input}
+                value={formData.bedrooms}
+                onChangeText={(t) => handleChange('bedrooms', t)}
+                keyboardType="numeric"
+                placeholder="e.g. 2"
+                placeholderTextColor="#94A3B8"
+              />
             </View>
           </View>
           <Text style={styles.label}>Bathrooms</Text>
-          <TextInput style={styles.input} value={formData.bathrooms} onChangeText={(t) => handleChange('bathrooms', t)} keyboardType="numeric" placeholder="e.g. 1" />
+          <TextInput
+            style={styles.input}
+            value={formData.bathrooms}
+            onChangeText={(t) => handleChange('bathrooms', t)}
+            keyboardType="numeric"
+            placeholder="e.g. 1"
+            placeholderTextColor="#94A3B8"
+          />
         </View>
 
         <View style={styles.cardSection}>
@@ -1268,13 +625,13 @@ const RentalCRUDScreen: React.FC = () => {
           <MultiSelectPills options={AMENITIES_LIST} selectedValues={formData.amenities} onToggle={handleToggleAmenity} />
         </View>
 
-        {/* ========== LOCATION PICKER ========== */}
+        {/* LOCATION PICKER */}
         <View style={styles.cardSection}>
           <View style={styles.locationHeader}>
             <Text style={styles.sectionTitle}>Location</Text>
             <TouchableOpacity
               style={styles.locationSelectBtn}
-              onPress={() => setShowAddressModal(true)}
+              onPress={() => setShowAddressScreen(true)}
             >
               <Ionicons name="location-outline" size={18} color="#fff" />
               <Text style={styles.locationSelectText}>Select</Text>
@@ -1283,7 +640,7 @@ const RentalCRUDScreen: React.FC = () => {
 
           <TouchableOpacity
             style={styles.locationSummary}
-            onPress={() => setShowAddressModal(true)}
+            onPress={() => setShowAddressScreen(true)}
             activeOpacity={0.7}
           >
             <Ionicons name="location-sharp" size={20} color="#1B8C40" />
@@ -1305,24 +662,28 @@ const RentalCRUDScreen: React.FC = () => {
             value={formData.locationCity}
             onChangeText={(t) => handleChange('locationCity', t)}
             placeholder="City"
+            placeholderTextColor="#94A3B8"
           />
           <TextInput
             style={styles.input}
             value={formData.locationLocality}
             onChangeText={(t) => handleChange('locationLocality', t)}
             placeholder="Locality"
+            placeholderTextColor="#94A3B8"
           />
           <TextInput
             style={styles.input}
             value={formData.locationState}
             onChangeText={(t) => handleChange('locationState', t)}
             placeholder="State"
+            placeholderTextColor="#94A3B8"
           />
           <TextInput
             style={styles.input}
             value={formData.locationPincode}
             onChangeText={(t) => handleChange('locationPincode', t)}
             placeholder="Pincode"
+            placeholderTextColor="#94A3B8"
             keyboardType="numeric"
           />
           <View style={styles.row}>
@@ -1332,6 +693,7 @@ const RentalCRUDScreen: React.FC = () => {
                 value={formData.lat}
                 onChangeText={(t) => handleChange('lat', t)}
                 placeholder="Latitude"
+                placeholderTextColor="#94A3B8"
                 keyboardType="numeric"
               />
             </View>
@@ -1341,12 +703,14 @@ const RentalCRUDScreen: React.FC = () => {
                 value={formData.lng}
                 onChangeText={(t) => handleChange('lng', t)}
                 placeholder="Longitude"
+                placeholderTextColor="#94A3B8"
                 keyboardType="numeric"
               />
             </View>
           </View>
         </View>
 
+        {/* IMAGE GALLERY */}
         <View style={[styles.cardSection, { marginBottom: 40 }]}>
           <Text style={styles.sectionTitle}>Images</Text>
           <TouchableOpacity style={styles.uploadBtn} onPress={pickImages}>
@@ -1356,13 +720,26 @@ const RentalCRUDScreen: React.FC = () => {
           <View style={styles.galleryGrid}>
             {allImages.map((uri, index) => {
               const isNew = index >= existingImages.length;
+              const imageIndex = isNew ? index - existingImages.length : index;
               return (
                 <View key={index} style={styles.galleryItem}>
                   <Image source={{ uri }} style={styles.galleryImage} />
-                  {isNew && (
-                    <TouchableOpacity style={styles.deleteBadge} onPress={() => removeNewImage(index - existingImages.length)}>
-                      <Ionicons name="close" size={16} color="#fff" />
-                    </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.deleteBadge}
+                    onPress={() => {
+                      if (isNew) {
+                        removeNewImage(imageIndex);
+                      } else {
+                        removeExistingImage(imageIndex);
+                      }
+                    }}
+                  >
+                    <Ionicons name="close" size={16} color="#fff" />
+                  </TouchableOpacity>
+                  {!isNew && (
+                    <View style={styles.existingBadge}>
+                      <Text style={styles.existingBadgeText}>Saved</Text>
+                    </View>
                   )}
                 </View>
               );
@@ -1370,34 +747,33 @@ const RentalCRUDScreen: React.FC = () => {
           </View>
           {existingImages.length > 0 && (
             <Text style={{ fontSize: 12, color: '#94A3B8', marginTop: 8 }}>
-              {existingImages.length} existing image(s) – new images will be added.
+              {existingImages.length} existing image(s) – tap ✕ to remove.
+            </Text>
+          )}
+          {newImages.length > 0 && (
+            <Text style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>
+              {newImages.length} new image(s) – will be uploaded.
             </Text>
           )}
         </View>
 
-        <View style={styles.stickyFooter}>
+        <View style={[styles.stickyFooter, { paddingBottom: insets.bottom + 20 }]}>
           <TouchableOpacity onPress={handleSubmit} style={styles.submitBtn} disabled={loading}>
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{editingId ? 'Update' : 'Publish'}</Text>}
           </TouchableOpacity>
         </View>
 
-        {/* Modals */}
-        <AddressModal
-          visible={showAddressModal}
-          onClose={() => setShowAddressModal(false)}
-          onAddCurrentLocation={handleAddCurrentLocation}
-          onOpenMap={handleOpenMapPicker}
-          selectedAddressString={getLocationSummary()}
-          isLoading={isLocating}
-        />
-
-        <MapPickerModal
-          visible={showMapPicker}
-          onClose={() => setShowMapPicker(false)}
-          onLocationSelect={handleMapLocationSelect}
-          initialLat={mapPickerCoords?.lat}
-          initialLng={mapPickerCoords?.lng}
-        />
+        <Modal
+          visible={showAddressScreen}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setShowAddressScreen(false)}
+        >
+          <AddAddressScreen
+            onClose={() => setShowAddressScreen(false)}
+            onLocationSelect={handleLocationSelect}
+          />
+        </Modal>
       </ScrollView>
     );
   };
@@ -1417,25 +793,37 @@ const RentalCRUDScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.listHeader}>
+      <View style={[styles.listHeader, { paddingTop: insets.top + 20 }]}>
         <View>
           <Text style={styles.greetingText}>Vendor Dashboard</Text>
           <Text style={styles.mainTitle}>My Rentals</Text>
         </View>
-        <TouchableOpacity
-          onPress={() => {
-            setIsFormVisible(true);
-          }}
-          style={styles.floatingAddBtn}
-        >
-          <Ionicons name="add" size={28} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {/* Notification Bell */}
+          <TouchableOpacity
+            style={styles.bellButton}
+            onPress={() => Toast.show({ type: 'info', text1: 'Notifications', text2: 'Coming soon!' })}
+          >
+            <Ionicons name="notifications-outline" size={24} color="#0F172A" />
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>3</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              setIsFormVisible(true);
+            }}
+            style={styles.floatingAddBtn}
+          >
+            <Ionicons name="add" size={28} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
         data={rentals}
         keyExtractor={(item) => item._id}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 80 }]}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.3}
         ListFooterComponent={renderFooter}
@@ -1475,87 +863,6 @@ const RentalCRUDScreen: React.FC = () => {
 };
 
 // ================================================================
-// Reusable Dropdown and MultiSelect
-// ================================================================
-const CustomDropdown = ({
-  label,
-  options,
-  selectedValue,
-  onSelect,
-  placeholder,
-}: {
-  label: string;
-  options: string[];
-  selectedValue: string;
-  onSelect: (val: any) => void;
-  placeholder: string;
-}) => {
-  const [modalVisible, setModalVisible] = useState(false);
-  return (
-    <View style={{ marginBottom: 20 }}>
-      <Text style={styles.label}>{label}</Text>
-      <TouchableOpacity style={styles.dropdownButton} onPress={() => setModalVisible(true)}>
-        <Text style={[styles.dropdownButtonText, !selectedValue && { color: '#999' }]}>
-          {selectedValue || placeholder}
-        </Text>
-        <Ionicons name="chevron-down" size={20} color="#64748B" />
-      </TouchableOpacity>
-      <Modal visible={modalVisible} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalVisible(false)}>
-          <View style={styles.dropdownModalContent}>
-            <Text style={styles.modalTitle}>Select {label}</Text>
-            <FlatList
-              data={options}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.dropdownOption, selectedValue === item && styles.dropdownOptionActive]}
-                  onPress={() => {
-                    onSelect(item);
-                    setModalVisible(false);
-                  }}
-                >
-                  <Text style={[styles.dropdownOptionText, selectedValue === item && styles.dropdownOptionTextActive]}>
-                    {item}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </View>
-  );
-};
-
-const MultiSelectPills = ({
-  options,
-  selectedValues,
-  onToggle,
-}: {
-  options: string[];
-  selectedValues: string[];
-  onToggle: (val: string) => void;
-}) => (
-  <View style={styles.pillContainer}>
-    {options.map((option) => {
-      const isSelected = selectedValues.includes(option);
-      return (
-        <TouchableOpacity
-          key={option}
-          style={[styles.pill, isSelected && styles.pillActive]}
-          onPress={() => onToggle(option)}
-        >
-          <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
-            {option} {isSelected && '✓'}
-          </Text>
-        </TouchableOpacity>
-      );
-    })}
-  </View>
-);
-
-// ================================================================
 // Styles
 // ================================================================
 const styles = StyleSheet.create({
@@ -1566,11 +873,35 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-end',
     paddingHorizontal: 20,
-    paddingTop: 60,
     paddingBottom: 20,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bellButton: {
+    marginRight: 16,
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    backgroundColor: '#E53E3E',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
   },
   greetingText: { fontSize: 14, color: '#64748B', fontWeight: '600', textTransform: 'uppercase' },
   mainTitle: { fontSize: 28, fontWeight: '800', color: '#0F172A', marginTop: 4 },
@@ -1587,7 +918,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  listContent: { padding: 20, paddingBottom: 100 },
+  listContent: { padding: 20 },
   listingCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1617,7 +948,7 @@ const styles = StyleSheet.create({
 
   // Form styles
   formContainer: { flex: 1, backgroundColor: '#F8FAFC' },
-  formHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20, backgroundColor: '#fff' },
+  formHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#fff' },
   backButton: { marginRight: 16, padding: 4 },
   headerTitle: { fontSize: 22, fontWeight: '800', color: '#0F172A' },
   cardSection: {
@@ -1686,7 +1017,13 @@ const styles = StyleSheet.create({
   },
   uploadBtnText: { color: '#1B8C40', fontWeight: '700', fontSize: 15, marginLeft: 10 },
   galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  galleryItem: { width: '30%', aspectRatio: 1, borderRadius: 12, backgroundColor: '#F1F5F9' },
+  galleryItem: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    position: 'relative',
+  },
   galleryImage: { width: '100%', height: '100%', borderRadius: 12 },
   deleteBadge: {
     position: 'absolute',
@@ -1700,11 +1037,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderColor: '#fff',
+    zIndex: 2,
+  },
+  existingBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    backgroundColor: 'rgba(27, 140, 64, 0.8)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  existingBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '600',
   },
   stickyFooter: {
     paddingHorizontal: 20,
     paddingVertical: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     backgroundColor: '#fff',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',

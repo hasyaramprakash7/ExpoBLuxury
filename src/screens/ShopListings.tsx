@@ -34,6 +34,7 @@ import {
 import { fetchCategories } from "../features/categorySlice";
 import { LinearGradient } from "expo-linear-gradient";
 import { createSelector } from '@reduxjs/toolkit';
+// Slider import removed – we no longer use it
 
 import { Colors, getFullAddress, calculateDistance, scale, verticalScale, moderateScale } from "../constants/colors";
 import { AddressModal } from "../components/AddressModal";
@@ -44,7 +45,7 @@ import AddAddressScreen from "./AddAddressScreen";
 const { width, height } = Dimensions.get("window");
 const CATEGORY_DISPLAY_LIMIT = 30;
 const FETCH_STALE_MS = 5 * 60 * 1000;
-const HEADER_HEIGHT = 130;
+const HEADER_HEIGHT = 160;
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -190,6 +191,11 @@ const ShopListings = () => {
   const [isAddressLoading, setIsAddressLoading] = useState<boolean>(false);
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
 
+  // Radius state – default 5 km, but we use preset buttons (10,20,30,50,100)
+  const [manualRadius, setManualRadius] = useState<number>(5);
+  const [appliedRadius, setAppliedRadius] = useState<number>(5);
+  const [radiusExpanded, setRadiusExpanded] = useState<boolean>(false);
+
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
   const isHeaderHidden = useRef(false);
@@ -205,8 +211,6 @@ const ShopListings = () => {
   const lastFetchTime = useRef<number>(0);
   const locationPickerShown = useRef(false);
   const isNavigatingAway = useRef(false);
-
-  // 移除 resetKey
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -238,10 +242,11 @@ const ShopListings = () => {
       lat = selectedAddress.latitude;
       lng = selectedAddress.longitude;
     }
+    console.log('📍 [getCurrentLocation] returning:', { lat, lng });
     return { lat, lng };
   }, [userLocation, selectedAddress]);
 
-  const fetchDirectoryVendors = useCallback(async (options?: { force?: boolean, category?: string }) => {
+  const fetchDirectoryVendors = useCallback(async (options?: { force?: boolean, category?: string, radius?: number, expanded?: boolean }) => {
     console.log('🔷 [ShopListings] fetchDirectoryVendors called', { 
       options, 
       isFetching: isFetching.current,
@@ -254,7 +259,7 @@ const ShopListings = () => {
     }
     const { lat, lng } = getCurrentLocation();
     isFetching.current = true;
-    console.log('🔄 [ShopListings] fetchDirectoryVendors executing', { lat, lng, category: options?.category });
+    console.log('🔄 [ShopListings] fetchDirectoryVendors executing', { lat, lng, category: options?.category, radius: options?.radius });
 
     try {
       const params: any = {};
@@ -265,9 +270,24 @@ const ShopListings = () => {
       if (options?.category) {
         params.category = options.category;
       }
+      const radiusToUse = options?.radius !== undefined ? options.radius : appliedRadius;
+      if (radiusToUse) {
+        params.radius = radiusToUse;
+        console.log('📐 [ShopListings] Setting appliedRadius to:', radiusToUse);
+        setAppliedRadius(radiusToUse);
+      }
       
-      console.log('📤 [ShopListings] Dispatching searchDirectoryVendors with params:', params);
-      await dispatch(searchDirectoryVendors(params));
+      console.log('📤 [ShopListings] Dispatching searchDirectoryVendors with params:', JSON.stringify(params));
+      const result = await dispatch(searchDirectoryVendors(params));
+      console.log('✅ [ShopListings] searchDirectoryVendors result:', result);
+      const vendors = result.payload || result.data || [];
+      console.log(`📊 [ShopListings] API returned ${vendors.length} vendors`);
+
+      if (options?.expanded) {
+        setRadiusExpanded(true);
+      } else {
+        setRadiusExpanded(radiusToUse > 10);
+      }
       
       if (!allProducts || allProducts.length === 0) {
         console.log('📤 [ShopListings] Fetching products...');
@@ -286,7 +306,16 @@ const ShopListings = () => {
       setIsInitialLoading(false);
       console.log('🏁 [ShopListings] isInitialLoading set to false');
     }
-  }, [dispatch, getCurrentLocation, allProducts, categories.length, categoriesLoading, directoryVendors?.length]);
+  }, [dispatch, getCurrentLocation, allProducts, categories.length, categoriesLoading, directoryVendors?.length, appliedRadius]);
+
+  // Auto-expand when no shops found
+  useEffect(() => {
+    if (isInitialLoading || isFetching.current) return;
+    if (!radiusExpanded && directoryVendors && directoryVendors.length === 0 && appliedRadius <= 10) {
+      console.log('🔄 [ShopListings] No shops found, auto-expanding to 20 km');
+      fetchDirectoryVendors({ radius: 20, expanded: true });
+    }
+  }, [directoryVendors, isInitialLoading, radiusExpanded, appliedRadius, fetchDirectoryVendors]);
 
   const immediateFetch = useCallback(() => {
     console.log('🔷 [ShopListings] immediateFetch called', { 
@@ -304,11 +333,11 @@ const ShopListings = () => {
       (now - lastFetchTime.current > FETCH_STALE_MS);
     if (shouldFetch) {
       console.log('🔄 [ShopListings] immediateFetch – fetching all vendors');
-      fetchDirectoryVendors({});
+      fetchDirectoryVendors({ radius: appliedRadius });
     } else {
       console.log('⏭️ [ShopListings] immediateFetch skipped – data is fresh');
     }
-  }, [fetchDirectoryVendors, directoryVendors]);
+  }, [fetchDirectoryVendors, directoryVendors, appliedRadius]);
 
   const debouncedFetch = useCallback(() => {
     console.log('🔷 [ShopListings] debouncedFetch called');
@@ -323,13 +352,13 @@ const ShopListings = () => {
         (now - lastFetchTime.current > FETCH_STALE_MS);
       if (shouldFetch) {
         console.log('🔄 [ShopListings] debouncedFetch – fetching all vendors');
-        fetchDirectoryVendors({});
+        fetchDirectoryVendors({ radius: appliedRadius });
       } else {
         console.log('⏭️ [ShopListings] debouncedFetch skipped – data is fresh');
       }
       fetchTimeout.current = null;
     }, 300);
-  }, [fetchDirectoryVendors, directoryVendors]);
+  }, [fetchDirectoryVendors, directoryVendors, appliedRadius]);
 
   const handleRequestLocation = async () => {
     console.log('🔷 [ShopListings] handleRequestLocation called');
@@ -546,7 +575,7 @@ const ShopListings = () => {
     }
     try {
       await Promise.all([
-        fetchDirectoryVendors({}),
+        fetchDirectoryVendors({ radius: appliedRadius }),
         dispatch(fetchAllVendorProducts()),
         dispatch(fetchCategories()),
       ]);
@@ -557,7 +586,7 @@ const ShopListings = () => {
     } finally {
       setIsRefreshing(false);
     }
-  }, [fetchDirectoryVendors, dispatch]);
+  }, [fetchDirectoryVendors, dispatch, appliedRadius]);
 
   useEffect(() => {
     if (isInitialMount.current) {
@@ -565,7 +594,7 @@ const ShopListings = () => {
       const loadInitialData = async () => {
         console.log('🚀 [ShopListings] Initial load started');
         if (!directoryVendors || directoryVendors.length === 0) {
-          await fetchDirectoryVendors({});
+          await fetchDirectoryVendors({ radius: appliedRadius });
         }
         if (!allProducts || allProducts.length === 0) {
           await dispatch(fetchAllVendorProducts());
@@ -583,37 +612,74 @@ const ShopListings = () => {
     }
   }, []);
 
- useFocusEffect(
-  useCallback(() => {
-    console.log('📱 [ShopListings] Screen focused, isNavigatingAway:', isNavigatingAway.current);
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 [ShopListings] Screen focused, isNavigatingAway:', isNavigatingAway.current);
 
-    if (isNavigatingAway.current) {
-      isNavigatingAway.current = false;
-      console.log('🔄 [ShopListings] Returning from navigation, fetching all vendors');
-      fetchDirectoryVendors({});
-    }
+      if (isNavigatingAway.current) {
+        isNavigatingAway.current = false;
+        console.log('🔄 [ShopListings] Returning from navigation, fetching all vendors');
+        fetchDirectoryVendors({ radius: appliedRadius });
+      }
 
-    const now = Date.now();
-    const shouldFetch = 
-      (!directoryVendors || directoryVendors.length === 0) ||
-      (now - lastFetchTime.current > FETCH_STALE_MS);
+      const now = Date.now();
+      const shouldFetch = 
+        (!directoryVendors || directoryVendors.length === 0) ||
+        (now - lastFetchTime.current > FETCH_STALE_MS);
 
-    if (shouldFetch && !isInitialMount.current) {
-      console.log('🔄 [ShopListings] Fetching all vendors due to focus (stale or empty)');
-      fetchDirectoryVendors({});
-    } else {
-      console.log('⏭️ [ShopListings] Skipping fetch – data is fresh');
-    }
+      if (shouldFetch && !isInitialMount.current) {
+        console.log('🔄 [ShopListings] Fetching all vendors due to focus (stale or empty)');
+        fetchDirectoryVendors({ radius: appliedRadius });
+      } else {
+        console.log('⏭️ [ShopListings] Skipping fetch – data is fresh');
+      }
 
-    if (categories.length === 0 && !categoriesLoading) {
-      dispatch(fetchCategories());
-    }
+      if (categories.length === 0 && !categoriesLoading) {
+        dispatch(fetchCategories());
+      }
 
-    // ✅ Restore scroll position when returning
-    if (savedScrollOffset.current > 0 && !isRestoringScroll.current) {
+      // Restore scroll position when returning
+      if (savedScrollOffset.current > 0 && !isRestoringScroll.current) {
+        isRestoringScroll.current = true;
+        console.log('📍 [ShopListings] Restoring scroll to:', savedScrollOffset.current);
+        
+        setTimeout(() => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToOffset({
+              offset: savedScrollOffset.current,
+              animated: false,
+            });
+          }
+          if (savedScrollOffset.current > 20) {
+            isHeaderHidden.current = true;
+            headerTranslateY.setValue(-HEADER_HEIGHT);
+          } else {
+            isHeaderHidden.current = false;
+            headerTranslateY.setValue(0);
+          }
+          setTimeout(() => {
+            isRestoringScroll.current = false;
+          }, 100);
+        }, 150);
+      }
+
+      return () => {
+        if (flatListRef.current) {
+          console.log('💾 [ShopListings] Saving scroll position:', lastScrollY.current);
+          savedScrollOffset.current = lastScrollY.current;
+        }
+        isNavigatingAway.current = true;
+        console.log('📱 [ShopListings] Screen unfocused, saved scroll:', savedScrollOffset.current);
+      };
+    }, [fetchDirectoryVendors, directoryVendors, categories.length, categoriesLoading, dispatch, appliedRadius])
+  );
+
+  // Restore scroll after directoryVendors updates
+  useEffect(() => {
+    console.log('🔄 [ShopListings] directoryVendors changed, count:', directoryVendors?.length);
+    if (!isRestoringScroll.current && savedScrollOffset.current > 0) {
       isRestoringScroll.current = true;
-      console.log('📍 [ShopListings] Restoring scroll to:', savedScrollOffset.current);
-      
+      console.log('📍 [ShopListings] Restoring scroll after data update to:', savedScrollOffset.current);
       setTimeout(() => {
         if (flatListRef.current) {
           flatListRef.current.scrollToOffset({
@@ -621,33 +687,12 @@ const ShopListings = () => {
             animated: false,
           });
         }
-        // Restore header state based on scroll position
-        if (savedScrollOffset.current > 20) {
-          isHeaderHidden.current = true;
-          headerTranslateY.setValue(-HEADER_HEIGHT);
-        } else {
-          isHeaderHidden.current = false;
-          headerTranslateY.setValue(0);
-        }
         setTimeout(() => {
           isRestoringScroll.current = false;
         }, 100);
       }, 150);
     }
-
-    return () => {
-      // Save current scroll position when leaving
-      if (flatListRef.current) {
-        // Get the current scroll offset before leaving
-        // The scroll position is already being saved in handleScroll
-        console.log('💾 [ShopListings] Saving scroll position:', lastScrollY.current);
-        savedScrollOffset.current = lastScrollY.current;
-      }
-      isNavigatingAway.current = true;
-      console.log('📱 [ShopListings] Screen unfocused, saved scroll:', savedScrollOffset.current);
-    };
-  }, [fetchDirectoryVendors, directoryVendors, categories.length, categoriesLoading, dispatch])
-);
+  }, [directoryVendors]);
 
   useEffect(() => {
     if (isInitialMount.current) return;
@@ -731,6 +776,9 @@ const ShopListings = () => {
   const filteredVendors = useMemo(() => {
     const filtered = (directoryVendors || []).filter(v => v && v._id);
     console.log('🔷 [ShopListings] filteredVendors:', filtered.length);
+    filtered.forEach((v, i) => {
+      console.log(`📏 [ShopListings] Vendor ${i+1}: ${v.shopName || v.name}, distance: ${v.distance || 'N/A'} km`);
+    });
     return filtered;
   }, [directoryVendors]);
 
@@ -786,6 +834,9 @@ const ShopListings = () => {
     });
     
     console.log('✅ [ShopListings] vendorsWithDetails computed:', sorted.length);
+    sorted.forEach((v, i) => {
+      console.log(`📏 [ShopListings] Final vendor ${i+1}: ${v.shopName || v.name}, distance: ${v.distance || 'N/A'} km, inRange: ${v.isInRange}`);
+    });
     return sorted;
   }, [filteredVendors, allProducts, userLocation]);
 
@@ -801,7 +852,7 @@ const ShopListings = () => {
     savedScrollOffset.current = currentScrollY;
     
     if (currentScrollY > 20) {
-      if (diff > 3) {
+      if (diff > 5) {
         if (!isHeaderHidden.current) {
           isHeaderHidden.current = true;
           Animated.timing(headerTranslateY, {
@@ -810,7 +861,7 @@ const ShopListings = () => {
             useNativeDriver: true,
           }).start();
         }
-      } else if (diff < -3) {
+      } else if (diff < -5) {
         if (isHeaderHidden.current) {
           isHeaderHidden.current = false;
           Animated.timing(headerTranslateY, {
@@ -849,6 +900,8 @@ const ShopListings = () => {
     });
   }, [isLoading, isInitialLoading, directoryVendors, isLocationLoading, isAddressLoading, categoriesLoading]);
 
+  const shopCount = vendorsWithDetails.length;
+
   const renderContent = () => {
     console.log('🎨 [ShopListings] renderContent called, isLoading:', isLoading, 'isRefreshing:', isRefreshing);
     if (isLoading && !isRefreshing) {
@@ -877,7 +930,7 @@ const ShopListings = () => {
       <AnimatedFlatList
         ref={flatListRef}
         data={vendorsWithDetails}
-        extraData={displayCategories}  // ✅ 添加 extraData
+        extraData={displayCategories}
         keyExtractor={(item) => item._id}
         renderItem={({ item }) => (
           <ShopCard shop={item} onPress={() => handleCardPress(item)} />
@@ -897,8 +950,7 @@ const ShopListings = () => {
           <>
             <View style={{ height: HEADER_HEIGHT + 10 }} />
             
-            {/* ✅ AdCarousel FIRST */}
-            {!targetVendorId && <AdCarouselWithNavigation limit={5} title="Sponsored" />}
+            {!targetVendorId && <AdCarouselWithNavigation limit={25} title="Sponsored" />}
 
             {!targetVendorId && displayCategories.length > 0 ? (
               <>
@@ -922,6 +974,7 @@ const ShopListings = () => {
                             navigation.navigate('CategoryShopsScreen', {
                               categoryName: item.name,
                               categoryImage: item.image,
+                              radius: appliedRadius,
                             });
                           } else {
                             console.warn('⚠️ Category item has no name:', item);
@@ -948,9 +1001,13 @@ const ShopListings = () => {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="storefront-outline" size={scale(60)} color={Colors.textLightGray} />
-            <Text style={styles.emptyText}>No shops found</Text>
+            <Text style={styles.emptyText}>
+              {radiusExpanded ? `No shops found within ${appliedRadius} km` : "No shops found"}
+            </Text>
             <Text style={styles.emptySubText}>
-              Try changing your location or clear the filters.
+              {radiusExpanded
+                ? "Try changing your location or adjust the radius."
+                : "Try changing your location or clear the filters."}
             </Text>
             <TouchableOpacity
               onPress={handleOpenAddressModal}
@@ -999,6 +1056,42 @@ const ShopListings = () => {
               <Ionicons name="chevron-forward" size={scale(16)} color={Colors.textGray} />
             </TouchableOpacity>
           )}
+
+          {/* Radius preset buttons – slider removed */}
+          <View style={styles.radiusInfoRow}>
+            <Ionicons name="radio-outline" size={18} color={Colors.accentGreen} />
+            <Text style={styles.radiusLabel}>Radius: {manualRadius} km</Text>
+            {shopCount > 0 && (
+              <Text style={styles.shopCountText}>{shopCount} shop{shopCount > 1 ? "s" : ""}</Text>
+            )}
+          </View>
+
+          <View style={styles.presetContainer}>
+            {[10, 20, 30, 50, 100].map((val) => (
+              <TouchableOpacity
+                key={val}
+                style={[
+                  styles.presetChip,
+                  manualRadius === val && styles.presetChipActive,
+                ]}
+                onPress={() => {
+                  setManualRadius(val);
+                  savedScrollOffset.current = lastScrollY.current;
+                  const isExpanded = val > 10;
+                  fetchDirectoryVendors({ radius: val, expanded: isExpanded });
+                }}
+              >
+                <Text
+                  style={[
+                    styles.presetChipText,
+                    manualRadius === val && styles.presetChipTextActive,
+                  ]}
+                >
+                  {val} km
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </Animated.View>
 
         {renderContent()}
@@ -1094,6 +1187,54 @@ const styles = StyleSheet.create({
     marginLeft: scale(10),
     fontSize: moderateScale(15),
     color: Colors.textGray,
+  },
+  radiusInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: scale(16),
+    marginVertical: verticalScale(4),
+    paddingVertical: verticalScale(4),
+  },
+  radiusLabel: {
+    fontSize: moderateScale(13),
+    fontWeight: '600',
+    color: Colors.textDark,
+    marginLeft: scale(4),
+    marginRight: scale(4),
+    flex: 1,
+  },
+  shopCountText: {
+    fontSize: moderateScale(13),
+    fontWeight: '600',
+    color: Colors.accentGreen,
+    marginLeft: scale(6),
+  },
+  presetContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: scale(16),
+    marginBottom: verticalScale(6),
+    marginTop: verticalScale(2),
+  },
+  presetChip: {
+    paddingVertical: verticalScale(4),
+    paddingHorizontal: scale(12),
+    borderRadius: moderateScale(16),
+    backgroundColor: '#F0F0F0',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  presetChipActive: {
+    backgroundColor: Colors.accentGreen,
+    borderColor: Colors.accentGreen,
+  },
+  presetChipText: {
+    fontSize: moderateScale(12),
+    color: Colors.textGray,
+    fontWeight: '500',
+  },
+  presetChipTextActive: {
+    color: '#FFFFFF',
   },
   sectionHeader: {
     flexDirection: 'row',

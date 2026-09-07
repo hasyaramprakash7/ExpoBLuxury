@@ -81,8 +81,11 @@ const CategoryShopsScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
 
-  const { categoryName, categoryImage } = route.params || {};
-  console.log('🔷 [CategoryShops] Screen initialized with category:', categoryName);
+  // ✅ Read radius from route params, default 10
+  const { categoryName, categoryImage, radius: passedRadius } = route.params || {};
+  const [radius, setRadius] = useState<number>(passedRadius || 10);
+
+  console.log('🔷 [CategoryShops] Screen initialized with category:', categoryName, 'radius:', radius);
 
   const { location: userLocation, selectedAddress, loading: isLocationLoading } = useSelector(
     (state: RootState) => state.location,
@@ -128,7 +131,6 @@ const CategoryShopsScreen = () => {
     extrapolate: 'clamp',
   });
 
-  // ✅ Keep icon background transparent with white icon always
   const iconBgColor = scrollY.interpolate({
     inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
     outputRange: ['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.2)'],
@@ -165,6 +167,7 @@ const CategoryShopsScreen = () => {
     return found ? { name: found.name, image: found.image } : { name: categoryName, image: null };
   }, [categories, categoryName, categoryImage]);
 
+  // ✅ Updated: include radius in the API call
   const fetchCategoryVendors = useCallback(async (force = false) => {
     console.log('🔷 [CategoryShops] fetchCategoryVendors called', { categoryName, force, hasFetched: hasFetched.current, isFetching: isFetching.current });
     
@@ -180,10 +183,13 @@ const CategoryShopsScreen = () => {
     const { lat, lng } = currentLocation;
     isFetching.current = true;
     setIsLoading(true);
-    console.log('🔄 [CategoryShops] Fetching vendors for category:', categoryName, { lat, lng });
+    console.log('🔄 [CategoryShops] Fetching vendors for category:', categoryName, { lat, lng, radius });
 
     try {
-      const params: any = { category: categoryName };
+      const params: any = {
+        category: categoryName,
+        radius: radius,  // ✅ Pass the radius from state
+      };
       if (lat && lng) {
         params.lat = lat;
         params.lng = lng;
@@ -205,7 +211,7 @@ const CategoryShopsScreen = () => {
       setIsLoading(false);
       console.log('🏁 [CategoryShops] Fetch finished, isLoading set to false');
     }
-  }, [dispatch, currentLocation, categoryName, allProducts, directoryVendors.length]);
+  }, [dispatch, currentLocation, categoryName, radius, allProducts, directoryVendors.length]);
 
   const debouncedFetch = useCallback((force = false) => {
     console.log('🔷 [CategoryShops] debouncedFetch called', { force });
@@ -266,7 +272,6 @@ const CategoryShopsScreen = () => {
     }
   };
 
-  // ✅ Handle map location select from AddAddressScreen
   const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
     console.log('🔷 [CategoryShops] handleMapLocationSelect called', { lat, lng });
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
@@ -307,7 +312,6 @@ const CategoryShopsScreen = () => {
     immediateFetch(true);
   }, [dispatch, token, addresses.length, immediateFetch]);
 
-  // ✅ Handle map picker location select (existing)
   const handleMapPickerSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
     console.log('🔷 [CategoryShops] handleMapPickerSelect called', { lat, lng });
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
@@ -385,7 +389,6 @@ const CategoryShopsScreen = () => {
     }, [directoryVendors.length, hasLoadedOnce, immediateFetch])
   );
 
-  // ✅ Filter vendors by category and search text with proper category parsing
   const vendorsWithDetails = useMemo(() => {
     console.log('🔷 [CategoryShops] Computing vendorsWithDetails', { 
       directoryVendorsLength: directoryVendors?.length,
@@ -411,7 +414,6 @@ const CategoryShopsScreen = () => {
       }
       if (!vendor.deliveryRange || vendor.deliveryRange === 0) isInRange = true;
 
-      // ✅ Parse categories properly
       const parsedCategories = parseVendorCategories(vendor.categories);
 
       return {
@@ -421,11 +423,10 @@ const CategoryShopsScreen = () => {
         productImages,
         distance,
         isInRange,
-        categories: parsedCategories, // ✅ Use parsed categories
+        categories: parsedCategories,
       };
     });
 
-    // Filter by category name (client-side fallback)
     let filtered = result;
     if (categoryName) {
       const categoryLower = categoryName.toLowerCase();
@@ -435,13 +436,10 @@ const CategoryShopsScreen = () => {
           String(c).toLowerCase().includes(categoryLower) || 
           categoryLower.includes(String(c).toLowerCase())
         );
-        console.log('🔍 [CategoryShops] Vendor', v.shopName, 'categories:', vendorCategories, 'matches:', matches);
         return matches;
       });
-      console.log('🔷 [CategoryShops] After category filter:', filtered.length, 'vendors');
     }
 
-    // Filter by search text
     if (searchText) {
       const lower = searchText.toLowerCase();
       filtered = filtered.filter((v) =>
@@ -451,7 +449,6 @@ const CategoryShopsScreen = () => {
         v.categories?.some((c: string) => String(c).toLowerCase().includes(lower)) ||
         v.tags?.some((t: string) => String(t).toLowerCase().includes(lower))
       );
-      console.log('🔷 [CategoryShops] After search filter:', filtered.length, 'vendors');
     }
 
     const sorted = filtered.sort((a, b) => {
@@ -488,14 +485,12 @@ const CategoryShopsScreen = () => {
     immediateFetch(true);
   };
 
-  // ✅ Handle opening AddAddress screen from AddressModal
   const handleOpenAddAddress = () => {
     console.log('🔷 [CategoryShops] Opening add address screen');
     setShowAddressModal(false);
     setShowAddAddress(true);
   };
 
-  // ✅ Handle closing AddAddress screen
   const handleCloseAddAddress = () => {
     console.log('🔷 [CategoryShops] Closing add address screen');
     setShowAddAddress(false);
@@ -515,7 +510,6 @@ const CategoryShopsScreen = () => {
   };
 
   const isLoadingState = isLoading || vendorsLoading || isLocationLoading || isAddressLoading;
-  console.log('📊 [CategoryShops] isLoadingState:', isLoadingState, { isLoading, vendorsLoading, isLocationLoading, isAddressLoading });
 
   return (
     <View style={styles.container}>
@@ -539,7 +533,6 @@ const CategoryShopsScreen = () => {
         <Animated.View style={[styles.stickyHeader, { backgroundColor: 'transparent' }]}>
           <View style={styles.topBar}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtnWrapper}>
-              {/* ✅ Transparent background with white icon */}
               <Animated.View style={[styles.iconBtn, { backgroundColor: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.1)' }]}>
                 <Ionicons name="arrow-back" size={scale(22)} color="#FFFFFF" />
               </Animated.View>
@@ -645,7 +638,6 @@ const CategoryShopsScreen = () => {
 
       </SafeAreaView>
 
-      {/* ✅ Address Modal with Open Map option */}
       <AddressModal
         visible={showAddressModal}
         onClose={() => setShowAddressModal(false)}
@@ -657,7 +649,6 @@ const CategoryShopsScreen = () => {
         onOpenMap={handleOpenAddAddress}
       />
 
-      {/* ✅ Add Address Screen with Map Picker */}
       {showAddAddress && (
         <View style={styles.modalOverlay}>
           <AddAddressScreen
@@ -670,7 +661,6 @@ const CategoryShopsScreen = () => {
         </View>
       )}
 
-      {/* ✅ Map Picker Modal */}
       <MapPickerModal
         visible={showMapPicker}
         onClose={() => setShowMapPicker(false)}

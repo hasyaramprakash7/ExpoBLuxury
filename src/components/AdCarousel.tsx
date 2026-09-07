@@ -214,7 +214,7 @@ const AdCarousel: React.FC<AdCarouselProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 8,
+    marginVertical: 18,
   },
   title: {
     fontSize: 18,

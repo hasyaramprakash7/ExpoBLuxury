@@ -1,3 +1,4 @@
+// components/NewProductCard.tsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
@@ -48,7 +49,7 @@ interface Product {
   category?: string;
   sizes?: string[];
   description?: string;
-  unit?: string;          // NEW: e.g., "kg", "g", "units", "piece"
+  unit?: string;
 }
 
 interface NewProductCardProps {
@@ -63,7 +64,7 @@ type ProductCardNavigationProp = StackNavigationProp<
   "ProductDetails"
 >;
 
-// --- COLORS MATCHING THE NEW UI ---
+// --- COLORS ---
 const Colors = {
   white: "#FFFFFF",
   textDark: "#1C1C1E",
@@ -71,10 +72,7 @@ const Colors = {
   textLightGray: "#9CA3AF",
   accentGreen: "#22C55E",
   redAlert: "#EF4444",
-  divider: "rgba(255,255,255,0.2)",
-  bgLight: "rgba(255,255,255,0.1)",
-  yellowStar: "#fff",
-  goldPrimary: "#fff",
+  goldPrimary: "#FFFFFF",
 };
 
 const PRODUCT_NAME_MAX_LENGTH = 60;
@@ -83,7 +81,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   product,
   isVendorOffline = false,
   isVendorOutOfRange = false,
-  vendorDistance,
 }) => {
   const dispatch = useDispatch();
   const navigation = useNavigation<ProductCardNavigationProp>();
@@ -97,7 +94,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     );
   }, [product.name, product.category]);
 
-  // --- DYNAMIC UNIT DETECTION (copied from first component) ---
+  // --- DYNAMIC UNIT ---
   const unitLabel = useMemo(() => {
     if (product.unit) return product.unit;
 
@@ -140,7 +137,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     requiresSizeSelection ? product.sizes![0] : null,
   );
 
-  // --- CART ITEMS (array) ---
+  // --- CART ---
   const cartItems = useSelector((state: any) => state.cart.items);
 
   const cartItem = useMemo(() => {
@@ -157,7 +154,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   }, [cartItems, product._id, selectedSize, requiresSizeSelection]);
 
   const basePrice = useMemo(
-    () => product.discountedPrice || product.price,
+    () => product.discountedPrice || product.price || 0,
     [product.discountedPrice, product.price],
   );
 
@@ -168,7 +165,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   const [showQuantityInput, setShowQuantityInput] = useState<boolean>(
     (cartItem?.quantity || 0) > 0,
   );
-  const [displayStock, setDisplayStock] = useState<number>(product.stock);
+  const [displayStock, setDisplayStock] = useState<number>(product.stock || 0);
   const [isAddingToCart, setIsAddingToCart] = useState<boolean>(false);
 
   const controlOpacity = useMemo(
@@ -211,20 +208,17 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     return 0;
   }, [product.price, product.discountedPrice]);
 
-  // --- PRICE TIERS WITH DYNAMIC UNIT ---
+  // --- PRICE TIERS ---
   const priceTiers = useMemo(() => {
     const tiers: any[] = [];
     const bulkMin = product.bulkMinimumUnits || Infinity;
     const largeQtyMin = product.largeQuantityMinimumUnits || Infinity;
     const hasBulkTier = !!(product.bulkPrice && product.bulkMinimumUnits);
-    const hasLargeQtyTier = !!(
-      product.largeQuantityPrice && product.largeQuantityMinimumUnits
-    );
+    const hasLargeQtyTier = !!(product.largeQuantityPrice && product.largeQuantityMinimumUnits);
 
     const defaultMax = Math.min(bulkMin - 1, largeQtyMin - 1);
     const unit = unitLabel;
 
-    // Default tier
     if (defaultMax >= 1 || (!hasBulkTier && !hasLargeQtyTier)) {
       const label =
         defaultMax === Infinity
@@ -235,12 +229,11 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       tiers.push({
         minQty: 1,
         maxQty: defaultMax,
-        price: product.discountedPrice || product.price,
+        price: product.discountedPrice || product.price || 0,
         label: label,
       });
     }
 
-    // Bulk tier
     if (hasBulkTier) {
       const bulkMax = largeQtyMin - 1;
       const label =
@@ -255,7 +248,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       });
     }
 
-    // Large quantity tier
     if (hasLargeQtyTier) {
       const label = `≥ ${product.largeQuantityMinimumUnits} ${unit}`;
       tiers.push({
@@ -300,7 +292,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
   }, [currentNumericalQuantity, basePrice, priceTiers]);
 
   useEffect(() => {
-    setDisplayStock(product.stock);
+    setDisplayStock(product.stock || 0);
   }, [product.stock]);
 
   useEffect(() => {
@@ -362,7 +354,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
             size: selectedSize || undefined,
           }) as any,
         ).unwrap();
-
         setShowQuantityInput(false);
         setQuantity("");
       } else {
@@ -447,9 +438,6 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       navigation.navigate("ProductDetails", { product: product });
   };
 
-  const handleShareToChat = () =>
-    navigation.navigate("ChatScreen" as any, { forwardProduct: product });
-
   const isDisabled = isVendorOffline || isVendorOutOfRange;
   const isAddToCartButtonDisabled =
     isDisabled ||
@@ -457,9 +445,9 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
     isAddingToCart ||
     (requiresSizeSelection && !selectedSize);
   const truncatedProductName =
-    product.name.length > PRODUCT_NAME_MAX_LENGTH
+    product.name && product.name.length > PRODUCT_NAME_MAX_LENGTH
       ? `${product.name.substring(0, PRODUCT_NAME_MAX_LENGTH)}...`
-      : product.name;
+      : product.name || "Product";
 
   const getButtonText = () => {
     if (displayStock === 0) return "Out of Stock";
@@ -475,26 +463,22 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
       style={[styles.cardContainer, isDisabled && styles.cardDisabled]}
       activeOpacity={0.9}
     >
-      {/* Background Image */}
+      {/* Background Image – if exists, otherwise plain dark background (no icon) */}
       {product.images && product.images.length > 0 ? (
         <Image
           source={{ uri: product.images[0] }}
           style={styles.backgroundImage}
         />
       ) : (
-        <View style={[styles.backgroundImage, styles.noImageBg]}>
-          <Ionicons
-            name="image-outline"
-            size={40}
-            color={Colors.textLightGray}
-          />
-        </View>
+        <View style={[styles.backgroundImage, styles.noImageBg]} />
       )}
 
+      {/* Dark gradient for overall depth (optional) */}
       <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.6)", "rgba(0,0,0,0.95)"]}
-        locations={[0.3, 0.7, 1]}
+        colors={["transparent", "rgba(0,0,0,0.6)", "#000000"]}
+        locations={[0.1, 0.5, 1]}
         style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
       />
 
       {isDisabled && (
@@ -505,7 +489,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
         </View>
       )}
 
-      {/* Top Row: Badges & Share */}
+      {/* Top Row: Save badge */}
       <View style={styles.topRow}>
         <View>
           {!!amountSaved && (
@@ -514,17 +498,10 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
             </View>
           )}
         </View>
-        {/* <TouchableOpacity
-          style={styles.shareButton}
-          onPress={handleShareToChat}
-        >
-          <Ionicons name="arrow-redo-outline" size={18} color={Colors.white} />
-        </TouchableOpacity> */}
       </View>
 
-      {/* Bottom Content Area */}
+      {/* Bottom Content – solid dark background to ensure text visibility */}
       <View style={styles.bottomContent}>
-        {/* Left Column: Info & Text */}
         <View style={styles.leftInfoSide}>
           <View style={styles.titleRow}>
             <View
@@ -571,7 +548,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
             </View>
           )}
 
-          {/* --- SIZE PILLS (NOW ACTIVE) --- */}
+          {/* Size Pills */}
           {requiresSizeSelection && (
             <ScrollView
               horizontal
@@ -601,7 +578,7 @@ const NewProductCard: React.FC<NewProductCardProps> = ({
             </ScrollView>
           )}
 
-          {/* Price Tiers with dynamic unit */}
+          {/* Price Tiers */}
           {priceTiers.length > 0 && (
             <View style={styles.priceTiersContainer}>
               {priceTiers.map((tier, index) => (
@@ -752,7 +729,7 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     borderRadius: 16,
     overflow: "hidden",
-    backgroundColor: Colors.textDark,
+    backgroundColor: "#2C2C2E",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.15)",
     elevation: 8,
@@ -770,8 +747,7 @@ const styles = StyleSheet.create({
   },
   noImageBg: {
     backgroundColor: "#2C2C2E",
-    justifyContent: "center",
-    alignItems: "center",
+    // No icon – just a plain dark background
   },
   topRow: {
     flexDirection: "row",
@@ -786,14 +762,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   saveBadgeText: { color: Colors.textDark, fontSize: 10, fontWeight: "bold" },
-  shareButton: {
-    backgroundColor: "rgba(255,255,255,0.25)",
-    borderRadius: 20,
-    width: 32,
-    height: 32,
-    justifyContent: "center",
-    alignItems: "center",
-  },
   bottomContent: {
     flex: 1,
     flexDirection: "row",
@@ -801,6 +769,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-end",
     zIndex: 10,
+    // ✅ Solid dark background to guarantee text visibility
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderRadius: 0, // keep it flat
   },
   leftInfoSide: {
     flex: 1,
@@ -820,7 +791,7 @@ const styles = StyleSheet.create({
   productName: {
     fontSize: 16,
     fontWeight: "bold",
-    color: Colors.white,
+    color: Colors.white, // always white
     flexShrink: 1,
   },
   typeIcon: {
@@ -882,8 +853,11 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   metaText: { fontSize: 11, color: Colors.textGray, fontWeight: "500" },
-  sizeScrollView: { marginVertical: 4,height: 30,               // <-- fixed height
-  flexGrow: 0,  },
+  sizeScrollView: {
+    marginVertical: 4,
+    height: 30,
+    flexGrow: 0,
+  },
   sizePill: {
     paddingHorizontal: 10,
     paddingVertical: 4,

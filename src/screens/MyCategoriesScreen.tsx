@@ -16,7 +16,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useSelector, useDispatch } from "react-redux";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
-import NewProductCard from "../components/NewProductCard11";
+import NewProductCard from "../components/NewProductCard3";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
 
 const Colors = {
