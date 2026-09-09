@@ -169,9 +169,10 @@ const formatFullHours = (hours: any): string | null => {
   }
 };
 
-// --- Review Component ---
+// --- Review Component (identical to ShopReviews, but with defensive checks) ---
 const ReviewItem: React.FC<{ review: any }> = ({ review }) => {
   const formatDate = (dateString: string) => {
+    if (!dateString) return '';
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
       month: 'short',
@@ -179,6 +180,10 @@ const ReviewItem: React.FC<{ review: any }> = ({ review }) => {
       year: 'numeric'
     });
   };
+
+  const rating = typeof review.rating === 'number' ? review.rating : 0;
+  const userName = review.user?.name ? String(review.user.name) : 'User';
+  const userInitial = userName.charAt(0).toUpperCase() || 'U';
 
   return (
     <View style={reviewStyles.reviewCard}>
@@ -191,20 +196,18 @@ const ReviewItem: React.FC<{ review: any }> = ({ review }) => {
             />
           ) : (
             <View style={reviewStyles.userAvatarPlaceholder}>
-              <Text style={reviewStyles.userAvatarText}>
-                {review.user?.name?.charAt(0)?.toUpperCase() || 'U'}
-              </Text>
+              <Text style={reviewStyles.userAvatarText}>{userInitial}</Text>
             </View>
           )}
           <View>
-            <Text style={reviewStyles.userName}>{review.user?.name || 'User'}</Text>
+            <Text style={reviewStyles.userName}>{userName}</Text>
             <View style={reviewStyles.ratingStars}>
               {[1, 2, 3, 4, 5].map((star) => (
                 <Ionicons
                   key={star}
-                  name={star <= review.rating ? "star" : "star-outline"}
+                  name={star <= rating ? "star" : "star-outline"}
                   size={moderateScale(14)}
-                  color={star <= review.rating ? Colors.starYellow : Colors.starGray}
+                  color={star <= rating ? Colors.starYellow : Colors.starGray}
                 />
               ))}
             </View>
@@ -214,7 +217,7 @@ const ReviewItem: React.FC<{ review: any }> = ({ review }) => {
       </View>
 
       {review.comment && (
-        <Text style={reviewStyles.reviewComment}>{review.comment}</Text>
+        <Text style={reviewStyles.reviewComment}>{String(review.comment)}</Text>
       )}
 
       {review.images && review.images.length > 0 && (
@@ -321,7 +324,7 @@ const reviewStyles = StyleSheet.create({
   },
 });
 
-// --- Review Modal Component ---
+// --- Review Modal Component (unchanged) ---
 const ReviewModal: React.FC<{
   visible: boolean;
   onClose: () => void;
@@ -570,7 +573,7 @@ const ShopDetails = () => {
   const fullHours = formatFullHours(vendorData?.operatingHours);
   const hoursDisplay = fullHours ? fullHours.split('\n').filter(Boolean) : [];
 
-  // ✅ Parse categories, tags, services using helper
+  // Parse categories, tags, services
   const parsedCategories = parseArrayField(vendorData?.categories);
   const parsedTags = parseArrayField(vendorData?.tags);
   const parsedServices = parseArrayField(vendorData?.services);
@@ -578,7 +581,6 @@ const ShopDetails = () => {
   const viewTracked = useRef<boolean>(false);
   const isMounted = useRef<boolean>(true);
 
-  // Cleanup on unmount
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -591,21 +593,12 @@ const ShopDetails = () => {
   useEffect(() => {
     if (user?._id && vendor?._id && !viewTracked.current && isMounted.current) {
       viewTracked.current = true;
-
-      const viewData = {
+      dispatch(createViewLead({
         vendorId: vendor._id,
         shopName: vendor.shopName || 'Shop',
         userId: user._id,
         userName: user.name || 'User'
-      };
-
-      dispatch(createViewLead(viewData))
-        .then((result: any) => {
-          console.log('✅ View lead tracked for vendor:', vendor.shopName);
-        })
-        .catch((error: any) => {
-          console.error('❌ Failed to track view lead:', error);
-        });
+      }));
     }
   }, [vendor?._id, user?._id, dispatch]);
 
@@ -616,17 +609,18 @@ const ShopDetails = () => {
     }
   }, [dispatch]);
 
-  // Fetch reviews
+  // Fetch reviews - only on mount, and do NOT clear on unmount
   useEffect(() => {
     if (vendorData?._id && isMounted.current) {
       dispatch(clearReviews());
       dispatch(fetchVendorReviews({ vendorId: vendorData._id, page: 1, limit: 20 }));
     }
-    return () => {
-      if (isMounted.current) {
-        dispatch(clearReviews());
-      }
-    };
+    // ❌ Remove cleanup that clears reviews on unmount
+    // return () => {
+    //   if (isMounted.current) {
+    //     dispatch(clearReviews());
+    //   }
+    // };
   }, [vendorData?._id, dispatch]);
 
   // Filter products for this vendor
@@ -654,7 +648,7 @@ const ShopDetails = () => {
     }
   }, [products, searchQuery]);
 
-  // Pull-to-refresh handler
+  // Pull-to-refresh
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
@@ -669,7 +663,7 @@ const ShopDetails = () => {
     }
   }, [dispatch, vendorData]);
 
-  // Get full address for sharing
+  // Get full address
   const getFullAddress = useCallback(() => {
     const addr = vendorData?.address;
     if (!addr) return null;
@@ -689,33 +683,23 @@ const ShopDetails = () => {
   const getGoogleMapsLink = useCallback(() => {
     const { latitude, longitude } = vendorData?.address || {};
     const fullAddress = getFullAddress();
-    
     if (latitude && longitude) {
       return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
     }
-    
     if (fullAddress) {
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`;
     }
-    
     return '';
   }, [vendorData, getFullAddress]);
 
-  // Download image to local cache for sharing
+  // Download image for sharing
   const downloadImageToLocal = async (imageUrl: string): Promise<string | null> => {
     try {
       const timestamp = Date.now();
       const filePath = `${FileSystem.cacheDirectory}shop_${timestamp}.jpg`;
-      
-      const downloadResult = await FileSystem.downloadAsync(
-        imageUrl,
-        filePath
-      );
-      
+      const downloadResult = await FileSystem.downloadAsync(imageUrl, filePath);
       if (downloadResult.status === 200) {
-        if (Platform.OS === 'android') {
-          return `file://${downloadResult.uri}`;
-        }
+        if (Platform.OS === 'android') return `file://${downloadResult.uri}`;
         return downloadResult.uri;
       }
       return null;
@@ -725,76 +709,50 @@ const ShopDetails = () => {
     }
   };
 
-  // Build share message with ALL shop details
+  // Build share message
   const buildShareMessage = useCallback(() => {
     if (!vendorData) return '';
-    
     const fullAddress = getFullAddress();
     const mapsLink = getGoogleMapsLink();
     const appLink = Platform.OS === 'ios' ? APP_STORE_LINK : PLAY_STORE_LINK;
     const categories = parsedCategories.length > 0 ? parsedCategories.join(', ') : 'N/A';
     const tags = parsedTags.length > 0 ? parsedTags.join(', ') : 'N/A';
     const services = parsedServices.length > 0 ? parsedServices.join(', ') : 'N/A';
-    
+
     let message = `🏪 *${vendorData.shopName || 'Shop'}*\n\n`;
     message += `📋 *Business Type:* ${vendorData.businessType || 'N/A'}\n`;
     message += `📍 *Location:* ${fullAddress || 'N/A'}\n`;
-    
-    if (mapsLink) {
-      message += `🗺️ *View on Google Maps:* ${mapsLink}\n`;
-    }
-    
+    if (mapsLink) message += `🗺️ *View on Google Maps:* ${mapsLink}\n`;
     message += `📞 *Phone:* ${vendorData.phone || 'N/A'}\n`;
     message += `📧 *Email:* ${vendorData.email || 'N/A'}\n`;
     message += `🕐 *Status:* ${isOpen ? '✅ Open Now' : '❌ Closed'}\n`;
-    
     if (vendorData.deliveryRange > 0) {
       message += `🚚 *Delivery Range:* ${vendorData.deliveryRange} km\n`;
     }
-    
-    if (categories && categories !== 'N/A') {
-      message += `📂 *Categories:* ${categories}\n`;
-    }
-    
-    if (services && services !== 'N/A') {
-      message += `🛠️ *Services:* ${services}\n`;
-    }
-    
-    if (tags && tags !== 'N/A') {
-      message += `🏷️ *Tags:* ${tags}\n`;
-    }
-    
-    // Operating Hours
+    if (categories && categories !== 'N/A') message += `📂 *Categories:* ${categories}\n`;
+    if (services && services !== 'N/A') message += `🛠️ *Services:* ${services}\n`;
+    if (tags && tags !== 'N/A') message += `🏷️ *Tags:* ${tags}\n`;
     if (hoursDisplay.length > 0) {
       message += `\n🕒 *Operating Hours:*\n`;
-      hoursDisplay.forEach(hour => {
-        message += `  ${hour}\n`;
-      });
+      hoursDisplay.forEach(hour => message += `  ${hour}\n`);
     }
-    
-    // Rating
     if (vendorData.averageRating) {
       message += `\n⭐ *Rating:* ${vendorData.averageRating.toFixed(1)} (${vendorData.reviewCount || 0} reviews)\n`;
     }
-    
     message += `\n📱 *Download App:* ${appLink}`;
     return message;
   }, [vendorData, parsedCategories, parsedTags, parsedServices, hoursDisplay, isOpen, getFullAddress, getGoogleMapsLink]);
 
-  // Share to WhatsApp with image and full details
+  // Share functions (unchanged)
   const handleShareWhatsApp = useCallback(async () => {
     if (!vendorData) return;
-    
     setIsSharing(true);
     try {
       const imageUrl = vendorData.shopImage;
       const message = buildShareMessage();
-      
-      // Try to share with image
       if (imageUrl) {
         try {
           const localFilePath = await downloadImageToLocal(imageUrl);
-          
           if (localFilePath) {
             const shareOptions = {
               title: 'BLuxury Shop',
@@ -803,32 +761,22 @@ const ShopDetails = () => {
               type: 'image/jpeg',
               social: Share.Social.WHATSAPP,
             };
-            
             await Share.shareSingle(shareOptions);
             setIsSharing(false);
             return;
           }
         } catch (imageError) {
           console.log('WhatsApp image share failed:', imageError);
-          // Fall through to text-only sharing
         }
       }
-      
-      // Fallback: Share text only via WhatsApp URL
       const phone = vendorData.phone || '';
       const waUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
-      
       const canOpen = await Linking.canOpenURL(waUrl);
       if (canOpen) {
         await Linking.openURL(waUrl);
       } else {
-        // If WhatsApp is not installed, try to share via react-native-share without image
-        await Share.open({
-          title: 'BLuxury Shop',
-          message: message,
-        });
+        await Share.open({ title: 'BLuxury Shop', message });
       }
-      
     } catch (error) {
       console.error('WhatsApp share error:', error);
       if (error instanceof Error && error.message !== 'User cancelled') {
@@ -839,20 +787,15 @@ const ShopDetails = () => {
     }
   }, [vendorData, buildShareMessage]);
 
-  // General share function
   const handleShare = useCallback(async () => {
     if (!vendorData) return;
-    
     setIsSharing(true);
     try {
       const imageUrl = vendorData.shopImage;
       const message = buildShareMessage();
-      
-      // Try to share with image
       if (imageUrl) {
         try {
           const localFilePath = await downloadImageToLocal(imageUrl);
-          
           if (localFilePath) {
             const shareOptions = {
               title: 'BLuxury Shop',
@@ -860,23 +803,15 @@ const ShopDetails = () => {
               url: localFilePath,
               type: 'image/jpeg',
             };
-            
             await Share.open(shareOptions);
             setIsSharing(false);
             return;
           }
         } catch (imageError) {
           console.log('Image sharing failed:', imageError);
-          // Fall through to text-only sharing
         }
       }
-      
-      // Fallback: share text only
-      await RNShare.share({
-        message: message,
-        title: 'BLuxury Shop',
-      });
-      
+      await RNShare.share({ message, title: 'BLuxury Shop' });
     } catch (error) {
       console.error('Share error:', error);
       if (error instanceof Error && error.message !== 'User cancelled') {
@@ -949,8 +884,21 @@ const ShopDetails = () => {
     }
   }, [vendorData, getFullAddress]);
 
-  const fullAddress = getFullAddress();
+  // Handle "View all reviews"
+  const handleViewAllReviews = useCallback(() => {
+    if (navigation) {
+      navigation.navigate('ShopReviews', {
+        vendorId: vendorData._id,
+        vendorName: vendorData.shopName,
+        averageRating: vendorData.averageRating,
+        reviewCount: vendorData.reviewCount,
+      });
+    } else {
+      Alert.alert('Coming Soon', 'All reviews will be displayed here.');
+    }
+  }, [navigation, vendorData]);
 
+  // Submit review
   const handleSubmitReview = async (rating: number, comment: string) => {
     if (!user?._id) {
       Alert.alert('Login Required', 'Please login to submit a review.');
@@ -973,7 +921,7 @@ const ShopDetails = () => {
     }
   };
 
-  // ✅ Render product item for vertical list (full width)
+  // Render product item
   const renderProductItem = ({ item }: { item: any }) => (
     <View style={styles.verticalProductCardWrapper}>
       <NewProductCard product={item} />
@@ -988,6 +936,8 @@ const ShopDetails = () => {
       </View>
     );
   }
+
+  const fullAddress = getFullAddress();
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1022,23 +972,13 @@ const ShopDetails = () => {
             </View>
           )}
 
-          {/* White Gradient Overlay at Bottom */}
           <View style={styles.imageGradientOverlay} />
 
-          {/* Transparent back button with white icon */}
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" size={scale(26)} color="#FFFFFF" />
           </TouchableOpacity>
 
-          {/* Share Button - Same as PropertyDetailScreen */}
-          <TouchableOpacity
-            style={styles.shareBtn}
-            onPress={handleShare}
-            disabled={isSharing}
-          >
+          <TouchableOpacity style={styles.shareBtn} onPress={handleShare} disabled={isSharing}>
             {isSharing ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
@@ -1047,24 +987,14 @@ const ShopDetails = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Shop Info - White Theme */}
+        {/* Shop Info */}
         <View style={styles.infoContainer}>
           <View style={styles.titleRow}>
             <View style={styles.titleLeft}>
               <Text style={styles.shopName}>{vendorData?.shopName}</Text>
               <View style={[styles.onlineBadge, { backgroundColor: isOpen ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.12)' }]}>
-                <View
-                  style={[
-                    styles.statusDot,
-                    { backgroundColor: isOpen ? Colors.onlineGreen : Colors.offlineRed },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.statusText,
-                    { color: isOpen ? Colors.onlineGreen : Colors.offlineRed },
-                  ]}
-                >
+                <View style={[styles.statusDot, { backgroundColor: isOpen ? Colors.onlineGreen : Colors.offlineRed }]} />
+                <Text style={[styles.statusText, { color: isOpen ? Colors.onlineGreen : Colors.offlineRed }]}>
                   {isOpen ? "Open Now" : "Closed"}
                 </Text>
               </View>
@@ -1103,7 +1033,7 @@ const ShopDetails = () => {
             ) : null}
           </View>
 
-          {/* Address with Map Button */}
+          {/* Address */}
           {fullAddress && (
             <TouchableOpacity style={styles.addressContainer} onPress={openMap} activeOpacity={0.7}>
               <View style={styles.addressRow}>
@@ -1119,7 +1049,7 @@ const ShopDetails = () => {
             </TouchableOpacity>
           )}
 
-          {/* ✅ Categories - Using parsed categories */}
+          {/* Categories */}
           {parsedCategories && parsedCategories.length > 0 && (
             <View style={styles.tagsContainer}>
               {parsedCategories.slice(0, 5).map((cat: string, idx: number) => (
@@ -1128,14 +1058,12 @@ const ShopDetails = () => {
                 </View>
               ))}
               {parsedCategories.length > 5 && (
-                <Text style={styles.moreTag}>
-                  +{parsedCategories.length - 5}
-                </Text>
+                <Text style={styles.moreTag}>+{parsedCategories.length - 5}</Text>
               )}
             </View>
           )}
 
-          {/* ✅ Tags Section - Using parsed tags */}
+          {/* Tags */}
           {parsedTags && parsedTags.length > 0 && (
             <View style={styles.tagsContainer}>
               <Text style={styles.sectionSubtitle}>Tags</Text>
@@ -1149,7 +1077,7 @@ const ShopDetails = () => {
             </View>
           )}
 
-          {/* ✅ Services Section - Using parsed services */}
+          {/* Services */}
           {parsedServices && parsedServices.length > 0 && (
             <View style={styles.servicesContainer}>
               <Text style={styles.sectionSubtitle}>Services</Text>
@@ -1174,9 +1102,7 @@ const ShopDetails = () => {
               </View>
               <View style={styles.hoursList}>
                 {hoursDisplay.slice(0, showAllHours ? hoursDisplay.length : 3).map((hour, idx) => (
-                  <Text key={idx} style={styles.hourText}>
-                    {hour}
-                  </Text>
+                  <Text key={idx} style={styles.hourText}>{hour}</Text>
                 ))}
                 {hoursDisplay.length > 3 && (
                   <TouchableOpacity onPress={() => setShowAllHours(!showAllHours)}>
@@ -1205,28 +1131,19 @@ const ShopDetails = () => {
           {(vendorData?.phone || vendorData?.email) && (
             <View style={styles.contactRow}>
               {vendorData?.phone && (
-                <TouchableOpacity
-                  style={[styles.contactButton, styles.callButton]}
-                  onPress={handleCall}
-                >
+                <TouchableOpacity style={[styles.contactButton, styles.callButton]} onPress={handleCall}>
                   <Ionicons name="call-outline" size={moderateScale(20)} color={Colors.white} />
                   <Text style={styles.contactButtonText}>Call</Text>
                 </TouchableOpacity>
               )}
               {vendorData?.phone && (
-                <TouchableOpacity
-                  style={[styles.contactButton, styles.whatsappButton]}
-                  onPress={handleWhatsApp}
-                >
+                <TouchableOpacity style={[styles.contactButton, styles.whatsappButton]} onPress={handleWhatsApp}>
                   <Ionicons name="logo-whatsapp" size={moderateScale(20)} color={Colors.white} />
                   <Text style={styles.contactButtonText}>WhatsApp</Text>
                 </TouchableOpacity>
               )}
               {vendorData?.phone && (
-                <TouchableOpacity
-                  style={[styles.contactButton, styles.directionsButton]}
-                  onPress={openMap}
-                >
+                <TouchableOpacity style={[styles.contactButton, styles.directionsButton]} onPress={openMap}>
                   <Ionicons name="navigate-outline" size={moderateScale(20)} color={Colors.white} />
                   <Text style={styles.contactButtonText}>Directions</Text>
                 </TouchableOpacity>
@@ -1234,21 +1151,13 @@ const ShopDetails = () => {
             </View>
           )}
 
-          {/* Share Buttons Row - Same as PropertyDetailScreen */}
+          {/* Share Buttons Row */}
           <View style={styles.shareRow}>
-            <TouchableOpacity 
-              style={[styles.shareActionBtn, styles.shareBtnStyle]} 
-              onPress={handleShare}
-              disabled={isSharing}
-            >
+            <TouchableOpacity style={[styles.shareActionBtn, styles.shareBtnStyle]} onPress={handleShare} disabled={isSharing}>
               <Ionicons name="share-social-outline" size={moderateScale(20)} color={Colors.white} />
               <Text style={styles.shareActionText}>Share</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.shareActionBtn, styles.whatsappShareBtn]} 
-              onPress={handleShareWhatsApp}
-              disabled={isSharing}
-            >
+            <TouchableOpacity style={[styles.shareActionBtn, styles.whatsappShareBtn]} onPress={handleShareWhatsApp} disabled={isSharing}>
               <Ionicons name="logo-whatsapp" size={moderateScale(20)} color={Colors.white} />
               <Text style={styles.shareActionText}>WhatsApp</Text>
             </TouchableOpacity>
@@ -1266,14 +1175,12 @@ const ShopDetails = () => {
                 </View>
               )}
             </View>
-            <TouchableOpacity
-              style={styles.writeReviewButton}
-              onPress={() => setShowReviewModal(true)}
-            >
+            <TouchableOpacity style={styles.writeReviewButton} onPress={() => setShowReviewModal(true)}>
               <Ionicons name="create-outline" size={moderateScale(16)} color={Colors.white} />
               <Text style={styles.writeReviewText}>Write Review</Text>
             </TouchableOpacity>
           </View>
+
           {reviewsLoading ? (
             <View style={styles.loadingReviews}>
               <ActivityIndicator size="small" color={Colors.accentGreen} />
@@ -1291,8 +1198,9 @@ const ShopDetails = () => {
             ))
           )}
 
+          {/* "View all reviews" button with navigation */}
           {reviews.length > 5 && (
-            <TouchableOpacity style={styles.viewAllReviews}>
+            <TouchableOpacity style={styles.viewAllReviews} onPress={handleViewAllReviews}>
               <Text style={styles.viewAllReviewsText}>View all {reviews.length} reviews</Text>
               <Ionicons name="chevron-forward" size={moderateScale(16)} color={Colors.accentBlue} />
             </TouchableOpacity>
@@ -1306,7 +1214,6 @@ const ShopDetails = () => {
             <Text style={styles.productCount}>{products.length} items</Text>
           </View>
 
-          {/* Search Bar */}
           <View style={styles.searchContainer}>
             <Ionicons name="search-outline" size={moderateScale(20)} color={Colors.textTertiary} style={styles.searchIcon} />
             <TextInput
@@ -1324,7 +1231,6 @@ const ShopDetails = () => {
             )}
           </View>
 
-          {/* ✅ Vertical product list (single column, full width) */}
           {productsLoading ? (
             <View style={styles.loadingProducts}>
               <ActivityIndicator size="small" color={Colors.accentGreen} />
@@ -1354,7 +1260,6 @@ const ShopDetails = () => {
 
           <View style={styles.divider} />
 
-          {/* ✅ VendorHorizontalScroll – forced to vertical (single column) */}
           <View style={styles.horizontalScrollSection}>
             <Text style={styles.sectionTitle}>More from {vendorData.shopName}</Text>
             <VendorHorizontalScroll
@@ -1364,29 +1269,6 @@ const ShopDetails = () => {
               horizontal={false}
             />
           </View>
-
-          {/* App Download Section */}
-          {/* <View style={styles.appDownloadSection}>
-            <Text style={styles.appDownloadText}>
-              📱 Download the BLuxury App
-            </Text>
-            <View style={styles.appLinksContainer}>
-              <TouchableOpacity 
-                style={[styles.appLinkBtn, styles.playStoreBtn]}
-                onPress={() => Linking.openURL(PLAY_STORE_LINK)}
-              >
-                <Ionicons name="logo-google-playstore" size={moderateScale(20)} color={Colors.white} />
-                <Text style={styles.appLinkText}>Play Store</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.appLinkBtn, styles.appStoreBtn]}
-                onPress={() => Linking.openURL(APP_STORE_LINK)}
-              >
-                <Ionicons name="logo-apple" size={moderateScale(20)} color={Colors.white} />
-                <Text style={styles.appLinkText}>App Store</Text>
-              </TouchableOpacity>
-            </View>
-          </View> */}
 
         </View>
         <View style={styles.bottomSpacer} />
@@ -1899,45 +1781,6 @@ const styles = StyleSheet.create({
   },
   horizontalScrollSection: {
     marginTop: verticalScale(4),
-  },
-  appDownloadSection: {
-    marginTop: verticalScale(24),
-    padding: moderateScale(16),
-    backgroundColor: Colors.backgroundSecondary,
-    borderRadius: moderateScale(12),
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  appDownloadText: {
-    fontSize: moderateScale(16),
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: verticalScale(12),
-  },
-  appLinksContainer: {
-    flexDirection: 'row',
-    gap: scale(12),
-  },
-  appLinkBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: verticalScale(12),
-    borderRadius: moderateScale(10),
-    gap: scale(6),
-  },
-  playStoreBtn: {
-    backgroundColor: '#3DDC84',
-  },
-  appStoreBtn: {
-    backgroundColor: '#000000',
-  },
-  appLinkText: {
-    color: Colors.white,
-    fontWeight: '600',
-    fontSize: moderateScale(14),
   },
   bottomSpacer: {
     height: verticalScale(40),

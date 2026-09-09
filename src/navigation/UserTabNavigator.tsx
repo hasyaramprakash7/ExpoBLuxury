@@ -1,3 +1,4 @@
+// src/navigation/UserTabNavigator.tsx
 import React, { useRef, useEffect, useMemo } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -13,7 +14,6 @@ import {
 import { useSelector } from "react-redux";
 import { RootState } from "../app/store";
 
-// ---------- Screen Imports ----------
 import ChatScreen from "../navigation/CategoryManagementScreen";
 import HomeScreen from "../screens/HomeScreen";
 import InsuranceProductsAndDetails from "../navigation/BrowserScreen";
@@ -21,15 +21,10 @@ import UserOrderScreen from "../userScreens/UserOrderScreen";
 import ProductSearchScreen from "../screens/UserPropertyListScreen";
 import Search from "../screens/UserRentalListScreen";
 import ShopListings from "../screens/ShopListings";
-import AdManagementScreen from "../screens/AdManagementScreen";
 import AdListScreen from "../screens/AdListScreen";
-
-// ✅ Import your new Vendor screens here (update paths as needed)
 import VendorLoginScreen from "../vendorScreens/VendorLoginScreen";
 
 const { width } = Dimensions.get("window");
-
-// --- Layout & Color Config ---
 const ROYAL_GREEN_PRO = "#166534";
 const INACTIVE_COLOR = "#8E8E93";
 const CART_ZONE_WIDTH = 80;
@@ -39,13 +34,11 @@ const heavyDropShadow = {
   textShadowOffset: { width: 0, height: 4 },
   textShadowRadius: 6,
 };
-
 const activeGlow = {
   textShadowColor: "rgba(22, 101, 52, 0.45)",
   textShadowOffset: { width: 0, height: 4 },
   textShadowRadius: 8,
 };
-
 const unclipShadow = {
   paddingBottom: 15,
   marginBottom: -15,
@@ -55,13 +48,10 @@ const unclipShadow = {
 
 const Tab = createBottomTabNavigator();
 
-// ---------- Dynamic Tab Bar ----------
 const ScrollableUnderCartTabBar = ({ state, navigation }) => {
   const scrollViewRef = useRef(null);
-
   const activeRouteName = state.routes[state.index].name;
   const isPropertyActive = activeRouteName === "RealEstate";
-
   const navBgColor = isPropertyActive ? "#000000" : "#FFFFFF";
   const navTextColor = isPropertyActive ? "#FFFFFF" : "#333333";
   const dividerColor = isPropertyActive
@@ -88,7 +78,6 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
 
   return (
     <View style={[tabStyles.mainContainer, { backgroundColor: navBgColor }]}>
-      {/* Fixed CART Zone */}
       <View style={tabStyles.fixedCartZone}>
         <TouchableOpacity
           onPress={() => navigation.navigate("CartScreen" as never)}
@@ -125,8 +114,6 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
           style={[tabStyles.verticalDivider, { backgroundColor: dividerColor }]}
         />
       </View>
-
-      {/* Scrollable Tabs */}
       <View style={tabStyles.scrollZone}>
         <ScrollView
           ref={scrollViewRef}
@@ -146,10 +133,7 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
                 key={route.key}
                 onPress={() => navigation.navigate(route.name)}
                 activeOpacity={0.6}
-                style={[
-                  tabStyles.tabItem,
-                  { width: ITEM_WIDTH, minWidth: 60 },
-                ]}
+                style={[tabStyles.tabItem, { width: ITEM_WIDTH, minWidth: 60 }]}
               >
                 <View style={tabStyles.iconWrapper}>
                   <Ionicons
@@ -180,7 +164,6 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
   );
 };
 
-// ---------- Icon & Label Helpers ----------
 const getIcon = (name, focused) => {
   const icons = {
     Shops: focused ? "storefront" : "storefront-outline",
@@ -191,9 +174,7 @@ const getIcon = (name, focused) => {
     Pay: focused ? "wallet" : "wallet-outline",
     AdList: focused ? "list" : "list-outline",
     Home: focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline",
-    AdManagement: focused ? "settings" : "settings-outline",
-    // ✅ Added Icons for Vendor and VendorLogin
-    Vendor: focused ? "business" : "business-outline", 
+    Vendor: focused ? "business" : "business-outline",
     VendorLogin: focused ? "log-in" : "log-in-outline",
   };
   return icons[name] || "apps-outline";
@@ -209,24 +190,19 @@ const getLabel = (name) => {
     Pay: "Pay",
     AdList: "Brands",
     Home: "Chat",
-    AdManagement: "Ad Mgt",
-    // ✅ Added Labels for the new screens
     Vendor: "Vendor",
-    VendorLogin: "V-Login", 
+    VendorLogin: "V-Login",
   };
   return labels[name] || name;
 };
 
-// ---------- Main Navigator ----------
 const UserTabNavigator = () => {
   const user = useSelector((state: RootState) => state.auth.user);
-
   const rawPhone = user?.phone || user?.mobile || "";
   let normalizedPhone = rawPhone.replace(/\D/g, "");
   if (normalizedPhone.startsWith("91")) {
     normalizedPhone = normalizedPhone.substring(2);
   }
-
   const isSpecialUser = normalizedPhone === "7893828468";
 
   const baseScreens = [
@@ -237,15 +213,10 @@ const UserTabNavigator = () => {
     { name: "Order", component: HomeScreen },
     { name: "POS", component: InsuranceProductsAndDetails },
     { name: "Pay", component: UserOrderScreen },
-    // ✅ Added new screens to base list so everyone gets them
     { name: "VendorLogin", component: VendorLoginScreen },
   ];
-
   const extraScreens = isSpecialUser
-    ? [
-        { name: "Home", component: ChatScreen },
-        { name: "AdManagement", component: AdManagementScreen },
-      ]
+    ? [{ name: "Home", component: ChatScreen }]
     : [];
 
   const screens = [...baseScreens, ...extraScreens];
@@ -264,7 +235,6 @@ const UserTabNavigator = () => {
   );
 };
 
-// ---------- Styles ----------
 const tabStyles = StyleSheet.create({
   mainContainer: {
     width: width,
@@ -331,7 +301,6 @@ const tabStyles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 9,
     fontWeight: "800",
-    
   },
   cartLabelText: {
     fontSize: 10,
@@ -361,7 +330,7 @@ const tabStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 0.2,
-    marginTop: 1, 
+    marginTop: 1,
     paddingBottom: 10,
     textAlign: "center",
     flexShrink: 0,

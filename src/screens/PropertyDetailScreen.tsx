@@ -1,3 +1,4 @@
+// screens/PropertyDetailScreen.tsx
 import React, { useEffect, useRef, useState } from "react";
 import {
   View,
@@ -16,15 +17,20 @@ import {
 import { useDispatch, useSelector } from "react-redux";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { LinearGradient } from "expo-linear-gradient";
 import * as WebBrowser from "expo-web-browser";
-import * as FileSystem from 'expo-file-system/legacy'; // Use legacy import
-import Share from 'react-native-share';
+import * as FileSystem from "expo-file-system/legacy";
+import Share from "react-native-share";
 import { fetchPropertyById } from "../features/propertySlice";
 import { fetchAllVendors } from "../features/vendor/vendorAuthSlice";
 import { recordProductView } from "../features/productViewSlice";
 import { RootState } from "../app/store";
 
 const { width } = Dimensions.get("window");
+
+// Play Store & App Store links – replace with your actual links
+const PLAY_STORE_LINK = 'https://play.google.com/store/apps/details?id=com.ram1234567890.BLuxury';
+const APP_STORE_LINK = 'https://apps.apple.com/app/bluxury/id123456789';
 
 const Colors = {
   royalNavy: "#0B1021",
@@ -50,7 +56,7 @@ interface RouteParams {
 const safeParseArray = (data: any): string[] => {
   if (!data) return [];
   if (Array.isArray(data)) {
-    if (data.length === 1 && typeof data[0] === 'string' && data[0].startsWith('[') && data[0].endsWith(']')) {
+    if (data.length === 1 && typeof data[0] === "string" && data[0].startsWith("[") && data[0].endsWith("]")) {
       try {
         const parsed = JSON.parse(data[0]);
         return Array.isArray(parsed) ? parsed : data;
@@ -60,7 +66,7 @@ const safeParseArray = (data: any): string[] => {
     }
     return data;
   }
-  if (typeof data === 'string' && data.startsWith('[') && data.endsWith(']')) {
+  if (typeof data === "string" && data.startsWith("[") && data.endsWith("]")) {
     try {
       const parsed = JSON.parse(data);
       return Array.isArray(parsed) ? parsed : [];
@@ -69,6 +75,17 @@ const safeParseArray = (data: any): string[] => {
     }
   }
   return [];
+};
+
+// Helper to detect user cancellation
+const isCancellationError = (error: any): boolean => {
+  const msg = error?.message?.toLowerCase() || "";
+  return (
+    msg.includes("user cancelled") ||
+    msg.includes("canceled") ||
+    msg.includes("user did not share") ||
+    msg.includes("dismissed")
+  );
 };
 
 const PropertyDetailScreen: React.FC = () => {
@@ -96,6 +113,7 @@ const PropertyDetailScreen: React.FC = () => {
 
   const viewRecorded = useRef(false);
   const [isSharing, setIsSharing] = useState(false);
+  const shareTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch property details
   useEffect(() => {
@@ -112,13 +130,13 @@ const PropertyDetailScreen: React.FC = () => {
     if (currentProperty && user?._id && currentProperty.vendor?.vendorId && !viewRecorded.current) {
       viewRecorded.current = true;
 
-      const userName = user.name || user.username || user.email?.split('@')[0] || 'User';
-      const userPhone = user.phone || user.mobile || 'N/A';
+      const userName = user.name || user.username || user.email?.split("@")[0] || "User";
+      const userPhone = user.phone || user.mobile || "N/A";
 
       dispatch(
         recordProductView({
           productId: currentProperty._id,
-          productType: 'Property',
+          productType: "Property",
           viewerUserId: user._id,
           viewerName: userName,
           viewerPhone: userPhone,
@@ -132,31 +150,26 @@ const PropertyDetailScreen: React.FC = () => {
   const downloadImageToLocal = async (imageUrl: string): Promise<string | null> => {
     try {
       const timestamp = Date.now();
-      // Create a local file path
       const filePath = `${FileSystem.cacheDirectory}property_${timestamp}.jpg`;
-      
-      // Download the image using legacy API
-      const downloadResult = await FileSystem.downloadAsync(
-        imageUrl,
-        filePath
-      );
-      
+
+      const downloadResult = await FileSystem.downloadAsync(imageUrl, filePath);
+
       if (downloadResult.status === 200) {
-        // For Android, convert to file:// URI
-        if (Platform.OS === 'android') {
+        if (Platform.OS === "android") {
           return `file://${downloadResult.uri}`;
         }
         return downloadResult.uri;
       }
       return null;
     } catch (error) {
-      console.log('Image download error:', error);
+      console.log("Image download error:", error);
       return null;
     }
   };
 
-  // Helper functions for property data
+  // ---------- Helper functions with safe checks ----------
   const getDisplayPrice = () => {
+    if (!currentProperty) return "N/A";
     const unitLabel = currentProperty.priceUnit === "Lakhs" ? "Lakhs" : "Cr";
     const minVal = currentProperty.minPriceValue ?? currentProperty.minPriceCr;
     const maxVal = currentProperty.maxPriceValue ?? currentProperty.maxPriceCr ?? minVal;
@@ -166,149 +179,179 @@ const PropertyDetailScreen: React.FC = () => {
   };
 
   const getArea = () => {
+    if (!currentProperty) return "N/A";
     return currentProperty.areaOptions?.[0]?.superBuiltUpSqFt || "N/A";
   };
 
   const getFullAddress = () => {
+    if (!currentProperty) return "Address not available";
     const loc = currentProperty.location;
     return [loc?.address, loc?.locality, loc?.city, loc?.state, loc?.pincode || loc?.zipCode, loc?.country]
       .filter(Boolean)
       .join(", ");
   };
 
-  // Build share message with ALL property details
+  // Get Google Maps link for the location
+  const getGoogleMapsLink = (): string => {
+    if (!currentProperty) return "";
+    const loc = currentProperty.location;
+    const coords = loc?.coordinates?.coordinates;
+    const fullAddress = getFullAddress();
+
+    if (coords && coords.length === 2) {
+      const [lng, lat] = coords;
+      return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    }
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`;
+  };
+
+  // Build share message with ALL property details + Google Maps link + App link
   const buildShareMessage = () => {
+    if (!currentProperty) return "BLuxury Property";
     const displayPrice = getDisplayPrice();
     const fullAddress = getFullAddress();
     const area = getArea();
     const config = currentProperty.configuration;
-    
-    return `🏠 *${currentProperty.title || 'Property'}*\n\n` +
+    const mapsLink = getGoogleMapsLink();
+    const appLink = Platform.OS === 'ios' ? APP_STORE_LINK : PLAY_STORE_LINK;
+
+    return (
+      `🏠 *${currentProperty.title || "Property"}*\n\n` +
       `📍 *Location:* ${fullAddress}\n` +
+      `🗺️ *View on Google Maps:* ${mapsLink}\n` +
       `💰 *Price:* ${displayPrice}\n` +
-      `🏷️ *Type:* ${currentProperty.propertyType || 'N/A'}\n` +
+      `🏷️ *Type:* ${currentProperty.propertyType || "N/A"}\n` +
       `📐 *Area:* ${area} Sq.Ft\n` +
-      `🛏️ *Configuration:* ${config?.bhk || 'N/A'} BHK\n` +
-      `🛁 *Bathrooms:* ${config?.bathrooms || 'N/A'}\n` +
-      `🚗 *Parking:* ${config?.carParkingAvailable ? '✅ Available' : '❌ None'}\n` +
-      `📅 *Possession:* ${currentProperty.possessionDate ? new Date(currentProperty.possessionDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'long' }) : 'N/A'}\n` +
-      `🏢 *Furnishing:* ${config?.furnishingStatus || 'N/A'}\n` +
-      `📋 *Ownership:* ${config?.ownershipType || 'N/A'}\n\n` +
-      `🔗 *Check it out on BLuxury App!*`;
+      `🛏️ *Configuration:* ${config?.bhk || "N/A"} BHK\n` +
+      `🛁 *Bathrooms:* ${config?.bathrooms || "N/A"}\n` +
+      `🚗 *Parking:* ${config?.carParkingAvailable ? "✅ Available" : "❌ None"}\n` +
+      `📅 *Possession:* ${
+        currentProperty.possessionDate
+          ? new Date(currentProperty.possessionDate).toLocaleDateString("en-IN", { year: "numeric", month: "long" })
+          : "N/A"
+      }\n` +
+      `🏢 *Furnishing:* ${config?.furnishingStatus || "N/A"}\n` +
+      `📋 *Ownership:* ${config?.ownershipType || "N/A"}\n\n` +
+      `📱 *Download App:* ${appLink}`
+    );
   };
 
   // Share to WhatsApp with image and full details
   const handleShareWhatsApp = async () => {
-    if (!currentProperty) return;
-    
+    if (!currentProperty || isSharing) return;
+
     setIsSharing(true);
     try {
       const imageUrl = currentProperty.images?.[0];
       const message = buildShareMessage();
-      
-      // Try to share with image
+
       if (imageUrl) {
         try {
-          // Download image to local storage
           const localFilePath = await downloadImageToLocal(imageUrl);
-          
+
           if (localFilePath) {
-            // Share with image using WhatsApp
             const shareOptions = {
-              title: 'BLuxury Property',
+              title: "BLuxury Property",
               message: message,
               url: localFilePath,
-              type: 'image/jpeg',
+              type: "image/jpeg",
               social: Share.Social.WHATSAPP,
             };
-            
+
             await Share.shareSingle(shareOptions);
             setIsSharing(false);
             return;
           }
         } catch (imageError) {
-          console.log('WhatsApp image share failed:', imageError);
-          // Fall through to text-only sharing
+          if (isCancellationError(imageError)) {
+            setIsSharing(false);
+            return;
+          }
+          console.log("WhatsApp image share failed:", imageError);
         }
       }
-      
+
       // Fallback: Share text only via WhatsApp URL
-      const phone = displayPhone || '';
+      const phone = displayPhone || "";
       const waUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
-      
+
       const canOpen = await Linking.canOpenURL(waUrl);
       if (canOpen) {
         await Linking.openURL(waUrl);
       } else {
-        // If WhatsApp is not installed, try to share via react-native-share without image
         await Share.open({
-          title: 'BLuxury Property',
+          title: "BLuxury Property",
           message: message,
         });
       }
-      
     } catch (error) {
-      console.error('WhatsApp share error:', error);
-      if (error instanceof Error && error.message !== 'User cancelled') {
-        Alert.alert('Share Error', 'Could not share to WhatsApp. Please try again.');
+      console.error("WhatsApp share error:", error);
+      if (!isCancellationError(error)) {
+        Alert.alert("Share Error", "Could not share to WhatsApp. Please try again.");
       }
     } finally {
       setIsSharing(false);
     }
   };
 
-  // General share function
+  // General share function with debounce
   const handleShare = async () => {
-    if (!currentProperty) return;
-    
+    if (!currentProperty || isSharing) return;
+
+    if (shareTimeout.current) {
+      clearTimeout(shareTimeout.current);
+      shareTimeout.current = null;
+    }
+
     setIsSharing(true);
     try {
       const imageUrl = currentProperty.images?.[0];
       const message = buildShareMessage();
-      
-      // Try to share with image
+
       if (imageUrl) {
         try {
           const localFilePath = await downloadImageToLocal(imageUrl);
-          
+
           if (localFilePath) {
             const shareOptions = {
-              title: 'BLuxury Property',
+              title: "BLuxury Property",
               message: message,
               url: localFilePath,
-              type: 'image/jpeg',
+              type: "image/jpeg",
             };
-            
+
             await Share.open(shareOptions);
             setIsSharing(false);
             return;
           }
         } catch (imageError) {
-          console.log('Image sharing failed:', imageError);
-          // Fall through to text-only sharing
+          if (isCancellationError(imageError)) {
+            setIsSharing(false);
+            return;
+          }
+          console.log("Image sharing failed:", imageError);
         }
       }
-      
+
       // Fallback: share text only
       await RNShare.share({
         message: message,
-        title: 'BLuxury Property',
+        title: "BLuxury Property",
       });
-      
     } catch (error) {
-      console.error('Share error:', error);
-      if (error instanceof Error && error.message !== 'User cancelled') {
-        Alert.alert('Share Error', 'Could not share property. Please try again.');
+      console.error("Share error:", error);
+      if (!isCancellationError(error)) {
+        Alert.alert("Share Error", "Could not share property. Please try again.");
       }
     } finally {
       setIsSharing(false);
+      shareTimeout.current = setTimeout(() => {
+        shareTimeout.current = null;
+      }, 500);
     }
   };
 
-  const displayPrice = getDisplayPrice();
-  const fullPropertyAddress = getFullAddress();
-  const areaSqFt = getArea();
-
+  // ------------------- GUARD -------------------
   if (propertyLoading || !currentProperty) {
     return (
       <View style={styles.center}>
@@ -326,14 +369,19 @@ const PropertyDetailScreen: React.FC = () => {
     );
   }
 
-  // Parse arrays safely
+  // ---------- Now we safely use currentProperty ----------
+  const displayPrice = getDisplayPrice();
+  const fullPropertyAddress = getFullAddress();
+  const areaSqFt = getArea();
+
   const tags = safeParseArray(currentProperty.tags);
   const amenities = safeParseArray(currentProperty.amenities);
   const projectHighlights = safeParseArray(currentProperty.projectHighlights);
 
-  const formattedPossessionDate = new Date(
-    currentProperty.possessionDate,
-  ).toLocaleDateString("en-IN", { year: "numeric", month: "long" });
+  const formattedPossessionDate = new Date(currentProperty.possessionDate).toLocaleDateString("en-IN", {
+    year: "numeric",
+    month: "long",
+  });
   const ratePerSqFt = currentProperty.areaOptions?.[0]?.ratePerSqFt || "N/A";
 
   const config = currentProperty.configuration;
@@ -345,22 +393,16 @@ const PropertyDetailScreen: React.FC = () => {
 
   const handleOpenMap = () => {
     if (loc?.mapUrl) {
-      Linking.openURL(loc.mapUrl).catch((err) =>
-        console.error("Couldn't open map URL", err),
-      );
+      Linking.openURL(loc.mapUrl).catch((err) => console.error("Couldn't open map URL", err));
       return;
     }
 
-    const hasCoords =
-      Array.isArray(loc?.coordinates?.coordinates) &&
-      loc.coordinates.coordinates.length === 2;
+    const hasCoords = Array.isArray(loc?.coordinates?.coordinates) && loc.coordinates.coordinates.length === 2;
 
     if (hasCoords) {
       const lng = loc.coordinates.coordinates[0];
       const lat = loc.coordinates.coordinates[1];
-      const label = encodeURIComponent(
-        currentProperty.title || "Property Location",
-      );
+      const label = encodeURIComponent(currentProperty.title || "Property Location");
 
       const url = Platform.select({
         ios: `maps:0,0?q=${label}@${lat},${lng}`,
@@ -371,34 +413,23 @@ const PropertyDetailScreen: React.FC = () => {
         if (supported) {
           return Linking.openURL(url as string);
         } else {
-          return Linking.openURL(
-            `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
-          );
+          return Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`);
         }
       });
     } else {
       const query = encodeURIComponent(fullPropertyAddress);
-      Linking.openURL(
-        `https://www.google.com/maps/search/?api=1&query=${query}`,
-      );
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
     }
   };
 
   const vendorId = currentProperty.vendor?.vendorId;
   const fullVendorDetails = allVendors.find((v) => v._id === vendorId);
 
-  const displayPhone =
-    fullVendorDetails?.phone || currentProperty.vendor?.phone;
-  const displayShopName =
-    fullVendorDetails?.shopName ||
-    currentProperty.vendor?.shopName ||
-    "Exclusive Seller";
-  const displayVendorName =
-    fullVendorDetails?.name || currentProperty.vendor?.name;
+  const displayPhone = fullVendorDetails?.phone || currentProperty.vendor?.phone;
+  const displayShopName = fullVendorDetails?.shopName || currentProperty.vendor?.shopName || "Exclusive Seller";
+  const displayVendorName = fullVendorDetails?.name || currentProperty.vendor?.name;
   const displayAvatar =
-    fullVendorDetails?.shopImage ||
-    currentProperty.vendor?.shopImage ||
-    "https://via.placeholder.com/150";
+    fullVendorDetails?.shopImage || currentProperty.vendor?.shopImage || "https://via.placeholder.com/150";
 
   let displayAddress = "Address available upon request";
   if (fullVendorDetails?.address) {
@@ -431,62 +462,42 @@ const PropertyDetailScreen: React.FC = () => {
   const handleWhatsAppContact = () => {
     if (displayPhone) {
       const message = `Hello, I am interested in your property: "${currentProperty.title}" listed on BLuxury.`;
-      Linking.openURL(
-        `whatsapp://send?phone=${displayPhone}&text=${encodeURIComponent(message)}`,
-      );
+      Linking.openURL(`whatsapp://send?phone=${displayPhone}&text=${encodeURIComponent(message)}`);
     }
   };
 
   const hasTags = Boolean(tags.length > 0);
   const hasAmenities = Boolean(amenities.length > 0);
   const hasHighlights = Boolean(projectHighlights.length > 0);
-  const hasExternalLinks = Boolean(
-    currentProperty.websiteUrl || currentProperty.virtualTourUrl,
-  );
+  const hasExternalLinks = Boolean(currentProperty.websiteUrl || currentProperty.virtualTourUrl);
 
+  // ------------------- RENDER -------------------
   return (
     <View style={styles.mainWrapper}>
-      <ScrollView
-        style={styles.container}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-      >
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false} bounces={false}>
         {/* Image Carousel */}
         <View style={styles.imageWrapper}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-          >
+          <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
             {currentProperty.images && currentProperty.images.length > 0 ? (
               currentProperty.images.map((imgUri, index) => (
-                <Image
-                  key={index}
-                  source={{ uri: imgUri }}
-                  style={styles.carouselImage}
-                />
+                <Image key={index} source={{ uri: imgUri }} style={styles.carouselImage} />
               ))
             ) : (
-              <Image
-                source={{ uri: "https://via.placeholder.com/600x500" }}
-                style={styles.carouselImage}
-              />
+              <Image source={{ uri: "https://via.placeholder.com/600x500" }} style={styles.carouselImage} />
             )}
           </ScrollView>
-          <View style={styles.imageDarkGradient} />
 
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => navigation.goBack()}
-          >
+          {/* Softer gradient overlay */}
+          <LinearGradient
+            colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.2)", "rgba(0,0,0,0.5)"]}
+            style={styles.imageGradient}
+          />
+
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" size={26} color={Colors.pureWhite} />
           </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={styles.shareBtn}
-            onPress={handleShare}
-            disabled={isSharing}
-          >
+
+          <TouchableOpacity style={styles.shareBtn} onPress={handleShare} disabled={isSharing}>
             {isSharing ? (
               <ActivityIndicator size="small" color={Colors.pureWhite} />
             ) : (
@@ -495,15 +506,8 @@ const PropertyDetailScreen: React.FC = () => {
           </TouchableOpacity>
 
           <View style={styles.imageIndicatorContainer}>
-            <Ionicons
-              name="camera-outline"
-              size={14}
-              color={Colors.pureWhite}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={styles.imageIndicatorText}>
-              {currentProperty.images?.length || 0} Photos
-            </Text>
+            <Ionicons name="camera-outline" size={14} color={Colors.pureWhite} style={{ marginRight: 6 }} />
+            <Text style={styles.imageIndicatorText}>{currentProperty.images?.length || 0} Photos</Text>
           </View>
         </View>
 
@@ -512,27 +516,24 @@ const PropertyDetailScreen: React.FC = () => {
           <View style={styles.headerInfo}>
             <View style={styles.tagRow}>
               <View style={styles.propertyTypeBadge}>
-                <Text style={styles.propertyTypeTag}>
-                  {currentProperty.propertyType}
-                </Text>
+                <Text style={styles.propertyTypeTag}>{currentProperty.propertyType}</Text>
               </View>
-              <View style={[styles.statusBadge, 
-                currentProperty.status === 'Ready to Move' && styles.statusReady,
-                currentProperty.status === 'Under Construction' && styles.statusConstruction,
-                currentProperty.status === 'New Launch' && styles.statusNew,
-                currentProperty.status === 'Resale' && styles.statusResale,
-              ]}>
+              <View
+                style={[
+                  styles.statusBadge,
+                  currentProperty.status === "Ready to Move" && styles.statusReady,
+                  currentProperty.status === "Under Construction" && styles.statusConstruction,
+                  currentProperty.status === "New Launch" && styles.statusNew,
+                  currentProperty.status === "Resale" && styles.statusResale,
+                ]}
+              >
                 <Text style={styles.statusTagText}>{currentProperty.status}</Text>
               </View>
             </View>
             <Text style={styles.title}>{currentProperty.title}</Text>
+            {/* Full address in header */}
             <Text style={styles.locationSubText}>
-              <Ionicons
-                name="location-sharp"
-                size={16}
-                color={Colors.champagneGold}
-              />{" "}
-              {currentProperty.location.locality}, {currentProperty.location.city}
+              <Ionicons name="location-sharp" size={16} color={Colors.champagneGold} /> {fullPropertyAddress}
             </Text>
           </View>
 
@@ -549,71 +550,36 @@ const PropertyDetailScreen: React.FC = () => {
 
           <View style={styles.divider} />
 
-          {/* Estate Overview - Enhanced Grid */}
+          {/* Estate Overview */}
           <Text style={styles.sectionHeader}>
             <Ionicons name="apps-outline" size={22} color={Colors.champagneGold} /> Estate Overview
           </Text>
           <View style={styles.detailsGrid}>
-            <DetailBox
-              icon="bed-outline"
-              label={config?.bhk || "N/A"}
-              subtitle="Configuration"
-            />
-
+            <DetailBox icon="bed-outline" label={config?.bhk || "N/A"} subtitle="Configuration" />
             {config?.bathrooms ? (
-              <DetailBox
-                icon="water-outline"
-                label={`${config.bathrooms}`}
-                subtitle="Bathrooms"
-              />
+              <DetailBox icon="water-outline" label={`${config.bathrooms}`} subtitle="Bathrooms" />
             ) : null}
-
             {config?.balconies ? (
-              <DetailBox
-                icon="albums-outline"
-                label={`${config.balconies}`}
-                subtitle="Balconies"
-              />
+              <DetailBox icon="albums-outline" label={`${config.balconies}`} subtitle="Balconies" />
             ) : null}
-
-            <DetailBox
-              icon="scan-outline"
-              label={`${areaSqFt} Sq.Ft`}
-              subtitle="Super Area"
-            />
-            <DetailBox
-              icon="business-outline"
-              label={floorDisplay}
-              subtitle="Level"
-            />
+            <DetailBox icon="scan-outline" label={`${areaSqFt} Sq.Ft`} subtitle="Super Area" />
+            <DetailBox icon="business-outline" label={floorDisplay} subtitle="Level" />
             <DetailBox
               icon="car-outline"
               label={config?.carParkingAvailable ? "Available" : "None"}
               subtitle="Parking"
             />
-            <DetailBox
-              icon="compass-outline"
-              label={config?.facing || "N/A"}
-              subtitle="Facing"
-            />
+            <DetailBox icon="compass-outline" label={config?.facing || "N/A"} subtitle="Facing" />
             <DetailBox
               icon="cube-outline"
               label={config?.furnishingStatus || "Unfurnished"}
               subtitle="Furnishing"
             />
-            <DetailBox
-              icon="document-text-outline"
-              label={config?.ownershipType || "Freehold"}
-              subtitle="Ownership"
-            />
-            <DetailBox
-              icon="key-outline"
-              label={formattedPossessionDate}
-              subtitle="Possession"
-            />
+            <DetailBox icon="document-text-outline" label={config?.ownershipType || "Freehold"} subtitle="Ownership" />
+            <DetailBox icon="key-outline" label={formattedPossessionDate} subtitle="Possession" />
           </View>
 
-          {/* Tags Section - Enhanced */}
+          {/* Tags */}
           {hasTags && (
             <>
               <View style={styles.divider} />
@@ -631,7 +597,7 @@ const PropertyDetailScreen: React.FC = () => {
             </>
           )}
 
-          {/* Amenities Section */}
+          {/* Amenities */}
           {hasAmenities && (
             <>
               <View style={styles.divider} />
@@ -649,7 +615,7 @@ const PropertyDetailScreen: React.FC = () => {
             </>
           )}
 
-          {/* Project Highlights Section */}
+          {/* Project Highlights */}
           {hasHighlights && (
             <>
               <View style={styles.divider} />
@@ -674,12 +640,7 @@ const PropertyDetailScreen: React.FC = () => {
           </Text>
           <View style={styles.locationBox}>
             <View style={styles.locationTextContainer}>
-              <Ionicons
-                name="location"
-                size={24}
-                color={Colors.champagneGold}
-                style={{ marginTop: 2 }}
-              />
+              <Ionicons name="location" size={24} color={Colors.champagneGold} style={{ marginTop: 2 }} />
               <Text style={styles.fullAddressText}>{fullPropertyAddress}</Text>
             </View>
             <TouchableOpacity style={styles.mapButton} onPress={handleOpenMap}>
@@ -696,21 +657,12 @@ const PropertyDetailScreen: React.FC = () => {
           <View style={styles.legalBox}>
             <View style={styles.legalRow}>
               <Text style={styles.legalLabel}>Registration / RERA ID</Text>
-              <Text style={styles.legalValue}>
-                {currentProperty.registrationId || "Pending / Exempt"}
-              </Text>
+              <Text style={styles.legalValue}>{currentProperty.registrationId || "Pending / Exempt"}</Text>
             </View>
-            <View
-              style={[
-                styles.legalRow,
-                { borderBottomWidth: 0, paddingBottom: 0 },
-              ]}
-            >
+            <View style={[styles.legalRow, { borderBottomWidth: 0, paddingBottom: 0 }]}>
               <Text style={styles.legalLabel}>Maintenance Charges</Text>
               <Text style={styles.legalValue}>
-                {currentProperty.maintenanceCharges
-                  ? `₹ ${currentProperty.maintenanceCharges} / Month`
-                  : "Not Specified"}
+                {currentProperty.maintenanceCharges ? `₹ ${currentProperty.maintenanceCharges} / Month` : "Not Specified"}
               </Text>
             </View>
           </View>
@@ -724,29 +676,14 @@ const PropertyDetailScreen: React.FC = () => {
               </Text>
               <View style={styles.linksContainer}>
                 {currentProperty.virtualTourUrl && (
-                  <TouchableOpacity
-                    style={styles.linkButton}
-                    onPress={() => openUrl(currentProperty.virtualTourUrl)}
-                  >
-                    <Ionicons
-                      name="videocam-outline"
-                      size={20}
-                      color={Colors.royalNavy}
-                    />
+                  <TouchableOpacity style={styles.linkButton} onPress={() => openUrl(currentProperty.virtualTourUrl)}>
+                    <Ionicons name="videocam-outline" size={20} color={Colors.royalNavy} />
                     <Text style={styles.linkButtonText}>3D Virtual Tour</Text>
                   </TouchableOpacity>
                 )}
-
                 {currentProperty.websiteUrl && (
-                  <TouchableOpacity
-                    style={styles.linkButton}
-                    onPress={() => openUrl(currentProperty.websiteUrl)}
-                  >
-                    <Ionicons
-                      name="globe-outline"
-                      size={20}
-                      color={Colors.royalNavy}
-                    />
+                  <TouchableOpacity style={styles.linkButton} onPress={() => openUrl(currentProperty.websiteUrl)}>
+                    <Ionicons name="globe-outline" size={20} color={Colors.royalNavy} />
                     <Text style={styles.linkButtonText}>Project Website</Text>
                   </TouchableOpacity>
                 )}
@@ -761,24 +698,16 @@ const PropertyDetailScreen: React.FC = () => {
           </Text>
           <View style={styles.sellerCard}>
             <View style={styles.sellerHeaderRow}>
-              <Image
-                source={{ uri: displayAvatar }}
-                style={styles.sellerAvatar}
-              />
+              <Image source={{ uri: displayAvatar }} style={styles.sellerAvatar} />
               <View style={styles.sellerNameContainer}>
                 <Text style={styles.sellerShopName} numberOfLines={1}>
                   {displayShopName}
                 </Text>
                 <Text style={styles.sellerPersonName}>{displayVendorName}</Text>
               </View>
-              {fullVendorDetails?.isApproved ||
-              currentProperty.vendor?.isApproved ? (
+              {fullVendorDetails?.isApproved || currentProperty.vendor?.isApproved ? (
                 <View style={styles.verifiedBadge}>
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={24}
-                    color={Colors.champagneGold}
-                  />
+                  <Ionicons name="checkmark-circle" size={24} color={Colors.champagneGold} />
                 </View>
               ) : null}
             </View>
@@ -788,32 +717,17 @@ const PropertyDetailScreen: React.FC = () => {
               <Text style={styles.sellerInfoText}>{displayPhone || "N/A"}</Text>
             </View>
             <View style={[styles.sellerInfoRow, { alignItems: "flex-start" }]}>
-              <Ionicons
-                name="map-outline"
-                size={18}
-                color={Colors.slate}
-                style={{ marginTop: 2 }}
-              />
+              <Ionicons name="map-outline" size={18} color={Colors.slate} style={{ marginTop: 2 }} />
               <Text style={styles.sellerInfoText}>{displayAddress}</Text>
             </View>
 
             <View style={styles.sellerActions}>
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.callBtn]}
-                onPress={handleCall}
-              >
+              <TouchableOpacity style={[styles.actionBtn, styles.callBtn]} onPress={handleCall}>
                 <Ionicons name="call" size={18} color={Colors.pureWhite} />
                 <Text style={styles.actionBtnText}>Call</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.waBtn]}
-                onPress={handleWhatsAppContact}
-              >
-                <Ionicons
-                  name="logo-whatsapp"
-                  size={18}
-                  color={Colors.pureWhite}
-                />
+              <TouchableOpacity style={[styles.actionBtn, styles.waBtn]} onPress={handleWhatsAppContact}>
+                <Ionicons name="logo-whatsapp" size={18} color={Colors.pureWhite} />
                 <Text style={styles.actionBtnText}>WhatsApp</Text>
               </TouchableOpacity>
             </View>
@@ -821,19 +735,11 @@ const PropertyDetailScreen: React.FC = () => {
 
           {/* Share buttons row */}
           <View style={styles.shareRow}>
-            <TouchableOpacity 
-              style={[styles.shareActionBtn, styles.shareBtnStyle]} 
-              onPress={handleShare}
-              disabled={isSharing}
-            >
+            <TouchableOpacity style={[styles.shareActionBtn, styles.shareBtnStyle]} onPress={handleShare} disabled={isSharing}>
               <Ionicons name="share-social-outline" size={20} color={Colors.pureWhite} />
               <Text style={styles.shareActionText}>Share</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.shareActionBtn, styles.whatsappShareBtn]} 
-              onPress={handleShareWhatsApp}
-              disabled={isSharing}
-            >
+            <TouchableOpacity style={[styles.shareActionBtn, styles.whatsappShareBtn]} onPress={handleShareWhatsApp} disabled={isSharing}>
               <Ionicons name="logo-whatsapp" size={20} color={Colors.pureWhite} />
               <Text style={styles.shareActionText}>WhatsApp</Text>
             </TouchableOpacity>
@@ -845,10 +751,7 @@ const PropertyDetailScreen: React.FC = () => {
       {/* Bottom Bar */}
       <View style={styles.bottomBar}>
         <View style={styles.vendorProfileSmall}>
-          <Image
-            source={{ uri: displayAvatar }}
-            style={styles.bottomVendorImage}
-          />
+          <Image source={{ uri: displayAvatar }} style={styles.bottomVendorImage} />
           <View style={{ flex: 1 }}>
             <Text style={styles.bottomVendorSub}>LISTED BY</Text>
             <Text style={styles.bottomVendorName} numberOfLines={1}>
@@ -862,22 +765,10 @@ const PropertyDetailScreen: React.FC = () => {
 };
 
 // Enhanced Detail Box Component
-const DetailBox = ({
-  icon,
-  label,
-  subtitle,
-}: {
-  icon: any;
-  label: string;
-  subtitle: string;
-}) => (
+const DetailBox = ({ icon, label, subtitle }: { icon: any; label: string; subtitle: string }) => (
   <View style={detailStyles.box}>
     <View style={detailStyles.iconContainer}>
-      <Ionicons
-        name={icon}
-        size={22}
-        color={Colors.champagneGold}
-      />
+      <Ionicons name={icon} size={22} color={Colors.champagneGold} />
     </View>
     <View style={{ flex: 1 }}>
       <Text style={detailStyles.label} numberOfLines={1}>
@@ -917,9 +808,9 @@ const detailStyles = StyleSheet.create({
     alignItems: "center",
     marginRight: 12,
   },
-  label: { 
-    fontSize: 15, 
-    fontWeight: "700", 
+  label: {
+    fontSize: 15,
+    fontWeight: "700",
     color: Colors.royalNavy,
   },
   subtitle: {
@@ -959,12 +850,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.royalNavy,
   },
   carouselImage: { width: width, height: 380, resizeMode: "cover" },
-  imageDarkGradient: {
+  imageGradient: {
     position: "absolute",
     bottom: 0,
-    width: "100%",
+    left: 0,
+    right: 0,
     height: 100,
-    backgroundColor: "rgba(0,0,0,0.3)",
   },
   backBtn: {
     position: "absolute",
@@ -1019,8 +910,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
   },
   headerInfo: { marginBottom: 20 },
-  tagRow: { 
-    flexDirection: "row", 
+  tagRow: {
+    flexDirection: "row",
     marginBottom: 12,
     flexWrap: "wrap",
     gap: 8,
@@ -1084,6 +975,7 @@ const styles = StyleSheet.create({
     color: Colors.charcoal,
     marginTop: 8,
     fontWeight: "400",
+    lineHeight: 22,
   },
   priceSection: {
     marginBottom: 20,
@@ -1098,14 +990,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  priceTag: { 
-    fontSize: 28, 
-    fontWeight: "700", 
+  priceTag: {
+    fontSize: 28,
+    fontWeight: "700",
     color: Colors.royalNavy,
   },
-  rateText: { 
-    fontSize: 14, 
-    color: Colors.slate, 
+  rateText: {
+    fontSize: 14,
+    color: Colors.slate,
     fontWeight: "600",
   },
   areaTag: {
@@ -1188,8 +1080,8 @@ const styles = StyleSheet.create({
   },
   legalLabel: { fontSize: 14, color: Colors.slate, fontWeight: "500" },
   legalValue: { fontSize: 14, color: Colors.royalNavy, fontWeight: "600" },
-  linksContainer: { 
-    flexDirection: "row", 
+  linksContainer: {
+    flexDirection: "row",
     gap: 12,
     flexWrap: "wrap",
   },
@@ -1254,7 +1146,7 @@ const styles = StyleSheet.create({
     color: Colors.charcoal,
     fontWeight: "500",
   },
-  highlightsContainer: { 
+  highlightsContainer: {
     marginTop: 4,
     gap: 12,
   },
@@ -1324,9 +1216,9 @@ const styles = StyleSheet.create({
     flex: 1,
     lineHeight: 20,
   },
-  sellerActions: { 
-    flexDirection: "row", 
-    marginTop: 16, 
+  sellerActions: {
+    flexDirection: "row",
+    marginTop: 16,
     gap: 12,
   },
   actionBtn: {
@@ -1337,7 +1229,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
   },
-  callBtn: { 
+  callBtn: {
     backgroundColor: Colors.royalNavy,
     shadowColor: Colors.royalNavy,
     shadowOffset: { width: 0, height: 4 },
@@ -1345,7 +1237,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  waBtn: { 
+  waBtn: {
     backgroundColor: Colors.whatsapp,
     shadowColor: Colors.whatsapp,
     shadowOffset: { width: 0, height: 4 },

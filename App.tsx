@@ -76,6 +76,8 @@ import OrderScreen from "./src/screens/OrderScreen";
 import CartScreen from "./src/screens/Cart";
 import Chatscreen from "./src/screens/ChatScreen";
 import ShopListings from "./src/screens/ShopListings";
+import ShopReviewsScreen from './src/screens/ShopReviewsScreen';
+
 import ShopDetails from "./src/screens/ShopDetails";
 import CategoryShopsScreen from "./src/screens/CategoryShopsScreen";
 import CategoryProductsScreen from "./src/screens/CategoryProductsScreen";
@@ -110,6 +112,9 @@ import AdListScreen from "./src/screens/AdListScreen";
 import WebViewScreen from "./src/screens/WebViewScreen";
 import AllCategoriesScreen from './src/screens/AllCategoriesScreen';
 import AddAddressScreen from './src/screens/AddAddressScreen';
+
+// ✅ Import vendor ad management screens
+import AdManagementScreen from "./src/screens/AdManagementScreen";
 import AdGroupDetailScreen from "./src/screens/AdGroupDetailScreen";
 
 import VendorLeadsScreen from "./src/vendorScreens/VendorLeadsScreen";
@@ -121,10 +126,8 @@ import VendorTabNavigator from "./src/navigation/VendorTabNavigator";
 // =========================================================================
 // GLOBAL FONT & TYPOGRAPHY CONFIGURATION
 // =========================================================================
-// Change 'System' to your custom loaded font name if you use expo-font 
-// (e.g. 'Poppins', 'Montserrat', etc.)
 const GLOBAL_FONT_FAMILY = "System"; 
-const GLOBAL_FONT_SIZE_MULTIPLIER = 1.0; // Adjust to scale all fonts up/down globally (e.g., 1.05 for 5% larger)
+const GLOBAL_FONT_SIZE_MULTIPLIER = 1.0;
 
 if ((RNText as any).defaultProps == null) {
   (RNText as any).defaultProps = {};
@@ -403,7 +406,6 @@ const AppNavigator = () => {
               navigationRef.current?.navigate('ShopListings');
             }
             break;
-            
           case 'lead':
             if (vendorAuthToken) {
               navigationRef.current?.navigate('VendorLeads');
@@ -411,35 +413,29 @@ const AppNavigator = () => {
               navigationRef.current?.navigate('VendorLogin');
             }
             break;
-            
           case 'product':
             if (data.id) {
               navigationRef.current?.navigate('ProductDetails', { productId: data.id });
             }
             break;
-            
           case 'property':
             if (data.id) {
               navigationRef.current?.navigate('PropertyDetailScreen', { propertyId: data.id });
             }
             break;
-            
           case 'rental':
             if (data.id) {
               navigationRef.current?.navigate('RentalDetail', { rentalId: data.id });
             }
             break;
-            
           case 'chat':
             navigationRef.current?.navigate('ChatScreen');
             break;
-            
           case 'daily_update':
             if (vendorAuthToken) {
               navigationRef.current?.navigate('VendorDashboard');
             }
             break;
-            
           default:
             navigationRef.current?.navigate('UserTabs');
             break;
@@ -582,6 +578,8 @@ const AppNavigator = () => {
         <Stack.Screen name="RentalList" component={UserRentalListScreen} />
         <Stack.Screen name="RentalDetail" component={RentalDetailScreen} />
         <Stack.Screen name="AdListScreen" component={AdListScreen} />
+        {/* ✅ Vendor Ad Management Screens */}
+        <Stack.Screen name="AdManagement" component={AdManagementScreen} />
         <Stack.Screen name="AdGroupDetail" component={AdGroupDetailScreen} />
         <Stack.Screen name="WebViewScreen" component={WebViewScreen} />
       </Stack.Navigator>
@@ -606,6 +604,7 @@ const AppNavigator = () => {
         <Stack.Screen name="UserOrderScreen" component={UserOrderScreen} />
         <Stack.Screen name="ShopListings" component={ShopListings} />
         <Stack.Screen name="ShopDetails" component={ShopDetails} />
+        <Stack.Screen name="ShopReviews" component={ShopReviewsScreen} />
         <Stack.Screen name="CategoryShopsScreen" component={CategoryShopsScreen} />
         <Stack.Screen name="CategoryProducts" component={CategoryProductsScreen} />
         <Stack.Screen name="ShopProducts" component={ShopProductsScreen} />

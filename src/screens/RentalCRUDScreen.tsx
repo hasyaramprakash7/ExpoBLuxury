@@ -58,6 +58,7 @@ interface RentalFormData {
   bedrooms: string;
   bathrooms: string;
   amenities: string[];
+  locationAddress: string; // NEW: full address from map
   locationCity: string;
   locationLocality: string;
   locationState: string;
@@ -79,6 +80,7 @@ const initialFormData: RentalFormData = {
   bedrooms: '1',
   bathrooms: '1',
   amenities: [],
+  locationAddress: '', // NEW
   locationCity: '',
   locationLocality: '',
   locationState: '',
@@ -202,8 +204,9 @@ const RentalCRUDScreen: React.FC = () => {
   // Location screen state
   const [showAddressScreen, setShowAddressScreen] = useState(false);
 
-  // Build a summary string for the selected location
+  // Build a summary string for the selected location – now prioritises full address
   const getLocationSummary = useCallback(() => {
+    if (formData.locationAddress) return formData.locationAddress;
     const parts = [];
     if (formData.locationLocality && formData.locationLocality !== 'Unknown Locality')
       parts.push(formData.locationLocality);
@@ -221,18 +224,22 @@ const RentalCRUDScreen: React.FC = () => {
   const handleLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
     console.log('📍 Map location selected:', lat, lng, addressDetails);
     const city = addressDetails.city || '';
-    const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
+    const locality = addressDetails.locality || addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
     const state = addressDetails.state || '';
     const pincode = addressDetails.pincode || '';
     const country = addressDetails.country || 'India';
     const district = addressDetails.district || '';
     const street = addressDetails.street || '';
+    const colony = addressDetails.colony || '';
+    const suburb = addressDetails.suburb || '';
+    const neighbourhood = addressDetails.neighbourhood || '';
 
+    // Build comprehensive full address
     const addressParts = [
       street,
-      addressDetails.colony,
-      addressDetails.suburb,
-      addressDetails.neighbourhood,
+      colony,
+      suburb,
+      neighbourhood,
       locality,
       city,
       district,
@@ -246,6 +253,7 @@ const RentalCRUDScreen: React.FC = () => {
       ...prev,
       lat: lat.toString(),
       lng: lng.toString(),
+      locationAddress: fullAddress,
       locationCity: city,
       locationLocality: locality || city || 'Unknown Locality',
       locationState: state,
@@ -397,6 +405,8 @@ const RentalCRUDScreen: React.FC = () => {
       bathrooms: formData.bathrooms ? parseInt(formData.bathrooms) : undefined,
       amenities: formData.amenities || [],
       location: {
+        // Use the full address from map, with fallback
+        address: formData.locationAddress || `${formData.locationLocality}, ${formData.locationCity}, ${formData.locationState} ${formData.locationPincode}`,
         city: formData.locationCity || 'Unknown City',
         locality: formData.locationLocality || 'Unknown Locality',
         state: formData.locationState || 'Unknown State',
@@ -462,6 +472,7 @@ const RentalCRUDScreen: React.FC = () => {
       bedrooms: rental.bedrooms?.toString() || '',
       bathrooms: rental.bathrooms?.toString() || '',
       amenities: rental.amenities || [],
+      locationAddress: rental.location?.address || '',
       locationCity: rental.location?.city || '',
       locationLocality: rental.location?.locality || '',
       locationState: rental.location?.state || '',
@@ -657,6 +668,13 @@ const RentalCRUDScreen: React.FC = () => {
           )}
 
           <Text style={[styles.label, { marginTop: 12 }]}>Manual Override (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={formData.locationAddress}
+            onChangeText={(t) => handleChange('locationAddress', t)}
+            placeholder="Full address"
+            placeholderTextColor="#94A3B8"
+          />
           <TextInput
             style={styles.input}
             value={formData.locationCity}
@@ -863,7 +881,7 @@ const RentalCRUDScreen: React.FC = () => {
 };
 
 // ================================================================
-// Styles
+// Styles (unchanged, already includes necessary styles)
 // ================================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },

@@ -1,4 +1,4 @@
-// src/screens/admin/AdManagementScreen.tsx
+// src/screens/AdManagementScreen.tsx
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   View,
@@ -34,15 +34,12 @@ import {
 } from "../../src/features/adSlice";
 import { CATEGORIES } from "../constants/categories";
 
-// ---------- Dimensions & scaling ----------
 const { width, height } = Dimensions.get("window");
-
 const scale = (size: number) => (width / 375) * size;
 const verticalScale = (size: number) => (height / 812) * size;
 const moderateScale = (size: number, factor = 0.5) =>
   size + (scale(size) - size) * factor;
 
-// ---------- Colors ----------
 const Colors = {
   background: "#FFFFFF",
   card: "#FFFFFF",
@@ -63,6 +60,11 @@ const Colors = {
   modalOverlay: "rgba(0,0,0,0.5)",
 };
 
+const normalizePhone = (phone: string) => {
+  if (!phone) return '';
+  return phone.replace(/^\+91/, '').replace(/\D/g, '');
+};
+
 // ---------- Category Selector Modal ----------
 const CategorySelector: React.FC<{
   visible: boolean;
@@ -71,7 +73,6 @@ const CategorySelector: React.FC<{
   onSelectCategory: (category: string) => void;
 }> = ({ visible, onClose, selectedCategory, onSelectCategory }) => {
   const [searchText, setSearchText] = useState("");
-
   const filteredCategories = CATEGORIES.filter((cat) =>
     cat.toLowerCase().includes(searchText.toLowerCase())
   );
@@ -79,7 +80,6 @@ const CategorySelector: React.FC<{
     (cat) => cat.toLowerCase() === searchText.toLowerCase().trim()
   );
   const showAddOption = searchText.trim().length > 0 && !exactMatch;
-
   const data = [];
   if (showAddOption) {
     data.push({ type: "add", label: `Add "${searchText.trim()}"` });
@@ -161,9 +161,7 @@ const CategorySelector: React.FC<{
             ListEmptyComponent={
               !showAddOption && searchText.trim().length > 0 ? (
                 <View style={categorySelectorStyles.emptyState}>
-                  <Text style={categorySelectorStyles.emptyStateText}>
-                    No categories found
-                  </Text>
+                  <Text style={categorySelectorStyles.emptyStateText}>No categories found</Text>
                 </View>
               ) : null
             }
@@ -306,10 +304,7 @@ const AdFormModal: React.FC<{
   const handleImagePick = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert(
-        "Permission required",
-        "Please allow access to your photo library to upload ad images."
-      );
+      Alert.alert("Permission required", "Please allow access to your photo library to upload ad images.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -328,7 +323,6 @@ const AdFormModal: React.FC<{
       Alert.alert("Error", "Ad image is required");
       return;
     }
-
     try {
       const formData = new FormData();
       if (title && title.trim()) formData.append("title", title.trim());
@@ -338,7 +332,6 @@ const AdFormModal: React.FC<{
       if (link && link.trim()) formData.append("link", link.trim());
       formData.append("isActive", isActive ? "true" : "false");
       formData.append("isProductAd", isProductAd ? "true" : "false");
-
       if (imageUri) {
         const filename = imageUri.split("/").pop() || "image.jpg";
         const match = /\.(\w+)$/.exec(filename);
@@ -381,7 +374,6 @@ const AdFormModal: React.FC<{
                 maxLength={100}
               />
             </View>
-
             <View style={formStyles.formGroup}>
               <Text style={formStyles.label}>Description (Optional)</Text>
               <TextInput
@@ -395,7 +387,6 @@ const AdFormModal: React.FC<{
                 maxLength={500}
               />
             </View>
-
             <View style={formStyles.formGroup}>
               <Text style={formStyles.label}>Category (Optional)</Text>
               <TouchableOpacity
@@ -420,7 +411,6 @@ const AdFormModal: React.FC<{
                 </TouchableOpacity>
               ) : null}
             </View>
-
             <View style={formStyles.formGroup}>
               <Text style={formStyles.label}>Ad Image *</Text>
               <TouchableOpacity style={formStyles.imagePickerButton} onPress={handleImagePick}>
@@ -447,7 +437,6 @@ const AdFormModal: React.FC<{
                 </TouchableOpacity>
               )}
             </View>
-
             <View style={formStyles.formGroup}>
               <Text style={formStyles.label}>Link (Optional)</Text>
               <TextInput
@@ -459,7 +448,6 @@ const AdFormModal: React.FC<{
                 autoCapitalize="none"
               />
             </View>
-
             <View style={formStyles.formGroup}>
               <View style={formStyles.switchRow}>
                 <Text style={formStyles.label}>Product Ad</Text>
@@ -476,7 +464,6 @@ const AdFormModal: React.FC<{
                   : "This ad will be displayed as a generic banner"}
               </Text>
             </View>
-
             <View style={formStyles.formGroup}>
               <View style={formStyles.switchRow}>
                 <Text style={formStyles.label}>Active</Text>
@@ -491,7 +478,6 @@ const AdFormModal: React.FC<{
                 {isActive ? "Ad will be visible to users" : "Ad will be hidden from users"}
               </Text>
             </View>
-
             <TouchableOpacity
               style={formStyles.submitButton}
               onPress={handleSubmit}
@@ -508,7 +494,6 @@ const AdFormModal: React.FC<{
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
-
       <CategorySelector
         visible={showCategorySelector}
         onClose={() => setShowCategorySelector(false)}
@@ -658,13 +643,14 @@ const formStyles = StyleSheet.create({
   },
 });
 
-// ---------- AdCard (exported for reuse in detail screen) ----------
+// ---------- AdCard (exported) ----------
 export const AdCard: React.FC<{
   ad: Ad;
   onEdit: () => void;
   onDelete: () => void;
   onToggle: () => void;
-}> = ({ ad, onEdit, onDelete, onToggle }) => {
+  showVendor?: boolean;
+}> = ({ ad, onEdit, onDelete, onToggle, showVendor = false }) => {
   const getStatusText = () => (ad.isActive ? "Active" : "Inactive");
   const getStatusColor = () => (ad.isActive ? Colors.onlineGreen : Colors.offlineRed);
 
@@ -678,6 +664,11 @@ export const AdCard: React.FC<{
           <Text style={cardStyles.titleText} numberOfLines={1}>
             {ad.title || "Untitled Ad"}
           </Text>
+          {showVendor && (ad.vendorName || ad.userName) && (
+            <Text style={cardStyles.vendorNameText} numberOfLines={1}>
+              🏪 {ad.vendorName || ad.userName}
+            </Text>
+          )}
           {ad.category ? (
             <Text style={cardStyles.categoryText} numberOfLines={1}>
               {ad.category}
@@ -757,6 +748,12 @@ const cardStyles = StyleSheet.create({
     color: Colors.textDark,
     marginBottom: verticalScale(2),
   },
+  vendorNameText: {
+    fontSize: moderateScale(12),
+    color: Colors.textGray,
+    marginBottom: verticalScale(2),
+    fontWeight: "500",
+  },
   categoryText: {
     fontSize: moderateScale(12),
     color: Colors.textGray,
@@ -805,13 +802,13 @@ const cardStyles = StyleSheet.create({
   },
 });
 
-// ---------- GroupCard (updated with delete button) ----------
+// ---------- GroupCard ----------
 const GroupCard: React.FC<{
   title: string;
   image: string;
   count: number;
   onPress: () => void;
-  onDelete: () => void; // NEW
+  onDelete: () => void;
 }> = ({ title, image, count, onPress, onDelete }) => {
   return (
     <TouchableOpacity style={groupCardStyles.card} onPress={onPress} activeOpacity={0.7}>
@@ -823,7 +820,7 @@ const GroupCard: React.FC<{
       <TouchableOpacity
         style={groupCardStyles.deleteButton}
         onPress={(e) => {
-          e.stopPropagation(); // Prevent navigating to detail
+          e.stopPropagation();
           onDelete();
         }}
       >
@@ -881,35 +878,37 @@ const AdManagementScreen = () => {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const { ads, loading } = useSelector((state: RootState) => state.ads);
+  const { vendor } = useSelector((state: RootState) => state.vendorAuth);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingAd, setEditingAd] = useState<Ad | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchText, setSearchText] = useState("");
-  const [deletingGroup, setDeletingGroup] = useState<string | null>(null); // track which group is being deleted
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
+
+  const normalizedPhone = normalizePhone(vendor?.phone || '');
+  const isAdmin = vendor?.role === 'admin' || normalizedPhone === '7893828468';
+  const vendorId = isAdmin ? undefined : vendor?._id;
+
+  const fetchVendorAds = useCallback(() => {
+    dispatch(fetchAds({ search: searchText || undefined, vendorId }));
+  }, [dispatch, searchText, vendorId]);
 
   useEffect(() => {
     if (isFocused) {
-      dispatch(fetchAds({ search: searchText || undefined }));
+      fetchVendorAds();
     }
-  }, [isFocused, dispatch, searchText]);
+  }, [isFocused, fetchVendorAds]);
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await dispatch(fetchAds({ search: searchText || undefined }));
+    await fetchVendorAds();
     setIsRefreshing(false);
-  }, [dispatch, searchText]);
+  }, [fetchVendorAds]);
 
   const handleGoBack = useCallback(() => {
-    try {
-      if (navigation && typeof navigation.canGoBack === "function" && navigation.canGoBack()) {
-        navigation.goBack();
-      } else {
-        console.warn("Cannot go back from this screen");
-      }
-    } catch (error) {
-      console.error("Navigation error:", error);
-    }
+    navigation.goBack();
   }, [navigation]);
 
   const handleCreate = () => {
@@ -935,7 +934,7 @@ const AdManagementScreen = () => {
             try {
               await dispatch(deleteAd(ad._id)).unwrap();
               Alert.alert("Success", "Ad deleted successfully");
-              dispatch(fetchAds({ search: searchText || undefined }));
+              fetchVendorAds();
             } catch (error: any) {
               Alert.alert("Error", error?.message || "Failed to delete ad");
             }
@@ -949,7 +948,7 @@ const AdManagementScreen = () => {
     try {
       await dispatch(toggleAdStatus({ id: ad._id, isActive: !ad.isActive })).unwrap();
       Alert.alert("Success", `Ad ${!ad.isActive ? "activated" : "deactivated"} successfully`);
-      dispatch(fetchAds({ search: searchText || undefined }));
+      fetchVendorAds();
     } catch (error: any) {
       Alert.alert("Error", error?.message || "Failed to toggle ad status");
     }
@@ -966,7 +965,7 @@ const AdManagementScreen = () => {
         Alert.alert("Success", "Ad created successfully");
       }
       setShowModal(false);
-      dispatch(fetchAds({ search: searchText || undefined }));
+      fetchVendorAds();
     } catch (error: any) {
       Alert.alert("Error", error?.message || "Failed to save ad");
     } finally {
@@ -974,7 +973,6 @@ const AdManagementScreen = () => {
     }
   };
 
-  // NEW: Delete entire group
   const handleDeleteGroup = (groupTitle: string) => {
     Alert.alert(
       "Delete Group",
@@ -987,7 +985,6 @@ const AdManagementScreen = () => {
           onPress: async () => {
             setDeletingGroup(groupTitle);
             try {
-              // Find all ads with this title
               const adsToDelete = ads.filter(
                 (ad) => (ad.title || "Untitled").toLowerCase() === groupTitle.toLowerCase()
               );
@@ -996,15 +993,11 @@ const AdManagementScreen = () => {
                 setDeletingGroup(null);
                 return;
               }
-
-              // Delete each ad
               await Promise.all(
                 adsToDelete.map((ad) => dispatch(deleteAd(ad._id)).unwrap())
               );
-
               Alert.alert("Success", `All ${adsToDelete.length} ads deleted.`);
-              // Refresh list
-              dispatch(fetchAds({ search: searchText || undefined }));
+              fetchVendorAds();
             } catch (error: any) {
               Alert.alert("Error", error?.message || "Failed to delete group");
             } finally {
@@ -1017,8 +1010,6 @@ const AdManagementScreen = () => {
   };
 
   const filteredAds = Array.isArray(ads) ? ads : [];
-
-  // Build grouped data: unique titles with first image and count
   const groupedAds = useMemo(() => {
     const groups: { [key: string]: { title: string; image: string; count: number } } = {};
     filteredAds.forEach((ad) => {
@@ -1036,7 +1027,6 @@ const AdManagementScreen = () => {
   }, [filteredAds]);
 
   const handleGroupPress = (title: string) => {
-    // @ts-ignore – add this route to your navigator types
     navigation.navigate("AdGroupDetail", { title });
   };
 
@@ -1156,28 +1146,16 @@ const AdManagementScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  container: {
-    flex: 1,
-    padding: moderateScale(16),
-  },
+  safeArea: { flex: 1, backgroundColor: Colors.background },
+  container: { flex: 1, padding: moderateScale(16) },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: verticalScale(8),
   },
-  backButton: {
-    padding: scale(4),
-  },
-  headerTitle: {
-    fontSize: moderateScale(20),
-    fontWeight: "bold",
-    color: Colors.textDark,
-  },
+  backButton: { padding: scale(4) },
+  headerTitle: { fontSize: moderateScale(20), fontWeight: "bold", color: Colors.textDark },
   addButton: {
     backgroundColor: Colors.accentGreen,
     width: scale(40),
@@ -1218,46 +1196,14 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  statItem: {
-    alignItems: "center",
-  },
-  statNumber: {
-    fontSize: moderateScale(20),
-    fontWeight: "bold",
-    color: Colors.textDark,
-  },
-  statLabel: {
-    fontSize: moderateScale(12),
-    color: Colors.textLightGray,
-    marginTop: verticalScale(2),
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    color: Colors.textLightGray,
-    marginTop: verticalScale(8),
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: scale(20),
-  },
-  emptyTitle: {
-    fontSize: moderateScale(18),
-    fontWeight: "bold",
-    color: Colors.textDark,
-    marginTop: verticalScale(12),
-  },
-  emptySubtitle: {
-    fontSize: moderateScale(14),
-    color: Colors.textLightGray,
-    marginTop: verticalScale(4),
-    textAlign: "center",
-  },
+  statItem: { alignItems: "center" },
+  statNumber: { fontSize: moderateScale(20), fontWeight: "bold", color: Colors.textDark },
+  statLabel: { fontSize: moderateScale(12), color: Colors.textLightGray, marginTop: verticalScale(2) },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { color: Colors.textLightGray, marginTop: verticalScale(8) },
+  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: scale(20) },
+  emptyTitle: { fontSize: moderateScale(18), fontWeight: "bold", color: Colors.textDark, marginTop: verticalScale(12) },
+  emptySubtitle: { fontSize: moderateScale(14), color: Colors.textLightGray, marginTop: verticalScale(4), textAlign: "center" },
   emptyButton: {
     marginTop: verticalScale(20),
     backgroundColor: Colors.accentGreen,
@@ -1265,14 +1211,8 @@ const styles = StyleSheet.create({
     paddingVertical: verticalScale(10),
     borderRadius: moderateScale(8),
   },
-  emptyButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: moderateScale(14),
-  },
-  listContent: {
-    paddingBottom: verticalScale(20),
-  },
+  emptyButtonText: { color: "#fff", fontWeight: "600", fontSize: moderateScale(14) },
+  listContent: { paddingBottom: verticalScale(20) },
 });
 
 export default AdManagementScreen;

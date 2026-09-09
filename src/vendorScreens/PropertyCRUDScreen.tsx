@@ -65,6 +65,7 @@ interface PropertyFormData {
   minPriceCr: string;
   maxPriceCr: string;
   superBuiltUpSqFt: string;
+  locationAddress: string; // NEW: full address from map
   locationCity: string;
   locationLocality: string;
   locationState: string;
@@ -98,6 +99,7 @@ const initialFormData: PropertyFormData = {
   minPriceCr: '',
   maxPriceCr: '',
   superBuiltUpSqFt: '',
+  locationAddress: '', // NEW
   locationCity: '',
   locationLocality: '',
   locationState: '',
@@ -571,6 +573,8 @@ const PropertyCRUDScreen: React.FC = () => {
   }, []);
 
   const getLocationSummary = useCallback(() => {
+    // Prefer full address if available
+    if (formData.locationAddress) return formData.locationAddress;
     const parts = [];
     if (formData.locationLocality && formData.locationLocality !== 'Unknown Locality')
       parts.push(formData.locationLocality);
@@ -606,10 +610,21 @@ const PropertyCRUDScreen: React.FC = () => {
         const detectedState = region || '';
         const detectedPincode = postalCode || '';
 
+        // Build full address for GPS location
+        const fullAddrParts = [
+          street || name || '',
+          detectedLocality,
+          detectedCity,
+          detectedState,
+          detectedPincode,
+        ].filter(Boolean);
+        const fullAddress = fullAddrParts.join(', ');
+
         setFormData((prev) => ({
           ...prev,
           lat: latitude.toString(),
           lng: longitude.toString(),
+          locationAddress: fullAddress,
           locationCity: detectedCity,
           locationLocality: detectedLocality,
           locationState: detectedState,
@@ -626,6 +641,7 @@ const PropertyCRUDScreen: React.FC = () => {
           ...prev,
           lat: latitude.toString(),
           lng: longitude.toString(),
+          locationAddress: `Lat: ${latitude.toFixed(6)}, Lng: ${longitude.toFixed(6)}`,
         }));
         Toast.show({ type: 'info', text1: 'Coordinates filled', text2: 'Enter address manually.' });
       }
@@ -646,18 +662,22 @@ const PropertyCRUDScreen: React.FC = () => {
   const handleLocationFromAddAddress = useCallback((lat: number, lng: number, addressDetails: any) => {
     console.log('📍 Property location selected:', { lat, lng, addressDetails });
     const city = addressDetails.city || '';
-    const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
+    const locality = addressDetails.locality || addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || '';
     const state = addressDetails.state || '';
     const pincode = addressDetails.pincode || '';
     const country = addressDetails.country || 'India';
     const district = addressDetails.district || '';
     const street = addressDetails.street || '';
+    const colony = addressDetails.colony || '';
+    const suburb = addressDetails.suburb || '';
+    const neighbourhood = addressDetails.neighbourhood || '';
 
+    // Build comprehensive full address
     const addressParts = [
       street,
-      addressDetails.colony,
-      addressDetails.suburb,
-      addressDetails.neighbourhood,
+      colony,
+      suburb,
+      neighbourhood,
       locality,
       city,
       district,
@@ -671,6 +691,7 @@ const PropertyCRUDScreen: React.FC = () => {
       ...prev,
       lat: lat.toString(),
       lng: lng.toString(),
+      locationAddress: fullAddress,
       locationCity: city,
       locationLocality: locality || city || 'Unknown Locality',
       locationState: state,
@@ -828,7 +849,8 @@ const PropertyCRUDScreen: React.FC = () => {
         ownershipType: formData.ownershipType || 'Freehold',
       },
       location: {
-        address: `${formData.locationLocality}, ${formData.locationCity}, ${formData.locationState} ${formData.locationPincode}`,
+        // Use the full address from map, with fallback
+        address: formData.locationAddress || `${formData.locationLocality}, ${formData.locationCity}, ${formData.locationState} ${formData.locationPincode}`,
         city: formData.locationCity || 'Unknown City',
         locality: formData.locationLocality || 'Unknown Locality',
         state: formData.locationState || 'Unknown State',
@@ -917,6 +939,7 @@ const PropertyCRUDScreen: React.FC = () => {
       minPriceCr: property?.minPriceCr?.toString() || '',
       maxPriceCr: property?.maxPriceCr?.toString() || '',
       superBuiltUpSqFt: property?.areaOptions?.[0]?.superBuiltUpSqFt?.toString() || '',
+      locationAddress: property?.location?.address || '',
       locationCity: property?.location?.city || '',
       locationLocality: property?.location?.locality || '',
       locationState: property?.location?.state || '',
@@ -1201,6 +1224,13 @@ const PropertyCRUDScreen: React.FC = () => {
           )}
 
           <Text style={[styles.label, { marginTop: 12 }]}>Manual Override (optional)</Text>
+          <TextInput
+            style={[styles.input, { marginBottom: 10 }]}
+            value={formData.locationAddress}
+            onChangeText={(t) => handleChange('locationAddress', t)}
+            placeholder="Full address (optional)"
+            placeholderTextColor="#94A3B8"
+          />
           <TextInput
             style={[styles.input, { marginBottom: 10 }]}
             value={formData.locationCity}

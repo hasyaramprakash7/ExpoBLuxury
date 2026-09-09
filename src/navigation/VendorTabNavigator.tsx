@@ -1,11 +1,11 @@
-// src/navigation/VendorTabNavigator.tsx
 import React, { useMemo } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useSelector } from "react-redux";
 import { RootState } from "../app/store";
 
-// ----- Vendor Screen Imports -----
+// Vendor Screens
 import VendorDashboardScreen from "../vendorScreens/VendorDashboardScreen";
 import VendorProductCRUDScreen from "../vendorScreens/VendorProductCRUD";
 import VendorOrderList from "../vendorScreens/VendorOrderList";
@@ -13,23 +13,30 @@ import AllDeliveryBoys from "../vendorScreens/AllDeliveryBoys";
 import WhatsappInvoiceSender from "../vendorScreens/WhatsappInvoiceSender";
 import InsuranceProductCRUDScreen from "../vendorScreens/InsuranceProductCRUDScreen";
 import PropertyCRUDScreen from "../vendorScreens/PropertyCRUDScreen";
-import VendorAppointmentsList from "../vendorScreens/VendorAppointmentsList";
 import RentalCRUDScreen from "../screens/RentalCRUDScreen";
 import VendorLeadsScreen from "../vendorScreens/VendorLeadsScreen";
 import VendorProductViewsScreen from "../vendorScreens/VendorProductViewsScreen";
 import VendorChatScreen from "../vendorScreens/VendorChatScreen";
 
+// Ad Management Screens
+import AdManagementScreen from "../screens/AdManagementScreen";
+import AdGroupDetailScreen from "../screens/AdGroupDetailScreen";
+
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
+
+const AdStack = () => (
+  <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Screen name="AdManagementMain" component={AdManagementScreen} />
+    <Stack.Screen name="AdGroupDetail" component={AdGroupDetailScreen} />
+  </Stack.Navigator>
+);
 
 const VendorTabNavigator = React.memo(() => {
-  // Get vendor fallback (for when slices are empty)
   const { vendor } = useSelector((state: RootState) => state.vendorAuth);
-
-  // ✅ Read leads and views from their own slices (like side panel)
   const { stats: leadStats } = useSelector((state: RootState) => state.leads);
   const { total: viewsTotal } = useSelector((state: RootState) => state.productViews);
 
-  // ✅ Memoize badge values to avoid recomputation on every render
   const totalLeads = useMemo(
     () => leadStats?.total ?? vendor?.totalLeads ?? 0,
     [leadStats, vendor]
@@ -64,15 +71,6 @@ const VendorTabNavigator = React.memo(() => {
               case "Orders":
                 iconName = focused ? "bag" : "bag-outline";
                 break;
-              case "DeliveryBoys":
-                iconName = focused ? "people" : "people-outline";
-                break;
-              case "Invoices":
-                iconName = focused ? "document-text" : "document-text-outline";
-                break;
-              case "Insurance":
-                iconName = focused ? "medical" : "medical-outline";
-                break;
               case "Properties":
                 iconName = focused ? "business" : "business-outline";
                 break;
@@ -85,8 +83,8 @@ const VendorTabNavigator = React.memo(() => {
               case "Views":
                 iconName = focused ? "eye" : "eye-outline";
                 break;
-              case "Chat":
-                iconName = focused ? "chatbubbles" : "chatbubbles-outline";
+              case "Ads":
+                iconName = focused ? "megaphone" : "megaphone-outline";
                 break;
               default:
                 iconName = "apps-outline";
@@ -122,15 +120,11 @@ const VendorTabNavigator = React.memo(() => {
       <Tab.Screen name="Dashboard" component={VendorDashboardScreen} />
       <Tab.Screen name="Products" component={VendorProductCRUDScreen} />
       <Tab.Screen name="Orders" component={VendorOrderList} />
-      {/* Commented out optional tabs – uncomment if needed */}
-      {/* <Tab.Screen name="DeliveryBoys" component={AllDeliveryBoys} /> */}
-      {/* <Tab.Screen name="Invoices" component={WhatsappInvoiceSender} /> */}
-      {/* <Tab.Screen name="Insurance" component={InsuranceProductCRUDScreen} /> */}
       <Tab.Screen name="Properties" component={PropertyCRUDScreen} />
       <Tab.Screen name="Rental" component={RentalCRUDScreen} />
       <Tab.Screen name="Leads" component={VendorLeadsScreen} />
       <Tab.Screen name="Views" component={VendorProductViewsScreen} />
-      {/* <Tab.Screen name="Chat" component={VendorChatScreen} /> */}
+      <Tab.Screen name="Ads" component={AdStack} />
     </Tab.Navigator>
   );
 });

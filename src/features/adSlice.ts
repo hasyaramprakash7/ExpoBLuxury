@@ -1,5 +1,5 @@
-// src/features/adSlice.ts
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../userScreens/utils/api';
 
 export interface Ad {
@@ -11,6 +11,8 @@ export interface Ad {
   link: string;
   isActive: boolean;
   isProductAd: boolean;
+  vendorId: string;
+  vendorName: string;
   createdAt: string;
 }
 
@@ -28,18 +30,31 @@ const initialState: AdState = {
   activeAds: [],
 };
 
+// ✅ Get vendor token from AsyncStorage
+const getVendorToken = async () => {
+  return await AsyncStorage.getItem('vendorToken');
+};
+
+const authHeaders = async () => {
+  const token = await getVendorToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 // ---------- Thunks ----------
 export const fetchAds = createAsyncThunk(
   'ads/fetchAll',
-  async (params?: { isActive?: boolean; search?: string }, { rejectWithValue }) => {
+  async (params?: { isActive?: boolean; search?: string; vendorId?: string }, { rejectWithValue }) => {
     try {
       let url = '/ads';
       const queryParams = new URLSearchParams();
       if (params?.isActive !== undefined) queryParams.append('isActive', String(params.isActive));
       if (params?.search) queryParams.append('search', params.search);
+      if (params?.vendorId) queryParams.append('vendorId', params.vendorId);
       const query = queryParams.toString();
       if (query) url += `?${query}`;
-      const res = await api.get(url);
+
+      const headers = await authHeaders();
+      const res = await api.get(url, { headers });
       return res.data?.data || [];
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.message || 'Failed to fetch ads');
@@ -53,7 +68,8 @@ export const fetchActiveAds = createAsyncThunk(
     try {
       let url = '/ads/active';
       if (search) url += `?search=${encodeURIComponent(search)}`;
-      const res = await api.get(url);
+      const headers = await authHeaders();
+      const res = await api.get(url, { headers });
       const data = res.data?.data || [];
       return Array.isArray(data) ? data : [];
     } catch (err: any) {
@@ -66,8 +82,12 @@ export const createAd = createAsyncThunk(
   'ads/create',
   async (data: FormData, { rejectWithValue }) => {
     try {
+      const headers = await authHeaders();
       const res = await api.post('/ads', data, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: {
+          ...headers,
+          'Content-Type': 'multipart/form-data',
+        },
       });
       return res.data?.data || null;
     } catch (err: any) {
@@ -80,8 +100,12 @@ export const updateAd = createAsyncThunk(
   'ads/update',
   async ({ id, data }: { id: string; data: FormData }, { rejectWithValue }) => {
     try {
+      const headers = await authHeaders();
       const res = await api.put(`/ads/${id}`, data, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: {
+          ...headers,
+          'Content-Type': 'multipart/form-data',
+        },
       });
       return res.data?.data || null;
     } catch (err: any) {
@@ -94,7 +118,8 @@ export const deleteAd = createAsyncThunk(
   'ads/delete',
   async (id: string, { rejectWithValue }) => {
     try {
-      await api.delete(`/ads/${id}`);
+      const headers = await authHeaders();
+      await api.delete(`/ads/${id}`, { headers });
       return id;
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.message || 'Failed to delete ad');
@@ -106,7 +131,8 @@ export const toggleAdStatus = createAsyncThunk(
   'ads/toggleStatus',
   async ({ id, isActive }: { id: string; isActive: boolean }, { rejectWithValue }) => {
     try {
-      const res = await api.patch(`/ads/${id}/toggle`, { isActive });
+      const headers = await authHeaders();
+      const res = await api.patch(`/ads/${id}/toggle`, { isActive }, { headers });
       return res.data?.data || null;
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.message || 'Failed to toggle ad status');
@@ -129,7 +155,6 @@ const adSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      // fetchAds
       .addCase(fetchAds.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -143,8 +168,6 @@ const adSlice = createSlice({
         state.error = action.payload as string;
         state.ads = [];
       })
-
-      // fetchActiveAds
       .addCase(fetchActiveAds.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -158,8 +181,6 @@ const adSlice = createSlice({
         state.error = action.payload as string;
         state.activeAds = [];
       })
-
-      // createAd
       .addCase(createAd.fulfilled, (state, action) => {
         if (action.payload) {
           state.ads = [action.payload, ...state.ads];
@@ -168,8 +189,6 @@ const adSlice = createSlice({
           }
         }
       })
-
-      // updateAd
       .addCase(updateAd.fulfilled, (state, action) => {
         if (action.payload) {
           const updateAdInArray = (arr: Ad[]) => {
@@ -180,15 +199,11 @@ const adSlice = createSlice({
           updateAdInArray(state.activeAds);
         }
       })
-
-      // deleteAd
       .addCase(deleteAd.fulfilled, (state, action) => {
         const id = action.payload;
         state.ads = state.ads.filter(a => a?._id !== id);
         state.activeAds = state.activeAds.filter(a => a?._id !== id);
       })
-
-      // toggleAdStatus
       .addCase(toggleAdStatus.fulfilled, (state, action) => {
         if (action.payload) {
           const update = (arr: Ad[]) => {
@@ -211,12 +226,10 @@ const adSlice = createSlice({
   },
 });
 
-// ---------- Selectors ----------
 export const selectAllAds = (state: RootState) => state.ads.ads;
 export const selectActiveAds = (state: RootState) => state.ads.activeAds;
 export const selectAdsLoading = (state: RootState) => state.ads.loading;
 export const selectAdsError = (state: RootState) => state.ads.error;
-
 export const selectProductAds = (state: RootState) =>
   state.ads.activeAds.filter(ad => ad.isProductAd);
 export const selectGenericAds = (state: RootState) =>

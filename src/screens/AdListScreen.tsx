@@ -18,6 +18,8 @@ import {
   Alert,
   BackHandler,
   Linking,
+  Platform,
+  Share as RNShare,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
@@ -25,7 +27,9 @@ import { fetchActiveAds } from '../features/adSlice';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as WebBrowser from 'expo-web-browser'; // ✅ The Instagram‑grade browser
+import * as WebBrowser from 'expo-web-browser';
+import * as FileSystem from 'expo-file-system/legacy';
+import Share from 'react-native-share';
 
 // ---------- Dynamically load speech recognition (fallback for Expo Go) ----------
 let SpeechRecognition: any = null;
@@ -35,6 +39,84 @@ try {
   console.warn('🔇 Speech recognition not available', e);
 }
 
+// Play Store & App Store links – replace with your actual links
+const PLAY_STORE_LINK = 'https://play.google.com/store/apps/details?id=com.ram1234567890.BLuxury';
+const APP_STORE_LINK = 'https://apps.apple.com/app/bluxury/id123456789';
+
+// Helper to detect user cancellation
+const isCancellationError = (error: any): boolean => {
+  const msg = error?.message?.toLowerCase() || '';
+  return (
+    msg.includes('user cancelled') ||
+    msg.includes('canceled') ||
+    msg.includes('user did not share') ||
+    msg.includes('dismissed')
+  );
+};
+
+// ---------- Share function (reusable) ----------
+const shareAd = async (ad: any, setIsSharing: (val: boolean) => void) => {
+  if (!ad) return;
+
+  setIsSharing(true);
+  try {
+    const imageUrl = ad.image || '';
+    const title = ad.title || 'Ad';
+    const description = ad.description || '';
+    const category = ad.category || '';
+    const link = ad.link || '';
+
+    let message = `📢 *${title}*\n\n`;
+    if (description) message += `${description}\n\n`;
+    if (category) message += `🏷️ Category: ${category}\n`;
+    if (link) message += `🔗 Link: ${link}\n\n`;
+    const appLink = Platform.OS === 'ios' ? APP_STORE_LINK : PLAY_STORE_LINK;
+    message += `📱 Download the BLuxury App: ${appLink}`;
+
+    if (imageUrl) {
+      try {
+        const timestamp = Date.now();
+        const filePath = `${FileSystem.cacheDirectory}ad_${timestamp}.jpg`;
+        const downloadResult = await FileSystem.downloadAsync(imageUrl, filePath);
+        if (downloadResult.status === 200) {
+          let localUri = downloadResult.uri;
+          if (Platform.OS === 'android') {
+            localUri = `file://${localUri}`;
+          }
+          const shareOptions = {
+            title: 'BLuxury Ad',
+            message: message,
+            url: localUri,
+            type: 'image/jpeg',
+          };
+          await Share.open(shareOptions);
+          setIsSharing(false);
+          return;
+        }
+      } catch (imageError) {
+        if (isCancellationError(imageError)) {
+          setIsSharing(false);
+          return;
+        }
+        console.log('Image share failed, falling back to text', imageError);
+      }
+    }
+
+    await RNShare.share({
+      message: message,
+      title: 'BLuxury Ad',
+    });
+  } catch (error) {
+    console.error('Share error:', error);
+    if (!isCancellationError(error)) {
+      Alert.alert('Share Error', 'Could not share this ad. Please try again.');
+    }
+  } finally {
+    setIsSharing(false);
+  }
+};
+
+// ---------- Component Interfaces ----------
 interface AdListScreenProps {
   products?: any[];
   title?: string;
@@ -47,6 +129,12 @@ const CATEGORY_ITEM_WIDTH = 90;
 const TOP_BAR_HEIGHT = 270;
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+// ----- helper to normalize phone -----
+const normalizePhone = (phone: string) => {
+  if (!phone) return '';
+  return phone.replace(/^\+91/, '').replace(/\D/g, '');
+};
 
 // ----- Category Item Component -----
 const CategoryItem: React.FC<{
@@ -89,14 +177,16 @@ const CategoryItem: React.FC<{
   );
 };
 
-// ----- Full Width Product Ad Card -----
+// ----- Full Width Product Ad Card with Share & optional owner -----
 const FullWidthProductAdCard: React.FC<{
   ad: any;
   onPress: (ad: any) => void;
   style?: any;
-}> = ({ ad, onPress, style }) => {
+  showOwner?: boolean;
+}> = ({ ad, onPress, style, showOwner = false }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageAspectRatio, setImageAspectRatio] = useState(3 / 4);
+  const [isSharing, setIsSharing] = useState(false);
 
   const handleImageLoad = (event: any) => {
     const { width, height } = event.nativeEvent.source;
@@ -110,9 +200,9 @@ const FullWidthProductAdCard: React.FC<{
     setImageLoaded(true);
   };
 
-  const handleCartPress = useCallback(() => {
-    onPress(ad);
-  }, [ad, onPress]);
+  const handleShare = useCallback(() => {
+    shareAd(ad, setIsSharing);
+  }, [ad]);
 
   return (
     <TouchableOpacity
@@ -143,6 +233,9 @@ const FullWidthProductAdCard: React.FC<{
         >
           <View style={styles.fullWidthOverlayContent}>
             <View style={styles.fullWidthTextContainer}>
+              {showOwner && ad.userName && (
+                <Text style={styles.ownerName}>👤 {ad.userName}</Text>
+              )}
               {ad.description && (
                 <Text style={styles.fullWidthAdDescription} numberOfLines={2}>
                   {ad.description}
@@ -152,12 +245,25 @@ const FullWidthProductAdCard: React.FC<{
                 <Text style={styles.fullWidthAdCategory}>{ad.category}</Text>
               )}
             </View>
-            <TouchableOpacity 
-              style={styles.glassCartContainer}
-              onPress={handleCartPress}
-            >
-              <Ionicons name="cart-outline" size={24} color="#FFFFFF" style={styles.glassCartIcon} />
-            </TouchableOpacity>
+            <View style={styles.fullWidthActionButtons}>
+              <TouchableOpacity
+                style={styles.glassCartContainer}
+                onPress={() => onPress(ad)}
+              >
+                <Ionicons name="cart-outline" size={24} color="#FFFFFF" style={styles.glassCartIcon} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.glassCartContainer, { marginLeft: 8 }]}
+                onPress={handleShare}
+                disabled={isSharing}
+              >
+                {isSharing ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="share-social-outline" size={22} color="#FFFFFF" />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </LinearGradient>
       </View>
@@ -165,13 +271,19 @@ const FullWidthProductAdCard: React.FC<{
   );
 };
 
-// ----- Generic Ad -----
+// ----- Generic Ad Card with Share & optional owner -----
 const GenericAdCard: React.FC<{
   ad: any;
   onPress: (ad: any) => void;
   style?: any;
-}> = ({ ad, onPress, style }) => {
+  showOwner?: boolean;
+}> = ({ ad, onPress, style, showOwner = false }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+
+  const handleShare = useCallback(() => {
+    shareAd(ad, setIsSharing);
+  }, [ad]);
 
   return (
     <TouchableOpacity
@@ -198,6 +310,9 @@ const GenericAdCard: React.FC<{
         >
           <View style={styles.overlayContent}>
             <View style={styles.adTextContainer}>
+              {showOwner && ad.userName && (
+                <Text style={styles.ownerName}>👤 {ad.userName}</Text>
+              )}
               <Text style={styles.adTitle} numberOfLines={2}>
                 {ad.title || 'Sponsored'}
               </Text>
@@ -210,13 +325,26 @@ const GenericAdCard: React.FC<{
                 <Text style={styles.adCategory}>{ad.category}</Text>
               )}
             </View>
-            <TouchableOpacity 
-              style={styles.shopNowContainer}
-              onPress={() => onPress(ad)}
-            >
-              <Text style={styles.shopNowText}>Click Me</Text>
-              <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
-            </TouchableOpacity>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={styles.shopNowContainer}
+                onPress={() => onPress(ad)}
+              >
+                <Text style={styles.shopNowText}>Click Me</Text>
+                <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.shopNowContainer, { marginLeft: 8, backgroundColor: '#1A1A1A' }]}
+                onPress={handleShare}
+                disabled={isSharing}
+              >
+                {isSharing ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="share-social-outline" size={20} color="#FFFFFF" />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </LinearGradient>
       </View>
@@ -224,7 +352,7 @@ const GenericAdCard: React.FC<{
   );
 };
 
-// ----- Product Card -----
+// ----- Product Card (unchanged) -----
 const ProductCard: React.FC<{
   product: any;
   onPress: (item: any) => void;
@@ -269,6 +397,12 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
   const horizontalScrollTimer = useRef<NodeJS.Timeout | null>(null);
   
   const { activeAds, loading, error } = useSelector((state: RootState) => state.ads);
+  const user = useSelector((state: RootState) => state.auth.user);
+  
+  // ✅ Normalize phone and check if special user
+  const normalizedPhone = normalizePhone(user?.phone || '');
+  const isSpecialUser = normalizedPhone === '7893828468';
+  
   const [refreshing, setRefreshing] = useState(false);
   const [displayData, setDisplayData] = useState<any[]>([]);
   const [selectedAd, setSelectedAd] = useState<any>(null);
@@ -307,17 +441,17 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     }
   }, [dispatch, externalProducts, searchQuery]);
 
-  // Helper function to find ad by ID or title
-  const findAdByParams = useCallback((ads: any[]) => {
+  // Helper function to find ad by ID or title (uses the provided list)
+  const findAdByParams = useCallback((adsList: any[]) => {
     if (selectedAdId) {
-      const found = ads.find(ad => ad._id === selectedAdId);
+      const found = adsList.find(ad => ad._id === selectedAdId);
       if (found) {
         console.log('🔍 [AdListScreen] Found ad by ID:', found.title);
         return found;
       }
     }
     if (selectedAdTitle) {
-      const found = ads.find(
+      const found = adsList.find(
         ad => ad.title && ad.title.trim().toLowerCase() === selectedAdTitle.trim().toLowerCase()
       );
       if (found) {
@@ -388,22 +522,18 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     }
   }, [isRecording]);
 
-  // FIXED: Back handler for search - Using correct BackHandler API
+  // Back handler for search - clears search on back press
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      // If search has text, clear it first
       if (searchQuery.length > 0) {
         setSearchQuery('');
-        return true; // Prevent default back behavior
+        return true;
       }
-      
-      // If search input is focused, blur it
       if (searchInputRef.current?.isFocused()) {
         searchInputRef.current?.blur();
-        return true; // Prevent default back behavior
+        return true;
       }
-      
-      return false; // Allow default back behavior
+      return false;
     });
 
     return () => backHandler.remove();
@@ -419,7 +549,6 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       externalProducts: externalProducts?.length || 0 
     });
 
-    // Apply search filter on ads before separating
     if (searchQuery.trim()) {
       const query = searchQuery.trim().toLowerCase();
       ads = ads.filter(ad => 
@@ -429,26 +558,33 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       );
     }
 
-    // Separate generic and product ads
     const genericAds = ads.filter(ad => ad.isProductAd === false);
     const productAds = ads.filter(ad => ad.isProductAd === true);
 
     console.log('📊 [AdListScreen] Generic ads:', genericAds.length, 'Product ads:', productAds.length);
 
-    // Filter sidebar ads (only generic with title)
+    // ----- DEDUPLICATE SIDEBAR ADS BY TITLE -----
     let validGenericAds = genericAds.filter(ad => ad.title && ad.title.trim().length > 0);
-    setSidebarAds(validGenericAds);
+    const uniqueMap = new Map<string, any>();
+    validGenericAds.forEach(ad => {
+      const key = ad.title.trim().toLowerCase();
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, ad);
+      }
+    });
+    const uniqueSidebarAds = Array.from(uniqueMap.values());
+    setSidebarAds(uniqueSidebarAds);
 
-    // Check if we should select an ad from params
-    let adToSelect = findAdByParams(validGenericAds);
+    // Find ad from params using the unique list
+    let adToSelect = findAdByParams(uniqueSidebarAds);
     
-    if (!adToSelect && validGenericAds.length > 0 && !selectedAd) {
-      console.log('✅ [AdListScreen] Selecting first generic ad:', validGenericAds[0].title);
-      adToSelect = validGenericAds[0];
+    if (!adToSelect && uniqueSidebarAds.length > 0 && !selectedAd) {
+      console.log('✅ [AdListScreen] Selecting first generic ad:', uniqueSidebarAds[0].title);
+      adToSelect = uniqueSidebarAds[0];
     }
 
     if (selectedAd && searchQuery.trim()) {
-      const stillExists = validGenericAds.some(ad => ad._id === selectedAd._id);
+      const stillExists = uniqueSidebarAds.some(ad => ad._id === selectedAd._id);
       if (!stillExists) {
         console.log('🔍 [AdListScreen] Selected ad not in search results, clearing selection');
         setSelectedAd(null);
@@ -470,20 +606,17 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       const selectedTitle = selectedAd.title.trim();
       console.log('📊 [AdListScreen] Extracting categories for title:', selectedTitle);
       
-      // Filter product ads that match the selected title
       const productAdsForTitle = productAds.filter(pa => 
         pa.title && pa.title.trim() === selectedTitle
       );
       
       console.log('📊 [AdListScreen] Product ads for this title:', productAdsForTitle.length);
       
-      // Extract categories from these product ads
       const categoryMap = new Map<string, string>();
       productAdsForTitle.forEach(ad => {
         if (ad.category && ad.category.trim()) {
           const catName = ad.category.trim();
           if (!categoryMap.has(catName)) {
-            // Use the first image from this category
             categoryMap.set(catName, ad.image || 'https://via.placeholder.com/80');
           }
         }
@@ -496,7 +629,6 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       setCategories(extractedCategories);
       console.log('📊 [AdListScreen] Extracted categories for this title:', extractedCategories.length);
       
-      // If selected category is not in the new list, clear it
       if (selectedCategory) {
         const categoryExists = extractedCategories.some(c => c.name === selectedCategory);
         if (!categoryExists) {
@@ -504,12 +636,14 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
         }
       }
     } else {
-      // No selected ad - clear categories
       setCategories([]);
       setSelectedCategory(null);
     }
 
-    // Build display data based on selected ad
+    // =============================================================
+    // ⭐ BUILD DISPLAY DATA: Include ALL ads (generic + product)
+    // with the selected title, not just product ads.
+    // =============================================================
     const merged: any[] = [];
 
     if (selectedAd) {
@@ -517,34 +651,31 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       console.log('📊 [AdListScreen] Building display for selected ad:', title);
       
       merged.push({ type: 'ad', data: selectedAd });
-      
-      let matchingProductAds = productAds.filter(pa => pa.title && pa.title.trim() === title);
-      
-      // Apply category filter if selected
+
+      const allMatchingAds = ads.filter(ad => 
+        ad.title && ad.title.trim() === title && ad._id !== selectedAd._id
+      );
+
+      let filteredMatchingAds = allMatchingAds;
       if (selectedCategory) {
-        matchingProductAds = matchingProductAds.filter(pa => 
-          pa.category && pa.category.trim().toLowerCase() === selectedCategory.toLowerCase()
+        filteredMatchingAds = allMatchingAds.filter(ad => 
+          ad.category && ad.category.trim().toLowerCase() === selectedCategory.toLowerCase()
         );
       }
-      
-      console.log('📊 [AdListScreen] Matching product ads:', matchingProductAds.length);
-      
-      matchingProductAds.forEach(pa => {
-        merged.push({ type: 'fullProductAd', data: pa });
+
+      filteredMatchingAds.forEach(ad => {
+        if (ad.isProductAd) {
+          merged.push({ type: 'fullProductAd', data: ad });
+        } else {
+          merged.push({ type: 'ad', data: ad });
+        }
       });
 
-      if (matchingProductAds.length === 0) {
-        console.log('⚠️ [AdListScreen] No matching product ads found for:', title);
-      }
-      
-      // Update filtered products for category view
-      setFilteredProducts(matchingProductAds);
-      
+      setFilteredProducts(filteredMatchingAds.filter(ad => ad.isProductAd));
+
     } else {
-      console.log('📊 [AdListScreen] No selected ad, showing all');
       let allAds = [...genericAds, ...productAds];
       
-      // Apply category filter if selected
       if (selectedCategory) {
         allAds = allAds.filter(ad => 
           ad.category && ad.category.trim().toLowerCase() === selectedCategory.toLowerCase()
@@ -640,10 +771,8 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
   // 🚀 INSTAGRAM-GRADE NATIVE BROWSER (expo-web-browser)
   // ============================================================
   const openLinkInNativeBrowser = useCallback(async (url: string) => {
-    // Prevent double-taps
     if (isOpeningBrowser) return;
     
-    // Basic URL validation
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       Alert.alert('Invalid Link', 'This link cannot be opened.');
       return;
@@ -651,25 +780,16 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
 
     try {
       setIsOpeningBrowser(true);
-
-      // Open in Chrome Custom Tab / Safari View Controller
       await WebBrowser.openBrowserAsync(url, {
-        // Branding
         toolbarColor: '#0A3D2B',
         controlsColor: '#FFFFFF',
-        // iOS
         dismissButtonStyle: 'close',
         enableBarCollapsing: true,
-        // Android
         showTitle: true,
         enableDefaultShare: true,
       });
-
-      console.log('✅ Browser dismissed. AdListScreen preserved.');
-
     } catch (error) {
       console.warn('WebBrowser error:', error);
-      // Fallback: open in system browser
       try {
         const supported = await Linking.canOpenURL(url);
         if (supported) {
@@ -681,19 +801,15 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
         Alert.alert('Error', 'Failed to open link.');
       }
     } finally {
-      // Re-enable tapping after browser is closed
       setIsOpeningBrowser(false);
     }
   }, [isOpeningBrowser]);
 
   // ---- REPLACED: Ad Press Handler with Native Browser ----
   const handleAdPress = useCallback((ad: any) => {
-    // If it's an external web link
     if (ad.link && (ad.link.startsWith('http://') || ad.link.startsWith('https://'))) {
-      // 🚀 Open in Instagram-grade Native Browser (0MB memory overhead)
       openLinkInNativeBrowser(ad.link);
     } else {
-      // Internal app navigation (e.g., product detail, custom screen)
       navigation.navigate('AdDetail', { ad });
     }
   }, [navigation, openLinkInNativeBrowser]);
@@ -719,25 +835,21 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
       adId: undefined
     });
     setSelectedAd(ad);
-    // Clear category selection when switching ads
     setSelectedCategory(null);
     setCategories([]);
   }, [navigation]);
 
-  // Handle category selection
   const handleCategoryPress = useCallback((categoryName: string) => {
     if (selectedCategory === categoryName) {
-      setSelectedCategory(null); // Deselect if already selected
+      setSelectedCategory(null);
     } else {
       setSelectedCategory(categoryName);
-      // Scroll to top when category is selected
       setTimeout(() => {
         flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       }, 100);
     }
   }, [selectedCategory]);
 
-  // Handle settings bell press
   const handleSettingsPress = useCallback(() => {
     navigation.navigate('Settings');
   }, [navigation]);
@@ -747,11 +859,11 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     if (item.type === 'product') {
       return <ProductCard product={item.data} onPress={handleProductPress} />;
     } else if (item.type === 'fullProductAd') {
-      return <FullWidthProductAdCard ad={item.data} onPress={handleAdPress} />;
+      return <FullWidthProductAdCard ad={item.data} onPress={handleAdPress} showOwner={isSpecialUser} />;
     } else {
-      return <GenericAdCard ad={item.data} onPress={handleAdPress} />;
+      return <GenericAdCard ad={item.data} onPress={handleAdPress} showOwner={isSpecialUser} />;
     }
-  }, [handleAdPress, handleProductPress]);
+  }, [handleAdPress, handleProductPress, isSpecialUser]);
 
   const handleScroll = (event: any) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
@@ -824,13 +936,10 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
           ]}
         >
           <View style={styles.searchBarContainer}>
-            {/* Settings Bell Icon - First image area */}
             <TouchableOpacity 
               style={styles.settingsButton}
               onPress={handleSettingsPress}
-            >
-              {/* <Ionicons name="settings-outline" size={24} color="#1C1C1E" /> */}
-            </TouchableOpacity>
+            />
             
             <Ionicons name="search" size={20} color="#999" />
             <TextInput
@@ -856,13 +965,7 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
                 onPress={handleVoiceSearch}
                 style={styles.voiceButton}
                 disabled={isRecording}
-              >
-                {/* <Ionicons
-                  name={isRecording ? "mic" : "mic-outline"}
-                  size={24}
-                  color={isRecording ? "#0A3D2B" : "#999"}
-                /> */}
-              </TouchableOpacity>
+              />
             )}
           </View>
           
@@ -923,9 +1026,7 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
           {selectedAd && categories.length > 0 && (
             <View style={styles.categorySection}>
               <View style={styles.categoryHeader}>
-                <Text style={styles.categorySectionTitle}>
-                  Categories
-                </Text>
+                <Text style={styles.categorySectionTitle}>Categories</Text>
                 {selectedCategory && (
                   <TouchableOpacity 
                     onPress={() => setSelectedCategory(null)}
@@ -963,18 +1064,13 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
             </View>
           )}
           
-          {/* Show message when selected ad has no categories */}
           {selectedAd && categories.length === 0 && (
             <View style={styles.categorySection}>
               <View style={styles.categoryHeader}>
-                <Text style={styles.categorySectionTitle}>
-                  Categories
-                </Text>
+                <Text style={styles.categorySectionTitle}>Categories</Text>
               </View>
               <View style={styles.noCategoryContainer}>
-                <Text style={styles.noCategoryText}>
-                  No categories available for this title
-                </Text>
+                <Text style={styles.noCategoryText}>No categories available for this title</Text>
               </View>
             </View>
           )}
@@ -1008,9 +1104,7 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
                 {title && <Text style={styles.sectionTitle}>{title}</Text>}
                 {selectedAd && displayData.length > 0 && (
                   <View style={styles.selectedAdHeader}>
-                    <Text style={styles.selectedAdHeaderTitle}>
-                      {selectedAd.title}
-                    </Text>
+                    <Text style={styles.selectedAdHeaderTitle}>{selectedAd.title}</Text>
                     <Text style={styles.selectedAdHeaderCount}>
                       {displayData.filter(d => d.type === 'fullProductAd').length} products
                     </Text>
@@ -1051,15 +1145,10 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
   );
 };
 
+// ----- Styles (unchanged) -----
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  container: { 
-    flex: 1, 
-    backgroundColor: '#F8F8F8',
-  },
+  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  container: { flex: 1, backgroundColor: '#F8F8F8' },
   topBar: {
     position: 'absolute',
     top: 0,
@@ -1087,34 +1176,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     height: 40,
   },
-  settingsButton: {
-    paddingRight: 10,
-    paddingVertical: 4,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#1C1C1E',
-    marginLeft: 8,
-    paddingVertical: 0,
-  },
-  voiceButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  tabsWrapper: {
-    position: 'relative',
-    paddingBottom: 4,
-  },
-  tabsScrollView: {
-    maxHeight: TAB_HEIGHT + 20,
-  },
-  tabsContent: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    gap: 8,
-    alignItems: 'center',
-  },
+  settingsButton: { paddingRight: 10, paddingVertical: 4 },
+  searchInput: { flex: 1, fontSize: 16, color: '#1C1C1E', marginLeft: 8, paddingVertical: 0 },
+  voiceButton: { paddingHorizontal: 8, paddingVertical: 4 },
+  tabsWrapper: { position: 'relative', paddingBottom: 4 },
+  tabsScrollView: { maxHeight: TAB_HEIGHT + 20 },
+  tabsContent: { paddingVertical: 8, paddingHorizontal: 4, gap: 8, alignItems: 'center' },
   tabItem: {
     width: TAB_WIDTH,
     alignItems: 'center',
@@ -1125,434 +1192,76 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 4,
   },
-  tabItemActive: {
-    borderColor: '#0A3D2B',
-    backgroundColor: '#E8F5E9',
-  },
-  tabImageContainer: {
-    width: TAB_WIDTH - 16,
-    height: TAB_WIDTH - 16,
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#E0E0E0',
-  },
-  tabImage: {
-    width: '100%',
-    height: '100%',
-  },
-  tabText: {
-    fontSize: 11,
-    color: '#666',
-    fontWeight: '500',
-    marginTop: 4,
-    textAlign: 'center',
-    maxWidth: TAB_WIDTH - 8,
-  },
-  tabTextActive: {
-    color: '#0A3D2B',
-    fontWeight: '700',
-  },
-  indicator: {
-    position: 'absolute',
-    bottom: 0,
-    left: 8,
-    width: TAB_WIDTH,
-    height: 3,
-    backgroundColor: '#0A3D2B',
-    borderRadius: 2,
-  },
-  mainContent: {
-    flex: 1,
-    backgroundColor: '#F8F8F8',
-    paddingTop: 4,
-  },
-  // Category Section Styles - Inside top bar with proper spacing
-  categorySection: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    marginTop: 2,
-    paddingBottom: 10,
-  },
-  categoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    marginBottom: 4,
-  },
-  categorySectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1C1C1E',
-  },
-  clearCategoryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  clearCategoryText: {
-    fontSize: 12,
-    color: '#0A3D2B',
-    fontWeight: '500',
-  },
-  categoryScrollView: {
-    maxHeight: 90,
-  },
-  categoryScrollContent: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    gap: 10,
-    alignItems: 'center',
-  },
-  categoryItem: {
-    width: CATEGORY_ITEM_WIDTH,
-    alignItems: 'center',
-    borderRadius: 10,
-    backgroundColor: '#F8F8F8',
-    borderWidth: 2,
-    borderColor: 'transparent',
-    paddingVertical: 3,
-    paddingHorizontal: 3,
-  },
-  categoryItemActive: {
-    borderColor: '#0A3D2B',
-    backgroundColor: '#E8F5E9',
-  },
-  categoryImageContainer: {
-    width: CATEGORY_ITEM_WIDTH - 16,
-    height: CATEGORY_ITEM_WIDTH - 16,
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#F0F0F0',
-    position: 'relative',
-  },
-  categoryImage: {
-    width: '100%',
-    height: '100%',
-  },
-  categorySelectedOverlay: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    borderRadius: 10,
-  },
-  categoryText: {
-    fontSize: 10,
-    color: '#666',
-    fontWeight: '500',
-    marginTop: 2,
-    textAlign: 'center',
-    maxWidth: CATEGORY_ITEM_WIDTH - 8,
-  },
-  categoryTextActive: {
-    color: '#0A3D2B',
-    fontWeight: '700',
-  },
-  categoryResultHeader: {
-    marginTop: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 6,
-    marginHorizontal: 4,
-  },
-  categoryResultText: {
-    fontSize: 11,
-    color: '#1C1C1E',
-    fontWeight: '500',
-  },
-  noCategoryContainer: {
-    paddingVertical: 4,
-    alignItems: 'center',
-  },
-  noCategoryText: {
-    fontSize: 12,
-    color: '#999',
-    fontWeight: '400',
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1C1C1E',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    marginTop: 8,
-  },
-  selectedAdHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 12,
-    marginBottom: 12,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  selectedAdHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1C1C1E',
-  },
-  selectedAdHeaderCount: {
-    fontSize: 12,
-    color: '#8E8E93',
-    fontWeight: '500',
-  },
-  listContainer: { 
-    paddingBottom: 16, 
-    paddingHorizontal: 12,
-    gap: 12,
-  },
-  fullWidthProductAdItem: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-    marginBottom: 16,
-    width: '100%',
-  },
-  fullWidthProductImageContainer: {
-    width: '100%',
-    position: 'relative',
-    backgroundColor: '#F0F0F0',
-  },
-  fullWidthProductAdImage: { 
-    width: '100%',
-    height: undefined,
-  },
+  tabItemActive: { borderColor: '#0A3D2B', backgroundColor: '#E8F5E9' },
+  tabImageContainer: { width: TAB_WIDTH - 16, height: TAB_WIDTH - 16, borderRadius: 8, overflow: 'hidden', backgroundColor: '#E0E0E0' },
+  tabImage: { width: '100%', height: '100%' },
+  tabText: { fontSize: 11, color: '#666', fontWeight: '500', marginTop: 4, textAlign: 'center', maxWidth: TAB_WIDTH - 8 },
+  tabTextActive: { color: '#0A3D2B', fontWeight: '700' },
+  indicator: { position: 'absolute', bottom: 0, left: 8, width: TAB_WIDTH, height: 3, backgroundColor: '#0A3D2B', borderRadius: 2 },
+  mainContent: { flex: 1, backgroundColor: '#F8F8F8', paddingTop: 4 },
+  categorySection: { backgroundColor: '#FFFFFF', paddingVertical: 6, paddingHorizontal: 4, borderTopWidth: 1, borderTopColor: '#F0F0F0', marginTop: 2, paddingBottom: 10 },
+  categoryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, marginBottom: 4 },
+  categorySectionTitle: { fontSize: 13, fontWeight: '600', color: '#1C1C1E' },
+  clearCategoryButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  clearCategoryText: { fontSize: 12, color: '#0A3D2B', fontWeight: '500' },
+  categoryScrollView: { maxHeight: 90 },
+  categoryScrollContent: { paddingVertical: 4, paddingHorizontal: 8, gap: 10, alignItems: 'center' },
+  categoryItem: { width: CATEGORY_ITEM_WIDTH, alignItems: 'center', borderRadius: 10, backgroundColor: '#F8F8F8', borderWidth: 2, borderColor: 'transparent', paddingVertical: 3, paddingHorizontal: 3 },
+  categoryItemActive: { borderColor: '#0A3D2B', backgroundColor: '#E8F5E9' },
+  categoryImageContainer: { width: CATEGORY_ITEM_WIDTH - 16, height: CATEGORY_ITEM_WIDTH - 16, borderRadius: 8, overflow: 'hidden', backgroundColor: '#F0F0F0', position: 'relative' },
+  categoryImage: { width: '100%', height: '100%' },
+  categorySelectedOverlay: { position: 'absolute', top: 2, right: 2, backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 10 },
+  categoryText: { fontSize: 10, color: '#666', fontWeight: '500', marginTop: 2, textAlign: 'center', maxWidth: CATEGORY_ITEM_WIDTH - 8 },
+  categoryTextActive: { color: '#0A3D2B', fontWeight: '700' },
+  categoryResultHeader: { marginTop: 4, paddingVertical: 4, paddingHorizontal: 12, backgroundColor: '#F5F5F5', borderRadius: 6, marginHorizontal: 4 },
+  categoryResultText: { fontSize: 11, color: '#1C1C1E', fontWeight: '500' },
+  noCategoryContainer: { paddingVertical: 4, alignItems: 'center' },
+  noCategoryText: { fontSize: 12, color: '#999', fontWeight: '400' },
+  sectionTitle: { fontSize: 20, fontWeight: '700', color: '#1C1C1E', marginHorizontal: 16, marginBottom: 12, marginTop: 8 },
+  selectedAdHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#FFFFFF', marginHorizontal: 12, marginBottom: 12, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  selectedAdHeaderTitle: { fontSize: 16, fontWeight: '700', color: '#1C1C1E' },
+  selectedAdHeaderCount: { fontSize: 12, color: '#8E8E93', fontWeight: '500' },
+  listContainer: { paddingBottom: 16, paddingHorizontal: 12, gap: 12 },
+  fullWidthProductAdItem: { borderRadius: 16, overflow: 'hidden', backgroundColor: '#FFFFFF', shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5, marginBottom: 16, width: '100%' },
+  fullWidthProductImageContainer: { width: '100%', position: 'relative', backgroundColor: '#F0F0F0' },
+  fullWidthProductAdImage: { width: '100%', height: undefined },
   imageHidden: { opacity: 0 },
-  imagePlaceholder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F0F0F0',
-  },
-  fullWidthOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    paddingBottom: 24,
-  },
-  fullWidthOverlayContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  fullWidthTextContainer: {
-    flex: 1,
-    marginRight: 12,
-  },
-  fullWidthAdDescription: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-    fontWeight: '400',
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  fullWidthAdCategory: {
-    color: '#FFD700',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 4,
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  glassCartContainer: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    shadowColor: 'rgba(255, 255, 255, 0.3)',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  glassCartIcon: {
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  genericAdItem: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-    marginBottom: 16,
-  },
-  genericImageContainer: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    position: 'relative',
-    backgroundColor: '#F0F0F0',
-  },
-  genericAdImage: { 
-    width: '100%', 
-    height: '100%' 
-  },
-  overlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 16,
-  },
-  overlayContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  adTextContainer: {
-    flex: 1,
-    marginRight: 12,
-  },
-  adTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-  adDescription: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 12,
-    marginTop: 2,
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  adCategory: {
-    color: '#FFD700',
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 2,
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  shopNowContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0A3D2B',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 25,
-    minWidth: 110,
-    justifyContent: 'center',
-    shadowColor: '#0A3D2B',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  shopNowText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '600',
-    marginRight: 4,
-  },
-  productCard: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    marginBottom: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  productImage: {
-    width: 120,
-    height: 120,
-  },
-  productInfo: {
-    flex: 1,
-    padding: 14,
-    justifyContent: 'center',
-  },
-  productName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    marginBottom: 4,
-  },
-  productPrice: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1B8C40',
-  },
-  loaderContainer: {
-    flex: 1,
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  imagePlaceholder: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F0F0F0' },
+  fullWidthOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingBottom: 24 },
+  fullWidthOverlayContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  fullWidthTextContainer: { flex: 1, marginRight: 12 },
+  fullWidthAdDescription: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '400', textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  fullWidthAdCategory: { color: '#FFD700', fontSize: 12, fontWeight: '600', marginTop: 4, textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  fullWidthActionButtons: { flexDirection: 'row', alignItems: 'center' },
+  glassCartContainer: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', borderRadius: 20, backgroundColor: 'rgba(255, 255, 255, 0.15)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.3)', shadowColor: 'rgba(255, 255, 255, 0.3)', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 2 },
+  glassCartIcon: { textShadowColor: 'rgba(0, 0, 0, 0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  genericAdItem: { borderRadius: 16, overflow: 'hidden', backgroundColor: '#FFFFFF', shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5, marginBottom: 16 },
+  genericImageContainer: { width: '100%', aspectRatio: 16 / 9, position: 'relative', backgroundColor: '#F0F0F0' },
+  genericAdImage: { width: '100%', height: '100%' },
+  overlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16 },
+  overlayContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  adTextContainer: { flex: 1, marginRight: 12 },
+  adTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
+  adDescription: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2, textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  adCategory: { color: '#FFD700', fontSize: 11, fontWeight: '600', marginTop: 2, textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  ownerName: { color: '#FFD700', fontSize: 12, fontWeight: '600', marginBottom: 2, textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  shopNowContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0A3D2B', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 25, minWidth: 110, justifyContent: 'center', shadowColor: '#0A3D2B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 3 },
+  shopNowText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', marginRight: 4 },
+  actionButtons: { flexDirection: 'row', alignItems: 'center' },
+  productCard: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 16, marginBottom: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 },
+  productImage: { width: 120, height: 120 },
+  productInfo: { flex: 1, padding: 14, justifyContent: 'center' },
+  productName: { fontSize: 14, fontWeight: '600', color: '#1C1C1E', marginBottom: 4 },
+  productPrice: { fontSize: 16, fontWeight: '700', color: '#1B8C40' },
+  loaderContainer: { flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center' },
   loadingText: { marginTop: 8, color: '#666666', fontSize: 14 },
-  errorContainer: {
-    flex: 1,
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  errorContainer: { flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center' },
   errorText: { color: '#FF3B30', fontSize: 14, marginBottom: 8 },
-  retryButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    backgroundColor: '#0A3D2B',
-    borderRadius: 6,
-  },
+  retryButton: { paddingHorizontal: 20, paddingVertical: 8, backgroundColor: '#0A3D2B', borderRadius: 6 },
   retryText: { color: '#FFFFFF', fontWeight: '600' },
-  emptyContainer: {
-    padding: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyText: { 
-    color: '#999999', 
-    fontSize: 16, 
-    fontWeight: '500', 
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  emptySubText: { 
-    color: '#CCCCCC', 
-    fontSize: 14, 
-    marginTop: 4,
-    textAlign: 'center',
-  },
+  emptyContainer: { padding: 40, alignItems: 'center', justifyContent: 'center' },
+  emptyText: { color: '#999999', fontSize: 16, fontWeight: '500', marginTop: 12, textAlign: 'center' },
+  emptySubText: { color: '#CCCCCC', fontSize: 14, marginTop: 4, textAlign: 'center' },
   footer: { paddingVertical: 16, alignItems: 'center' },
   footerText: { color: '#8E8E93', fontSize: 12 },
 });

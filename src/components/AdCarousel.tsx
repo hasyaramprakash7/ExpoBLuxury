@@ -38,13 +38,11 @@ const AdCarousel: React.FC<AdCarouselProps> = ({
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
   const autoPlayTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ✅ Filter only generic ads (isProductAd === false)
-  const filteredAds = React.useMemo(() => {
+  // ✅ Show all ads (both generic and product)
+  const displayAds = React.useMemo(() => {
     if (!ads || !Array.isArray(ads)) return [];
-    return ads.filter(ad => ad.isProductAd === false);
-  }, [ads]);
-
-  const displayAds = filteredAds.slice(0, limit);
+    return ads.slice(0, limit);
+  }, [ads, limit]);
 
   // Auto-play functionality
   const startAutoPlay = useCallback(() => {

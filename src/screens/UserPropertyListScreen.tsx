@@ -255,8 +255,8 @@ const addressModalStyles = StyleSheet.create({
 });
 
 // ================================================================
-// 2. SUB-COMPONENTS (ViewPropertyCTA, RealisticChip, PropertyCard)
-//    Unchanged – keep as is
+// 2. SUB-COMPONENTS
+//    UPDATED: PropertyCard now shows full address with location icon
 // ================================================================
 const ViewPropertyCTA = ({ onPress }: { onPress: () => void }) => {
   const arrowTranslateX = useSharedValue(0);
@@ -347,6 +347,15 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
 
   const coverImage = item.images?.[0] || FALLBACK_IMAGE;
 
+  // Build full address string from all available fields
+  const fullAddress = [
+    item.location?.address,
+    item.location?.locality,
+    item.location?.city,
+    item.location?.state,
+    item.location?.pincode || item.location?.zipCode
+  ].filter(Boolean).join(', ') || 'Location not specified';
+
   return (
     <GestureDetector gesture={panGesture}>
       <View style={styles.cardWrapper}>
@@ -384,6 +393,13 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
                 <Text style={styles.boldTitle} numberOfLines={1}>
                   {item.title?.toUpperCase() || 'UNTITLED'}
                 </Text>
+                {/* Full address with location icon */}
+                <View style={styles.addressRow}>
+                  <Ionicons name="location-sharp" size={11} color="rgba(255,255,255,0.6)" />
+                  <Text style={styles.locationText} numberOfLines={2}>
+                    {fullAddress}
+                  </Text>
+                </View>
               </View>
               <View style={styles.specColumn}>
                 <Text style={styles.specText}>{item.configuration?.bhk || 'N/A'}</Text>
@@ -453,7 +469,7 @@ const PropertyCard = ({ item, vendors }: { item: any; vendors: any[] }) => {
 };
 
 // ================================================================
-// 3. MAIN SCREEN
+// 3. MAIN SCREEN (unchanged)
 // ================================================================
 const UserPropertyListScreen: React.FC = () => {
   const dispatch = useDispatch<any>();
@@ -484,7 +500,6 @@ const UserPropertyListScreen: React.FC = () => {
 
   const [isLocating, setIsLocating] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
-  // We'll use AddAddressScreen as a full-screen modal
   const [showAddAddressScreen, setShowAddAddressScreen] = useState(false);
 
   const headerTranslateY = useRef(new Animated.Value(0)).current;
@@ -711,7 +726,6 @@ const UserPropertyListScreen: React.FC = () => {
 
   // Callback from AddAddressScreen when location is selected
   const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
-    // addressDetails contains fullAddress, city, state, pincode, etc.
     const city = addressDetails.city || '';
     const locality = addressDetails.locality || addressDetails.colony || addressDetails.suburb || addressDetails.street || '';
     const state = addressDetails.state || '';
@@ -745,7 +759,6 @@ const UserPropertyListScreen: React.FC = () => {
           Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
         });
     } else {
-      // If no token, just update filters directly (fallback)
       setCity(city);
       setLocality(locality);
       setState(state);
@@ -1210,7 +1223,7 @@ const UserPropertyListScreen: React.FC = () => {
 };
 
 // ================================================================
-// 4. STYLES (unchanged, same as before)
+// 4. STYLES
 // ================================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.white },
@@ -1443,6 +1456,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   boldTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold', letterSpacing: 0.5 },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  locationText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 10,
+    marginLeft: 4,
+    letterSpacing: 0.3,
+    lineHeight: 13,
+    flex: 1,
+  },
   specColumn: { alignItems: 'flex-end' },
   specText: { color: '#fff', fontSize: 12, fontWeight: '900' },
   specTextSub: { color: Colors.luxuryGold, fontSize: 8, fontWeight: 'bold' },

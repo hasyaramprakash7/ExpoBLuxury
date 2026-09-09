@@ -1,4 +1,4 @@
-// src/screens/admin/AdGroupDetailScreen.tsx
+// src/screens/AdGroupDetailScreen.tsx
 import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
@@ -33,10 +33,9 @@ import {
   Ad,
 } from "../../src/features/adSlice";
 import { CATEGORIES } from "../constants/categories";
-import { AdCard } from "./AdManagementScreen"; // exported from main screen
+import { AdCard } from "./AdManagementScreen";
 
 const { width, height } = Dimensions.get("window");
-
 const scale = (size: number) => (width / 375) * size;
 const verticalScale = (size: number) => (height / 812) * size;
 const moderateScale = (size: number, factor = 0.5) =>
@@ -59,7 +58,12 @@ const Colors = {
   modalOverlay: "rgba(0,0,0,0.5)",
 };
 
-// ---------- Category Selector (copy from main screen) ----------
+const normalizePhone = (phone: string) => {
+  if (!phone) return '';
+  return phone.replace(/^\+91/, '').replace(/\D/g, '');
+};
+
+// ---------- Category Selector ----------
 const CategorySelector: React.FC<{
   visible: boolean;
   onClose: () => void;
@@ -67,7 +71,6 @@ const CategorySelector: React.FC<{
   onSelectCategory: (category: string) => void;
 }> = ({ visible, onClose, selectedCategory, onSelectCategory }) => {
   const [searchText, setSearchText] = useState("");
-
   const filteredCategories = CATEGORIES.filter((cat) =>
     cat.toLowerCase().includes(searchText.toLowerCase())
   );
@@ -75,7 +78,6 @@ const CategorySelector: React.FC<{
     (cat) => cat.toLowerCase() === searchText.toLowerCase().trim()
   );
   const showAddOption = searchText.trim().length > 0 && !exactMatch;
-
   const data = [];
   if (showAddOption) {
     data.push({ type: "add", label: `Add "${searchText.trim()}"` });
@@ -157,9 +159,7 @@ const CategorySelector: React.FC<{
             ListEmptyComponent={
               !showAddOption && searchText.trim().length > 0 ? (
                 <View style={categorySelectorStyles.emptyState}>
-                  <Text style={categorySelectorStyles.emptyStateText}>
-                    No categories found
-                  </Text>
+                  <Text style={categorySelectorStyles.emptyStateText}>No categories found</Text>
                 </View>
               ) : null
             }
@@ -259,16 +259,26 @@ const categorySelectorStyles = StyleSheet.create({
   },
 });
 
-// ---------- Ad Form Modal (with support for default title and read-only title) ----------
+// ---------- Ad Form Modal (with defaultIsProductAd) ----------
 const AdFormModal: React.FC<{
   visible: boolean;
   onClose: () => void;
   ad?: Ad | null;
   onSubmit: (data: FormData) => void;
   loading: boolean;
-  defaultTitle?: string; // pre-filled title for new ads
-  titleEditable?: boolean; // if false, title is read-only
-}> = ({ visible, onClose, ad, onSubmit, loading, defaultTitle, titleEditable = true }) => {
+  defaultTitle?: string;
+  titleEditable?: boolean;
+  defaultIsProductAd?: boolean; // ✅ new prop
+}> = ({
+  visible,
+  onClose,
+  ad,
+  onSubmit,
+  loading,
+  defaultTitle,
+  titleEditable = true,
+  defaultIsProductAd = false, // default false for backward compatibility
+}) => {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
@@ -276,7 +286,7 @@ const AdFormModal: React.FC<{
   const [isActive, setIsActive] = useState(true);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
-  const [isProductAd, setIsProductAd] = useState(false);
+  const [isProductAd, setIsProductAd] = useState(defaultIsProductAd);
   const [showCategorySelector, setShowCategorySelector] = useState(false);
 
   useEffect(() => {
@@ -295,19 +305,16 @@ const AdFormModal: React.FC<{
       setCategory("");
       setLink("");
       setIsActive(true);
-      setIsProductAd(false);
+      setIsProductAd(defaultIsProductAd);
       setExistingImageUrl(null);
       setImageUri(null);
     }
-  }, [ad, defaultTitle]);
+  }, [ad, defaultTitle, defaultIsProductAd]);
 
   const handleImagePick = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert(
-        "Permission required",
-        "Please allow access to your photo library to upload ad images."
-      );
+      Alert.alert("Permission required", "Please allow access to your photo library to upload ad images.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -326,7 +333,6 @@ const AdFormModal: React.FC<{
       Alert.alert("Error", "Ad image is required");
       return;
     }
-
     try {
       const formData = new FormData();
       if (title && title.trim()) formData.append("title", title.trim());
@@ -336,7 +342,6 @@ const AdFormModal: React.FC<{
       if (link && link.trim()) formData.append("link", link.trim());
       formData.append("isActive", isActive ? "true" : "false");
       formData.append("isProductAd", isProductAd ? "true" : "false");
-
       if (imageUri) {
         const filename = imageUri.split("/").pop() || "image.jpg";
         const match = /\.(\w+)$/.exec(filename);
@@ -511,7 +516,6 @@ const AdFormModal: React.FC<{
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
-
       <CategorySelector
         visible={showCategorySelector}
         onClose={() => setShowCategorySelector(false)}
@@ -677,16 +681,21 @@ const AdGroupDetailScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { title } = route.params as { title: string };
-
+  const { vendor } = useSelector((state: RootState) => state.vendorAuth);
   const { ads, loading } = useSelector((state: RootState) => state.ads);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingAd, setEditingAd] = useState<Ad | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const normalizedPhone = normalizePhone(vendor?.phone || '');
+  const isAdmin = vendor?.role === 'admin' || normalizedPhone === '7893828468';
+  const vendorId = isAdmin ? undefined : vendor?._id;
+
   const fetchAdsForGroup = useCallback(() => {
-    dispatch(fetchAds({ search: title }));
-  }, [dispatch, title]);
+    dispatch(fetchAds({ search: title, vendorId }));
+  }, [dispatch, title, vendorId]);
 
   useEffect(() => {
     fetchAdsForGroup();
@@ -794,6 +803,7 @@ const AdGroupDetailScreen = () => {
               onEdit={() => handleEdit(item)}
               onDelete={() => handleDelete(item)}
               onToggle={() => handleToggle(item)}
+              showVendor={true}
             />
           )}
           refreshControl={
@@ -819,8 +829,9 @@ const AdGroupDetailScreen = () => {
         ad={editingAd}
         onSubmit={handleSubmit}
         loading={isSubmitting}
-        defaultTitle={title}           // pre‑fill title
-        titleEditable={!editingAd}     // only editable when creating new ad (not editing)
+        defaultTitle={title}
+        titleEditable={!editingAd}
+        defaultIsProductAd={true} // ✅ new ads in this group default to product ad
       />
     </SafeAreaView>
   );
