@@ -9,7 +9,7 @@ interface AppConfig {
 const apiUrlFromConfig = Constants.expoConfig?.extra?.API_URL as string | undefined;
 
 const dev: AppConfig = {
-    apiUrl: apiUrlFromConfig || "https://bluxurymainbackend.onrender.com/api/api",
+    apiUrl: apiUrlFromConfig || "https://bluxurymainbackend.onrender.com/api",
     googleMapsApiKey: "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c",
 };
 

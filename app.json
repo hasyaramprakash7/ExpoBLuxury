@@ -30,6 +30,7 @@
     "android": {
       "package": "com.ram1234567890.BLuxury",
       "versionCode": 56,
+      "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c"
@@ -53,11 +54,12 @@
       }
     },
     "plugins": [
+      "./plugins/withAndroidRepositories",
       [
         "expo-splash-screen",
         {
           "image": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
-          "resizeMode": "contain",
+          "resizeMode": "cover",
           "backgroundColor": "#0A3D2B"
         }
       ],
@@ -65,8 +67,8 @@
         "expo-build-properties",
         {
           "android": {
-            "enableMinifyInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableMinifyInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
             "newArchEnabled": false
           }
         }
@@ -95,7 +97,9 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-share-intent"
+      "expo-share-intent",
+      "expo-image",
+      "expo-sharing"
     ],
     "extra": {
       "eas": {

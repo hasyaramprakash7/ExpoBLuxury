@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Image,
   TouchableOpacity,
-  SafeAreaView,
   FlatList,
   Linking,
   Alert,
@@ -22,6 +21,7 @@ import {
   RefreshControl,
   StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useSelector, useDispatch } from "react-redux";
 import { RootState, AppDispatch } from "../app/store";
@@ -65,11 +65,15 @@ const Colors = {
   shadow: "rgba(0,0,0,0.08)",
   shadowDark: "rgba(0,0,0,0.12)",
   whatsapp: "#25D366",
+  imageBackdrop: "#0B1021",
 };
 
-// Play Store link - replace with your actual app link
 const PLAY_STORE_LINK = 'https://play.google.com/store/apps/details?id=com.ram1234567890.BLuxury';
 const APP_STORE_LINK = 'https://apps.apple.com/app/bluxury/id123456789';
+
+// Header image sizing constraints
+const MIN_HEADER_IMAGE_HEIGHT = 220;
+const MAX_HEADER_IMAGE_HEIGHT_RATIO = 0.7;
 
 // ✅ Helper to parse array fields (categories, tags, services)
 const parseArrayField = (field: any): string[] => {
@@ -169,7 +173,7 @@ const formatFullHours = (hours: any): string | null => {
   }
 };
 
-// --- Review Component (identical to ShopReviews, but with defensive checks) ---
+// --- Review Component ---
 const ReviewItem: React.FC<{ review: any }> = ({ review }) => {
   const formatDate = (dateString: string) => {
     if (!dateString) return '';
@@ -324,7 +328,7 @@ const reviewStyles = StyleSheet.create({
   },
 });
 
-// --- Review Modal Component (unchanged) ---
+// --- Review Modal Component ---
 const ReviewModal: React.FC<{
   visible: boolean;
   onClose: () => void;
@@ -568,12 +572,13 @@ const ShopDetails = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
+  const [headerImageHeight, setHeaderImageHeight] = useState<number>(verticalScale(260));
+
   const vendorData = vendor;
   const isOpen = isShopCurrentlyOpen(vendorData?.operatingHours);
   const fullHours = formatFullHours(vendorData?.operatingHours);
   const hoursDisplay = fullHours ? fullHours.split('\n').filter(Boolean) : [];
 
-  // Parse categories, tags, services
   const parsedCategories = parseArrayField(vendorData?.categories);
   const parsedTags = parseArrayField(vendorData?.tags);
   const parsedServices = parseArrayField(vendorData?.services);
@@ -589,7 +594,41 @@ const ShopDetails = () => {
     };
   }, []);
 
-  // Track view lead
+  useEffect(() => {
+    const uri = vendorData?.shopImage;
+
+    if (!uri || typeof uri !== 'string' || uri.trim().length === 0) {
+      setHeaderImageHeight(verticalScale(260));
+      return;
+    }
+
+    let cancelled = false;
+
+    Image.getSize(
+      uri,
+      (imgWidth: number, imgHeight: number) => {
+        if (cancelled || !imgWidth || !imgHeight) return;
+
+        let computed = (width / imgWidth) * imgHeight;
+
+        const minHeight = verticalScale(MIN_HEADER_IMAGE_HEIGHT);
+        const maxHeight = height * MAX_HEADER_IMAGE_HEIGHT_RATIO;
+
+        if (computed < minHeight) computed = minHeight;
+        if (computed > maxHeight) computed = maxHeight;
+
+        setHeaderImageHeight(computed);
+      },
+      () => {
+        if (!cancelled) setHeaderImageHeight(verticalScale(260));
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [vendorData?.shopImage]);
+
   useEffect(() => {
     if (user?._id && vendor?._id && !viewTracked.current && isMounted.current) {
       viewTracked.current = true;
@@ -602,28 +641,19 @@ const ShopDetails = () => {
     }
   }, [vendor?._id, user?._id, dispatch]);
 
-  // Fetch products
   useEffect(() => {
     if (!allProducts || allProducts.length === 0) {
       dispatch(fetchAllVendorProducts());
     }
   }, [dispatch]);
 
-  // Fetch reviews - only on mount, and do NOT clear on unmount
   useEffect(() => {
     if (vendorData?._id && isMounted.current) {
       dispatch(clearReviews());
       dispatch(fetchVendorReviews({ vendorId: vendorData._id, page: 1, limit: 20 }));
     }
-    // ❌ Remove cleanup that clears reviews on unmount
-    // return () => {
-    //   if (isMounted.current) {
-    //     dispatch(clearReviews());
-    //   }
-    // };
   }, [vendorData?._id, dispatch]);
 
-  // Filter products for this vendor
   useEffect(() => {
     if (allProducts && vendorData?._id) {
       const filtered = allProducts.filter(
@@ -633,7 +663,6 @@ const ShopDetails = () => {
     }
   }, [allProducts, vendorData]);
 
-  // Filter products by search query
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setFilteredProducts(products);
@@ -648,7 +677,6 @@ const ShopDetails = () => {
     }
   }, [products, searchQuery]);
 
-  // Pull-to-refresh
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
@@ -663,7 +691,6 @@ const ShopDetails = () => {
     }
   }, [dispatch, vendorData]);
 
-  // Get full address
   const getFullAddress = useCallback(() => {
     const addr = vendorData?.address;
     if (!addr) return null;
@@ -679,7 +706,6 @@ const ShopDetails = () => {
     return parts.join(", ");
   }, [vendorData]);
 
-  // Get Google Maps link
   const getGoogleMapsLink = useCallback(() => {
     const { latitude, longitude } = vendorData?.address || {};
     const fullAddress = getFullAddress();
@@ -692,7 +718,6 @@ const ShopDetails = () => {
     return '';
   }, [vendorData, getFullAddress]);
 
-  // Download image for sharing
   const downloadImageToLocal = async (imageUrl: string): Promise<string | null> => {
     try {
       const timestamp = Date.now();
@@ -709,7 +734,6 @@ const ShopDetails = () => {
     }
   };
 
-  // Build share message
   const buildShareMessage = useCallback(() => {
     if (!vendorData) return '';
     const fullAddress = getFullAddress();
@@ -743,7 +767,6 @@ const ShopDetails = () => {
     return message;
   }, [vendorData, parsedCategories, parsedTags, parsedServices, hoursDisplay, isOpen, getFullAddress, getGoogleMapsLink]);
 
-  // Share functions (unchanged)
   const handleShareWhatsApp = useCallback(async () => {
     if (!vendorData) return;
     setIsSharing(true);
@@ -822,7 +845,6 @@ const ShopDetails = () => {
     }
   }, [vendorData, buildShareMessage]);
 
-  // Handle Call
   const handleCall = useCallback(() => {
     if (vendorData?._id && user?._id) {
       dispatch(createCallLead({
@@ -838,7 +860,6 @@ const ShopDetails = () => {
     }
   }, [vendorData, user?._id, dispatch]);
 
-  // Handle WhatsApp
   const handleWhatsApp = useCallback(() => {
     if (vendorData?._id && user?._id) {
       dispatch(createWhatsAppLead({
@@ -855,7 +876,6 @@ const ShopDetails = () => {
     }
   }, [vendorData, user?._id, dispatch]);
 
-  // Open map
   const openMap = useCallback(() => {
     const { latitude, longitude } = vendorData?.address || {};
     if (latitude && longitude) {
@@ -884,7 +904,6 @@ const ShopDetails = () => {
     }
   }, [vendorData, getFullAddress]);
 
-  // Handle "View all reviews"
   const handleViewAllReviews = useCallback(() => {
     if (navigation) {
       navigation.navigate('ShopReviews', {
@@ -898,7 +917,6 @@ const ShopDetails = () => {
     }
   }, [navigation, vendorData]);
 
-  // Submit review
   const handleSubmitReview = async (rating: number, comment: string) => {
     if (!user?._id) {
       Alert.alert('Login Required', 'Please login to submit a review.');
@@ -921,7 +939,6 @@ const ShopDetails = () => {
     }
   };
 
-  // Render product item
   const renderProductItem = ({ item }: { item: any }) => (
     <View style={styles.verticalProductCardWrapper}>
       <NewProductCard product={item} />
@@ -938,9 +955,10 @@ const ShopDetails = () => {
   }
 
   const fullAddress = getFullAddress();
+  const hasShopImage = !!(vendorData?.shopImage && String(vendorData.shopImage).trim().length > 0);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
       <ScrollView
@@ -957,12 +975,12 @@ const ShopDetails = () => {
         }
       >
         {/* Header Image */}
-        <View style={styles.imageContainer}>
-          {vendorData?.shopImage ? (
+        <View style={[styles.imageContainer, { height: headerImageHeight }]}>
+          {hasShopImage ? (
             <Image
               source={{ uri: vendorData.shopImage }}
               style={styles.shopImage}
-              resizeMode="cover"
+              resizeMode="contain"
             />
           ) : (
             <View style={[styles.shopImage, styles.fallbackImage]}>
@@ -972,7 +990,7 @@ const ShopDetails = () => {
             </View>
           )}
 
-          <View style={styles.imageGradientOverlay} />
+          <View style={styles.imageGradientOverlay} pointerEvents="none" />
 
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" size={scale(26)} color="#FFFFFF" />
@@ -1198,7 +1216,6 @@ const ShopDetails = () => {
             ))
           )}
 
-          {/* "View all reviews" button with navigation */}
           {reviews.length > 5 && (
             <TouchableOpacity style={styles.viewAllReviews} onPress={handleViewAllReviews}>
               <Text style={styles.viewAllReviewsText}>View all {reviews.length} reviews</Text>
@@ -1274,7 +1291,6 @@ const ShopDetails = () => {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* Review Modal */}
       <ReviewModal
         visible={showReviewModal}
         onClose={() => setShowReviewModal(false)}
@@ -1308,8 +1324,9 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     width: "100%",
-    height: verticalScale(300),
     position: "relative",
+    backgroundColor: Colors.imageBackdrop,
+    overflow: "hidden",
   },
   shopImage: {
     width: "100%",

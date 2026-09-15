@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useSelector } from "react-redux";
 import { RootState } from "../app/store";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ChatScreen from "../navigation/CategoryManagementScreen";
 import HomeScreen from "../screens/HomeScreen";
@@ -24,10 +25,22 @@ import ShopListings from "../screens/ShopListings";
 import AdListScreen from "../screens/AdListScreen";
 import VendorLoginScreen from "../vendorScreens/VendorLoginScreen";
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
+
+// --- Responsive helpers ---
+const scale = (size: number) => (width / 375) * size;
+const verticalScale = (size: number) => (height / 812) * size;
+const moderateScale = (size: number, factor = 0.5) =>
+  size + (scale(size) - size) * factor;
+
 const ROYAL_GREEN_PRO = "#166534";
 const INACTIVE_COLOR = "#8E8E93";
 const CART_ZONE_WIDTH = 80;
+
+// Height of just the icon + label content area (no system inset)
+const TAB_BAR_CONTENT_HEIGHT = 64;
+// Tiny always-on visual breathing room (so labels never touch the very edge)
+const MIN_VISUAL_GAP = 4;
 
 const heavyDropShadow = {
   textShadowColor: "rgba(0, 0, 0, 0.25)",
@@ -48,8 +61,10 @@ const unclipShadow = {
 
 const Tab = createBottomTabNavigator();
 
-const ScrollableUnderCartTabBar = ({ state, navigation }) => {
-  const scrollViewRef = useRef(null);
+const ScrollableUnderCartTabBar = ({ state, navigation }: any) => {
+  const scrollViewRef = useRef<ScrollView>(null);
+  const insets = useSafeAreaInsets();
+
   const activeRouteName = state.routes[state.index].name;
   const isPropertyActive = activeRouteName === "RealEstate";
   const navBgColor = isPropertyActive ? "#000000" : "#FFFFFF";
@@ -69,6 +84,13 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
   const SCROLL_ZONE_WIDTH = width - CART_ZONE_WIDTH;
   const ITEM_WIDTH = Math.max(65, SCROLL_ZONE_WIDTH / routeCount);
 
+  // ✅ Use the REAL system inset — no forced minimum.
+  //  - Device WITH system nav bar  → insets.bottom is 24–48 (Android) or 34 (iOS) → space is added
+  //  - Device WITHOUT system bar   → insets.bottom is 0 → no wasted space
+  const systemBottom = insets.bottom;
+  const bottomPadding = systemBottom + MIN_VISUAL_GAP;
+  const tabBarHeight = TAB_BAR_CONTENT_HEIGHT + bottomPadding;
+
   useEffect(() => {
     scrollViewRef.current?.scrollTo({
       x: Math.max(0, state.index * ITEM_WIDTH - ITEM_WIDTH / 2),
@@ -77,7 +99,16 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
   }, [state.index, ITEM_WIDTH]);
 
   return (
-    <View style={[tabStyles.mainContainer, { backgroundColor: navBgColor }]}>
+    <View
+      style={[
+        tabStyles.mainContainer,
+        {
+          backgroundColor: navBgColor,
+          height: tabBarHeight,
+          paddingBottom: bottomPadding,
+        },
+      ]}
+    >
       <View style={tabStyles.fixedCartZone}>
         <TouchableOpacity
           onPress={() => navigation.navigate("CartScreen" as never)}
@@ -87,7 +118,7 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
           <View style={tabStyles.iconWrapper}>
             <Ionicons
               name="cart-outline"
-              size={24}
+              size={moderateScale(22)}
               color={navTextColor}
               style={[heavyDropShadow, unclipShadow]}
             />
@@ -114,16 +145,16 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
           style={[tabStyles.verticalDivider, { backgroundColor: dividerColor }]}
         />
       </View>
+
       <View style={tabStyles.scrollZone}>
         <ScrollView
           ref={scrollViewRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={tabStyles.scrollContent}
-          overflow="visible"
           decelerationRate="fast"
         >
-          {state.routes.map((route, index) => {
+          {state.routes.map((route: any, index: number) => {
             const isFocused = state.index === index;
             const activeColor = isFocused ? ROYAL_GREEN_PRO : inactiveIconColor;
             const currentShadow = isFocused ? activeGlow : heavyDropShadow;
@@ -138,7 +169,7 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
                 <View style={tabStyles.iconWrapper}>
                   <Ionicons
                     name={getIcon(route.name, isFocused)}
-                    size={24}
+                    size={moderateScale(22)}
                     color={activeColor}
                     style={[currentShadow, unclipShadow]}
                   />
@@ -164,8 +195,8 @@ const ScrollableUnderCartTabBar = ({ state, navigation }) => {
   );
 };
 
-const getIcon = (name, focused) => {
-  const icons = {
+const getIcon = (name: string, focused: boolean) => {
+  const icons: Record<string, any> = {
     Shops: focused ? "storefront" : "storefront-outline",
     Rental: focused ? "key" : "key-outline",
     Order: focused ? "bag" : "bag-outline",
@@ -180,8 +211,8 @@ const getIcon = (name, focused) => {
   return icons[name] || "apps-outline";
 };
 
-const getLabel = (name) => {
-  const labels = {
+const getLabel = (name: string) => {
+  const labels: Record<string, string> = {
     Shops: "Shops",
     Rental: "Rental",
     Order: "Shop",
@@ -242,8 +273,7 @@ const tabStyles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "rgba(0, 0, 0, 0.02)",
     paddingTop: 6,
-    height: Platform.OS === "ios" ? 100 : 95,
-    paddingBottom: Platform.OS === "ios" ? 38 : 30,
+    // height and paddingBottom are set dynamically from the real system inset
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -6 },
     shadowOpacity: 0.12,
@@ -263,7 +293,7 @@ const tabStyles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "transparent",
     paddingTop: 6,
-    paddingBottom: 10,
+    paddingBottom: 4,
     overflow: "visible",
   },
   verticalDivider: {
@@ -299,14 +329,15 @@ const tabStyles = StyleSheet.create({
   },
   badgeText: {
     color: "#FFFFFF",
-    fontSize: 9,
+    fontSize: moderateScale(9),
     fontWeight: "800",
   },
   cartLabelText: {
-    fontSize: 10,
+    fontSize: moderateScale(10),
     fontWeight: "800",
     letterSpacing: 0.3,
     textAlign: "center",
+    marginTop: 2,
   },
   scrollZone: {
     flex: 1,
@@ -315,23 +346,22 @@ const tabStyles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 8,
     alignItems: "center",
-    overflow: "visible",
   },
   tabItem: {
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "transparent",
     paddingTop: 6,
-    paddingBottom: 10,
+    paddingBottom: 4,
     marginHorizontal: 0,
     overflow: "visible",
   },
   tabLabel: {
-    fontSize: 10,
+    fontSize: moderateScale(10),
     fontWeight: "800",
     letterSpacing: 0.2,
-    marginTop: 1,
-    paddingBottom: 10,
+    marginTop: 2,
+    paddingBottom: 6,
     textAlign: "center",
     flexShrink: 0,
   },

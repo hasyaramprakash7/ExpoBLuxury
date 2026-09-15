@@ -1,4 +1,4 @@
-// src/screens/SignupVendorScreen.tsx
+// src/vendorScreens/SignupVendorScreen.tsx
 import React, { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import {
   View,
@@ -14,8 +14,12 @@ import {
   Modal,
   FlatList,
   KeyboardAvoidingView,
-  SafeAreaView,
+  Keyboard,
+  Dimensions,
+  Switch,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -23,7 +27,6 @@ import { FontAwesome, Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import axios from "axios";
-import MapView, { Marker } from "react-native-maps";
 
 // --- Redux Imports ---
 import {
@@ -41,7 +44,14 @@ import {
   TAGS,
 } from "../constants/vendorOptions";
 
-// --- Type Definitions ---
+// ─── Responsive helpers ─────────────────────────────────────────
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+const scale = (size: number) => (SCREEN_W / 375) * size;
+const verticalScale = (size: number) => (SCREEN_H / 812) * size;
+const moderateScale = (size: number, factor = 0.5) =>
+  size + (scale(size) - size) * factor;
+
+// ─── Type Definitions ──────────────────────────────────────────
 type AuthStackParamList = {
   VendorLogin: undefined;
   SignupVendor: undefined;
@@ -52,58 +62,292 @@ type SignupVendorScreenNavigationProp = NativeStackNavigationProp<
   "SignupVendor"
 >;
 
-// --- Color Palette ---
+// ═══════════════════════════════════════════════════════════════
+// 🎨 LIGHT THEME — White background + Dark Green accent
+// ═══════════════════════════════════════════════════════════════
 const COLORS = {
-  background: "#0A0A0A",
-  card: "#1C1C1C",
-  cardBorder: "#2C2C2C",
-  primary: "#FFD700",
-  primaryDark: "#C9A800",
-  textPrimary: "#FFFFFF",
-  textSecondary: "#B0B0B0",
-  textMuted: "#6B6B6B",
-  inputBg: "#1A1A1A",
-  inputBorder: "#333333",
-  inputFocus: "#FFD700",
-  error: "#FF4444",
-  success: "#34C759",
-  chipBg: "#2A2A2A",
-  chipActive: "#FFD700",
+  background: "#FFFFFF",
+  card: "#FFFFFF",
+  cardMuted: "#F5F7F5",
+  cardBorder: "#E4E7E4",
+  cardBorderStrong: "#D1D9D1",
+
+  primary: "#166534",
+  primaryDark: "#0F4A26",
+  primaryLight: "#22C55E",
+  primarySoft: "#DCFCE7",
+  primarySoftBorder: "#BBF7D0",
+
+  textPrimary: "#111827",
+  textSecondary: "#4B5563",
+  textMuted: "#9CA3AF",
+  textOnPrimary: "#FFFFFF",
+
+  inputBg: "#FAFAFA",
+  inputBorder: "#D1D5DB",
+  inputFocusBorder: "#166534",
+
+  error: "#DC2626",
+  success: "#16A34A",
+
+  chipBg: "#F3F4F6",
+  chipBorder: "#E5E7EB",
+  chipText: "#374151",
+  chipActiveBg: "#166534",
+  chipActiveText: "#FFFFFF",
+
+  scrim: "rgba(17, 24, 39, 0.55)",
 };
 
-// Operating Hours Presets
-const HOURS_PRESETS = [
-  { label: "Mon-Fri: 9 AM - 6 PM", value: JSON.stringify({ monday: { open: "09:00", close: "18:00" }, tuesday: { open: "09:00", close: "18:00" }, wednesday: { open: "09:00", close: "18:00" }, thursday: { open: "09:00", close: "18:00" }, friday: { open: "09:00", close: "18:00" } }) },
-  { label: "Mon-Sat: 9 AM - 8 PM", value: JSON.stringify({ monday: { open: "09:00", close: "20:00" }, tuesday: { open: "09:00", close: "20:00" }, wednesday: { open: "09:00", close: "20:00" }, thursday: { open: "09:00", close: "20:00" }, friday: { open: "09:00", close: "20:00" }, saturday: { open: "09:00", close: "20:00" } }) },
-  { label: "24/7", value: JSON.stringify({ monday: { open: "00:00", close: "23:59" }, tuesday: { open: "00:00", close: "23:59" }, wednesday: { open: "00:00", close: "23:59" }, thursday: { open: "00:00", close: "23:59" }, friday: { open: "00:00", close: "23:59" }, saturday: { open: "00:00", close: "23:59" }, sunday: { open: "00:00", close: "23:59" } }) },
-  { label: "Sun-Thu: 10 AM - 10 PM", value: JSON.stringify({ sunday: { open: "10:00", close: "22:00" }, monday: { open: "10:00", close: "22:00" }, tuesday: { open: "10:00", close: "22:00" }, wednesday: { open: "10:00", close: "22:00" }, thursday: { open: "10:00", close: "22:00" } }) },
-  { label: "Custom (enter JSON)", value: "custom" },
+// ─── Days of week ──────────────────────────────────────────────
+const DAYS: Array<{ key: string; label: string; short: string }> = [
+  { key: "monday", label: "Monday", short: "Mon" },
+  { key: "tuesday", label: "Tuesday", short: "Tue" },
+  { key: "wednesday", label: "Wednesday", short: "Wed" },
+  { key: "thursday", label: "Thursday", short: "Thu" },
+  { key: "friday", label: "Friday", short: "Fri" },
+  { key: "saturday", label: "Saturday", short: "Sat" },
+  { key: "sunday", label: "Sunday", short: "Sun" },
 ];
 
+type DaySchedule = { open: string; close: string; enabled: boolean };
+type CustomHoursMap = Record<string, DaySchedule>;
+
+const buildDefaultCustomHours = (): CustomHoursMap => ({
+  monday: { open: "09:00", close: "18:00", enabled: true },
+  tuesday: { open: "09:00", close: "18:00", enabled: true },
+  wednesday: { open: "09:00", close: "18:00", enabled: true },
+  thursday: { open: "09:00", close: "18:00", enabled: true },
+  friday: { open: "09:00", close: "18:00", enabled: true },
+  saturday: { open: "09:00", close: "18:00", enabled: false },
+  sunday: { open: "09:00", close: "18:00", enabled: false },
+});
+
+const customHoursToJson = (map: CustomHoursMap): Record<string, { open: string; close: string }> => {
+  const out: Record<string, { open: string; close: string }> = {};
+  DAYS.forEach(({ key }) => {
+    const d = map[key];
+    if (d && d.enabled && d.open && d.close) {
+      out[key] = { open: d.open, close: d.close };
+    }
+  });
+  return out;
+};
+
+// ─── Operating Hours Presets ───────────────────────────────────
+const HOURS_PRESETS = [
+  {
+    label: "Mon-Fri: 9 AM - 6 PM",
+    value: JSON.stringify({
+      monday: { open: "09:00", close: "18:00" },
+      tuesday: { open: "09:00", close: "18:00" },
+      wednesday: { open: "09:00", close: "18:00" },
+      thursday: { open: "09:00", close: "18:00" },
+      friday: { open: "09:00", close: "18:00" },
+    }),
+  },
+  {
+    label: "Mon-Sat: 9 AM - 8 PM",
+    value: JSON.stringify({
+      monday: { open: "09:00", close: "20:00" },
+      tuesday: { open: "09:00", close: "20:00" },
+      wednesday: { open: "09:00", close: "20:00" },
+      thursday: { open: "09:00", close: "20:00" },
+      friday: { open: "09:00", close: "20:00" },
+      saturday: { open: "09:00", close: "20:00" },
+    }),
+  },
+  {
+    label: "24/7",
+    value: JSON.stringify({
+      monday: { open: "00:00", close: "23:59" },
+      tuesday: { open: "00:00", close: "23:59" },
+      wednesday: { open: "00:00", close: "23:59" },
+      thursday: { open: "00:00", close: "23:59" },
+      friday: { open: "00:00", close: "23:59" },
+      saturday: { open: "00:00", close: "23:59" },
+      sunday: { open: "00:00", close: "23:59" },
+    }),
+  },
+  {
+    label: "Sun-Thu: 10 AM - 10 PM",
+    value: JSON.stringify({
+      sunday: { open: "10:00", close: "22:00" },
+      monday: { open: "10:00", close: "22:00" },
+      tuesday: { open: "10:00", close: "22:00" },
+      wednesday: { open: "10:00", close: "22:00" },
+      thursday: { open: "10:00", close: "22:00" },
+    }),
+  },
+  { label: "Custom (enter your own times)", value: "custom" },
+];
+
+const DEFAULT_INDIA = { lat: 20.5937, lng: 78.9629 };
+
+// ─── Leaflet HTML builder ──────────────────────────────────────
+const buildMapHtml = (lat: number, lng: number) => `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+      body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #F5F7F5; }
+      #map { width: 100%; height: 100%; }
+      .leaflet-control-attribution { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script>
+      var map = L.map('map', {
+        zoomControl: false,
+        attributionControl: false
+      }).setView([${lat}, ${lng}], 17);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
+      }).addTo(map);
+
+      map.on('movestart', function() {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'movestart' }));
+      });
+
+      map.on('moveend', function() {
+        var center = map.getCenter();
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'moveend',
+          lat: center.lat,
+          lng: center.lng
+        }));
+      });
+
+      window.updateMapCenter = function(lat, lng) {
+        map.setView([lat, lng], 17, { animate: true });
+      };
+    </script>
+  </body>
+  </html>
+`;
+
+// ═══════════════════════════════════════════════════════════════
+// NUMBER STEPPER — reusable hour/minute picker
+// ═══════════════════════════════════════════════════════════════
+const NumberStepper = ({
+  value,
+  onChange,
+  min,
+  max,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  min: number;
+  max: number;
+}) => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  const bump = (delta: number) => {
+    const num = parseInt(value, 10);
+    const safe = Number.isFinite(num) ? num : min;
+    let next = safe + delta;
+    if (next < min) next = max;
+    if (next > max) next = min;
+    onChange(pad(next));
+  };
+
+  const handleChangeText = (text: string) => {
+    const cleaned = text.replace(/\D/g, "").slice(0, 2);
+    onChange(cleaned);
+  };
+
+  const handleBlur = () => {
+    const num = parseInt(value, 10);
+    if (!Number.isFinite(num)) {
+      onChange(pad(min));
+    } else {
+      const clamped = Math.max(min, Math.min(max, num));
+      onChange(pad(clamped));
+    }
+  };
+
+  return (
+    <View style={stepperStyles.wrap}>
+      <TouchableOpacity
+        style={stepperStyles.btn}
+        onPress={() => bump(-1)}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+      >
+        <Ionicons name="remove" size={moderateScale(14)} color={COLORS.primary} />
+      </TouchableOpacity>
+      <TextInput
+        style={stepperStyles.input}
+        value={value}
+        onChangeText={handleChangeText}
+        onBlur={handleBlur}
+        keyboardType="number-pad"
+        maxLength={2}
+        selectTextOnFocus
+      />
+      <TouchableOpacity
+        style={stepperStyles.btn}
+        onPress={() => bump(1)}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+      >
+        <Ionicons name="add" size={moderateScale(14)} color={COLORS.primary} />
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+const stepperStyles = StyleSheet.create({
+  wrap: { flexDirection: "row", alignItems: "center" },
+  btn: {
+    width: moderateScale(30),
+    height: moderateScale(34),
+    borderRadius: moderateScale(8),
+    backgroundColor: COLORS.primarySoft,
+    borderWidth: 1,
+    borderColor: COLORS.primarySoftBorder,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  input: {
+    width: moderateScale(42),
+    height: moderateScale(34),
+    marginHorizontal: scale(4),
+    backgroundColor: "#FFFFFF",
+    borderRadius: moderateScale(8),
+    borderWidth: 1,
+    borderColor: COLORS.inputBorder,
+    color: COLORS.textPrimary,
+    fontSize: moderateScale(15),
+    textAlign: "center",
+    paddingVertical: 0,
+    fontWeight: "800",
+  },
+});
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN SCREEN
+// ═══════════════════════════════════════════════════════════════
 export default function SignupVendorScreen() {
   const navigation = useNavigation<SignupVendorScreenNavigationProp>();
   const dispatch = useDispatch<AppDispatch>();
+  const insets = useSafeAreaInsets();
   const { loading, error } = useSelector(
     (state: RootState) => state.vendorAuth,
   );
 
-  // ─── Categories from Redux ──────────────────────────────────
   const { categories: categoryOptions, loading: categoriesLoading } = useSelector(
     (state: RootState) => state.categories,
   );
 
-  // ─── Debug: Log categories when they change ────────────────
   useEffect(() => {
-    console.log('📦 [SignupVendor] Categories in Redux:', categoryOptions.length, categoryOptions);
-  }, [categoryOptions]);
-
-  // ─── Fetch categories on mount ─────────────────────────────
-  useEffect(() => {
-    console.log('🔄 [SignupVendor] useEffect for fetch. Categories length:', categoryOptions.length, 'Loading:', categoriesLoading);
     if (categoryOptions.length === 0 && !categoriesLoading) {
-      console.log('🚀 [SignupVendor] Dispatching fetchCategories');
       dispatch(fetchCategories());
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── FORM STATE ──────────────────────────────────────────────
@@ -142,17 +386,24 @@ export default function SignupVendorScreen() {
   const [otpCode, setOtpCode] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
 
-  // Modal visibility states
+  // Modal visibility
   const [showBusinessTypeModal, setShowBusinessTypeModal] = useState(false);
   const [showCategoriesModal, setShowCategoriesModal] = useState(false);
   const [showServicesModal, setShowServicesModal] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [showHoursModal, setShowHoursModal] = useState(false);
+  const [showCustomHoursModal, setShowCustomHoursModal] = useState(false);
 
-  // ─── Map Picker Modal ─────────────────────────────────────────
+  // ─── Custom Hours state ─────────────────────────────────────
+  const [customHours, setCustomHours] = useState<CustomHoursMap>(buildDefaultCustomHours);
+
+  // ─── Map Picker Modal ────────────────────────────────────────
   const [showMapModal, setShowMapModal] = useState(false);
-  const mapRef = useRef<MapView>(null);
+  const mapWebViewRef = useRef<WebView>(null);
+  const lastGeocodedKeyRef = useRef<string>("");
+  const [mapInitialCoords, setMapInitialCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [isMapMoving, setIsMapMoving] = useState(false);
   const [mapAddressDetails, setMapAddressDetails] = useState({
     pincode: "",
     state: "",
@@ -162,9 +413,8 @@ export default function SignupVendorScreen() {
     colony: "",
   });
   const [fetchingAddress, setFetchingAddress] = useState(false);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  // ─── Search state ─────────────────────────────────────────────
+  // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -176,30 +426,12 @@ export default function SignupVendorScreen() {
   const [searchServices, setSearchServices] = useState("");
   const [searchTags, setSearchTags] = useState("");
 
-  // ─── Get user location (for map) ─────────────────────────────
-  const getUserLocation = useCallback(async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") return;
-    try {
-      const location = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude } = location.coords;
-      setUserLocation({ lat: latitude, lng: longitude });
-      if (mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude,
-          longitude,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02,
-        }, 500);
-      }
-    } catch (e) {}
-  }, []);
+  const getString = (value: any): string => {
+    if (Array.isArray(value)) return value.filter(Boolean).join(", ");
+    return value || "";
+  };
 
-  useEffect(() => {
-    if (showMapModal) getUserLocation();
-  }, [showMapModal]);
-
-  // ─── Handlers ──────────────────────────────────────────────────
+  // ─── Handlers ─────────────────────────────────────────────────
   const handleChange = useCallback((name: string, value: string) => {
     if (name.startsWith("address.")) {
       const key = name.split(".")[1];
@@ -233,58 +465,151 @@ export default function SignupVendorScreen() {
     }));
   }, []);
 
-  // ─── Image Picker ─────────────────────────────────────────────
-  const handlePickImage = useCallback(async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
+  // ─── Custom Hours handlers ──────────────────────────────────
+  const updateDaySchedule = useCallback(
+    (dayKey: string, patch: Partial<DaySchedule>) => {
+      setCustomHours((prev) => ({
+        ...prev,
+        [dayKey]: { ...prev[dayKey], ...patch },
+      }));
+    },
+    []
+  );
+
+  const copyToAllDays = useCallback(() => {
+    const src = customHours.monday;
+    setCustomHours((prev) => {
+      const next: CustomHoursMap = { ...prev };
+      DAYS.forEach(({ key }) => {
+        next[key] = { ...prev[key], open: src.open, close: src.close };
+      });
+      return next;
+    });
+    Alert.alert("Applied", "Monday's times copied to all days.");
+  }, [customHours]);
+
+  const enableAllDays = useCallback((enabled: boolean) => {
+    setCustomHours((prev) => {
+      const next: CustomHoursMap = { ...prev };
+      DAYS.forEach(({ key }) => {
+        next[key] = { ...prev[key], enabled };
+      });
+      return next;
+    });
+  }, []);
+
+  const applyCustomHours = useCallback(() => {
+    const atLeastOneDay = DAYS.some(({ key }) => customHours[key].enabled);
+    if (!atLeastOneDay) {
+      Alert.alert("Error", "Please enable at least one day.");
+      return;
+    }
+    for (const { key } of DAYS) {
+      const d = customHours[key];
+      if (!d.enabled) continue;
+      const oh = parseInt(d.open.split(":")[0], 10);
+      const om = parseInt(d.open.split(":")[1] ?? "0", 10);
+      const ch = parseInt(d.close.split(":")[0], 10);
+      const cm = parseInt(d.close.split(":")[1] ?? "0", 10);
+      if (
+        !Number.isFinite(oh) || !Number.isFinite(om) ||
+        !Number.isFinite(ch) || !Number.isFinite(cm) ||
+        oh < 0 || oh > 23 || om < 0 || om > 59 ||
+        ch < 0 || ch > 23 || cm < 0 || cm > 59
+      ) {
+        Alert.alert("Error", `Invalid time for ${key}. Use 24-hour HH:MM (00-23 : 00-59).`);
+        return;
+      }
+    }
+    const json = customHoursToJson(customHours);
+    setForm((prev) => ({ ...prev, operatingHours: JSON.stringify(json) }));
+    setShowCustomHoursModal(false);
+  }, [customHours]);
+
+  // ─── Image Picker ────────────────────────────────────────────
+  const pickFromGallery = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Denied", "Gallery permission is required to select an image.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: false,
       quality: 1,
     });
-    if (!result.canceled) {
+    if (!result.canceled && result.assets?.[0]) {
       setForm((prev) => ({ ...prev, shopImage: result.assets[0] }));
     }
   }, []);
 
-  // ─── Location: Get current device location ───────────────────
+  const pickFromCamera = useCallback(async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Denied", "Camera permission is required to take a photo.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 1,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setForm((prev) => ({ ...prev, shopImage: result.assets[0] }));
+    }
+  }, []);
+
+  const handlePickImage = useCallback(() => {
+    if (otpSent) return;
+    Alert.alert("Shop Image", "Choose an option", [
+      { text: "Camera", onPress: pickFromCamera },
+      { text: "Gallery", onPress: pickFromGallery },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [otpSent, pickFromCamera, pickFromGallery]);
+
+  // ─── Location: Get current device location for form autofill ──
   const handleFetchLocation = useCallback(async () => {
     setLoadingAddress(true);
-    let { status } = await Location.requestForegroundPermissionsAsync();
+    const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission Denied", "Permission to access location was denied.");
       setLoadingAddress(false);
       return;
     }
     try {
-      let location = await Location.getCurrentPositionAsync({});
+      const location = await Location.getCurrentPositionAsync({});
       const { latitude, longitude } = location.coords;
-      const response = await axios.get(
-        `https://nominatim.openstreetmap.org/reverse`,
-        {
-          headers: { "User-Agent": "BLuxuryApp/1.0" },
-          params: {
-            lat: latitude,
-            lon: longitude,
-            format: "json",
-            addressdetails: 1,
+      const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
+
+      if (geocode && geocode.length > 0) {
+        const place: any = geocode[0];
+        setForm((prev) => ({
+          ...prev,
+          address: {
+            latitude: String(latitude),
+            longitude: String(longitude),
+            pincode: getString(place.postalCode),
+            state: getString(place.region),
+            district: getString(place.district || place.city || place.subregion),
+            country: getString(place.country || "India"),
+            street: getString(place.street || place.name),
+            colony: getString(place.neighborhood || place.suburb),
           },
-        }
-      );
-      const address = response.data.address || {};
-      setForm((prev) => ({
-        ...prev,
-        address: {
-          latitude: String(latitude),
-          longitude: String(longitude),
-          pincode: address.postcode || "",
-          state: address.state || "",
-          district: address.county || address.city_district || "",
-          country: address.country || "India",
-          street: address.road || "",
-          colony: address.neighbourhood || address.suburb || "",
-        },
-      }));
-      Alert.alert("Success", "Address auto-filled from your location.");
+        }));
+        Alert.alert("Success", "Address auto-filled from your location.");
+      } else {
+        setForm((prev) => ({
+          ...prev,
+          address: {
+            ...prev.address,
+            latitude: String(latitude),
+            longitude: String(longitude),
+            country: "India",
+          },
+        }));
+        Alert.alert("Info", "Location captured. Please fill address details.");
+      }
     } catch (e) {
       Alert.alert("Error", "Could not fetch address. Please enter it manually.");
     } finally {
@@ -294,67 +619,115 @@ export default function SignupVendorScreen() {
 
   // ─── MAP PICKER: Reverse geocode ─────────────────────────────
   const reverseGeocode = useCallback(async (lat: number, lng: number) => {
+    const key = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+    if (lastGeocodedKeyRef.current === key) return;
+    lastGeocodedKeyRef.current = key;
+
     setFetchingAddress(true);
+
     try {
-      const response = await axios.get(
-        `https://nominatim.openstreetmap.org/reverse`,
-        {
-          headers: { "User-Agent": "BLuxuryApp/1.0" },
-          params: {
-            lat: lat,
-            lon: lng,
-            format: "json",
-            addressdetails: 1,
-          },
-        }
-      );
-      const address = response.data.address || {};
-      setMapAddressDetails({
-        pincode: address.postcode || "",
-        state: address.state || "",
-        district: address.county || address.city_district || "",
-        country: address.country || "India",
-        street: address.road || "",
-        colony: address.neighbourhood || address.suburb || "",
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: lat,
+        longitude: lng,
       });
+
+      if (geocode && geocode.length > 0) {
+        const place: any = geocode[0];
+        const details = {
+          pincode: getString(place.postalCode),
+          state: getString(place.region),
+          district: getString(place.district || place.city || place.subregion),
+          country: getString(place.country || "India"),
+          street: getString(place.street || place.name),
+          colony: getString(place.neighborhood || place.suburb),
+        };
+        setMapAddressDetails(details);
+      }
     } catch (e) {
-      Alert.alert("Error", "Could not fetch address details.");
+      // ignore
     } finally {
       setFetchingAddress(false);
     }
   }, []);
 
-  // ─── Search locations ─────────────────────────────────────────
+  // ─── Open map modal ──────────────────────────────────────────
+  const openMapModal = useCallback(async () => {
+    setShowMapModal(true);
+    setFetchingAddress(true);
+    setMapAddressDetails({
+      pincode: "",
+      state: "",
+      district: "",
+      country: "India",
+      street: "",
+      colony: "",
+    });
+    setSelectedCoords(null);
+    setSearchQuery("");
+    setSearchResults([]);
+    lastGeocodedKeyRef.current = "";
+
+    const savedLat = parseFloat(form.address.latitude);
+    const savedLng = parseFloat(form.address.longitude);
+    if (!isNaN(savedLat) && !isNaN(savedLng) && savedLat !== 0 && savedLng !== 0) {
+      setMapInitialCoords({ lat: savedLat, lng: savedLng });
+      setSelectedCoords({ lat: savedLat, lng: savedLng });
+      reverseGeocode(savedLat, savedLng);
+      return;
+    }
+
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === "granted") {
+        const location = await Location.getCurrentPositionAsync({});
+        const coords = {
+          lat: location.coords.latitude,
+          lng: location.coords.longitude,
+        };
+        setMapInitialCoords(coords);
+        setSelectedCoords(coords);
+        reverseGeocode(coords.lat, coords.lng);
+      } else {
+        setMapInitialCoords(DEFAULT_INDIA);
+        setSelectedCoords(DEFAULT_INDIA);
+        reverseGeocode(DEFAULT_INDIA.lat, DEFAULT_INDIA.lng);
+      }
+    } catch {
+      setMapInitialCoords(DEFAULT_INDIA);
+      setSelectedCoords(DEFAULT_INDIA);
+      reverseGeocode(DEFAULT_INDIA.lat, DEFAULT_INDIA.lng);
+    }
+  }, [form.address.latitude, form.address.longitude, reverseGeocode]);
+
+  useEffect(() => {
+    if (!showMapModal) {
+      lastGeocodedKeyRef.current = "";
+    }
+  }, [showMapModal]);
+
+  // ─── Search locations ────────────────────────────────────────
   const searchLocations = useCallback((query: string) => {
     setSearchQuery(query);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     if (!query || query.length < 2) {
       setSearchResults([]);
+      setIsSearching(false);
       return;
     }
     setIsSearching(true);
     searchTimeout.current = setTimeout(async () => {
       try {
-        const response = await axios.get(
-          `https://nominatim.openstreetmap.org/search`,
-          {
-            headers: { "User-Agent": "BLuxuryApp/1.0" },
-            params: {
-              q: query,
-              format: "json",
-              addressdetails: 1,
-              limit: 15,
-              countrycodes: "in",
-            },
-          }
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=15&countrycodes=in`,
+          { headers: { "User-Agent": "BLuxuryApp/1.0" } }
         );
-        const results = response.data;
-        const sorted = results.sort((a: any, b: any) => {
+        const data = await response.json();
+        const sorted = data.sort((a: any, b: any) => {
           const getPriority = (item: any) => {
-            const cls = item.class || '';
-            const type = item.type || '';
-            if (['neighbourhood', 'suburb', 'city', 'town', 'village', 'district', 'county', 'state'].includes(type)) return 1;
-            if (['highway', 'road', 'street', 'amenity', 'place', 'boundary'].includes(cls)) return 2;
+            const cls = item.class || "";
+            const type = item.type || "";
+            if (["neighbourhood", "suburb", "city", "town", "village", "district", "county", "state"].includes(type)) return 1;
+            if (["highway", "road", "street", "amenity", "place", "boundary"].includes(cls)) return 2;
             return 3;
           };
           return getPriority(a) - getPriority(b);
@@ -372,24 +745,67 @@ export default function SignupVendorScreen() {
     const lat = parseFloat(item.lat);
     const lon = parseFloat(item.lon);
     setSelectedCoords({ lat, lng: lon });
-    if (mapRef.current) {
-      mapRef.current.animateToRegion({
-        latitude: lat,
-        longitude: lon,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      }, 500);
+    if (mapWebViewRef.current) {
+      mapWebViewRef.current.injectJavaScript(
+        `window.updateMapCenter(${lat}, ${lon}); true;`
+      );
     }
     reverseGeocode(lat, lon);
     setSearchQuery("");
     setSearchResults([]);
+    Keyboard.dismiss();
   }, [reverseGeocode]);
 
-  const handleMapPress = useCallback((event: any) => {
-    const { latitude, longitude } = event.nativeEvent.coordinate;
-    setSelectedCoords({ lat: latitude, lng: longitude });
-    reverseGeocode(latitude, longitude);
+  // ─── Recenter ────────────────────────────────────────────────
+  const recenterMap = useCallback(async () => {
+    try {
+      const loc = await Location.getCurrentPositionAsync({});
+      const lat = loc.coords.latitude;
+      const lng = loc.coords.longitude;
+      setSelectedCoords({ lat, lng });
+      if (mapWebViewRef.current) {
+        mapWebViewRef.current.injectJavaScript(
+          `window.updateMapCenter(${lat}, ${lng}); true;`
+        );
+      }
+      reverseGeocode(lat, lng);
+    } catch (e) {
+      Alert.alert("Error", "Could not get current location.");
+    }
   }, [reverseGeocode]);
+
+  // ─── Map message handler ─────────────────────────────────────
+  const handleMapMessage = useCallback((event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === "movestart") {
+        setIsMapMoving(true);
+        Keyboard.dismiss();
+      } else if (data.type === "moveend") {
+        const lat = parseFloat(data.lat);
+        const lng = parseFloat(data.lng);
+        if (
+          !isNaN(lat) && !isNaN(lng) &&
+          lat >= -90 && lat <= 90 &&
+          lng >= -180 && lng <= 180
+        ) {
+          setIsMapMoving(false);
+          setSelectedCoords({ lat, lng });
+          reverseGeocode(lat, lng);
+          setSearchResults([]);
+          setSearchQuery("");
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [reverseGeocode]);
+
+  // ─── Memoized WebView source ─────────────────────────────────
+  const webViewSource = useMemo(() => {
+    if (!mapInitialCoords) return undefined;
+    return { html: buildMapHtml(mapInitialCoords.lat, mapInitialCoords.lng) };
+  }, [mapInitialCoords?.lat, mapInitialCoords?.lng]);
 
   const confirmMapAddress = useCallback(() => {
     if (!selectedCoords) {
@@ -402,7 +818,7 @@ export default function SignupVendorScreen() {
       pincode: mapAddressDetails.pincode,
       state: mapAddressDetails.state,
       district: mapAddressDetails.district,
-      country: mapAddressDetails.country,
+      country: mapAddressDetails.country || "India",
       street: mapAddressDetails.street,
       colony: mapAddressDetails.colony,
     };
@@ -414,7 +830,7 @@ export default function SignupVendorScreen() {
     Alert.alert("Success", "Address filled from selected map location.");
   }, [selectedCoords, mapAddressDetails]);
 
-  // ─── Validation ───────────────────────────────────────────────
+  // ─── Validation ──────────────────────────────────────────────
   const validateForm = useCallback(() => {
     if (
       !form.name ||
@@ -442,7 +858,7 @@ export default function SignupVendorScreen() {
     return true;
   }, [form]);
 
-  // ─── OTP & Submit ─────────────────────────────────────────────
+  // ─── OTP & Submit ────────────────────────────────────────────
   const handleSendOtp = useCallback(async () => {
     if (!validateForm()) return;
     setSendingOtp(true);
@@ -519,14 +935,14 @@ export default function SignupVendorScreen() {
         <View key={v} style={styles.chip}>
           <Text style={styles.chipText}>{v}</Text>
           <TouchableOpacity onPress={() => removeChip(field, v)}>
-            <Ionicons name="close-circle" size={18} color={COLORS.textSecondary} />
+            <Ionicons name="close-circle" size={moderateScale(16)} color={COLORS.primary} />
           </TouchableOpacity>
         </View>
       ))}
     </View>
   ), [removeChip]);
 
-  // ─── Reusable searchable modal (for simple string lists) ────
+  // ─── Reusable searchable modal ───────────────────────────────
   const renderSearchableModal = useCallback((
     visible: boolean,
     onClose: () => void,
@@ -546,9 +962,10 @@ export default function SignupVendorScreen() {
       <Modal visible={visible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
+            <View style={styles.modalGrabber} />
             <Text style={styles.modalTitle}>{title}</Text>
             <View style={styles.modalSearchContainer}>
-              <Ionicons name="search" size={20} color={COLORS.textSecondary} />
+              <Ionicons name="search" size={moderateScale(18)} color={COLORS.textSecondary} />
               <TextInput
                 style={styles.modalSearchInput}
                 placeholder="Search..."
@@ -577,7 +994,7 @@ export default function SignupVendorScreen() {
                   >
                     <Text style={styles.modalItemText}>{item}</Text>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
+                      <Ionicons name="checkmark-circle" size={moderateScale(22)} color={COLORS.primary} />
                     )}
                   </TouchableOpacity>
                 );
@@ -597,21 +1014,20 @@ export default function SignupVendorScreen() {
     );
   }, []);
 
-  // ─── Categories Modal (with images) ──────────────────────────
+  // ─── Categories Modal ────────────────────────────────────────
   const renderCategoriesModal = useCallback(() => {
-    console.log('🔄 [SignupVendor] Rendering categories modal. Total categories:', categoryOptions.length);
     const filteredCategories = categoryOptions.filter((cat) =>
       cat.name.toLowerCase().includes(searchCategories.toLowerCase())
     );
-    console.log('🔍 [SignupVendor] Filtered categories:', filteredCategories.length);
 
     return (
       <Modal visible={showCategoriesModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
+            <View style={styles.modalGrabber} />
             <Text style={styles.modalTitle}>Select Categories</Text>
             <View style={styles.modalSearchContainer}>
-              <Ionicons name="search" size={20} color={COLORS.textSecondary} />
+              <Ionicons name="search" size={moderateScale(18)} color={COLORS.textSecondary} />
               <TextInput
                 style={styles.modalSearchInput}
                 placeholder="Search categories..."
@@ -622,7 +1038,7 @@ export default function SignupVendorScreen() {
               />
             </View>
             {categoriesLoading ? (
-              <ActivityIndicator size="large" color={COLORS.primary} style={{ marginVertical: 20 }} />
+              <ActivityIndicator size="large" color={COLORS.primary} style={{ marginVertical: verticalScale(20) }} />
             ) : (
               <>
                 <FlatList
@@ -636,7 +1052,7 @@ export default function SignupVendorScreen() {
                         style={styles.modalItem}
                         onPress={() => toggleSelection("categories", item.name)}
                       >
-                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
                           {imageSource ? (
                             <Image
                               source={{ uri: imageSource }}
@@ -644,14 +1060,14 @@ export default function SignupVendorScreen() {
                               resizeMode="cover"
                             />
                           ) : (
-                            <View style={[styles.categoryImage, { backgroundColor: COLORS.inputBg, justifyContent: "center", alignItems: "center" }]}>
-                              <Ionicons name="apps-outline" size={20} color={COLORS.textSecondary} />
+                            <View style={[styles.categoryImage, { backgroundColor: COLORS.primarySoft, justifyContent: "center", alignItems: "center" }]}>
+                              <Ionicons name="apps-outline" size={moderateScale(18)} color={COLORS.primary} />
                             </View>
                           )}
                           <Text style={styles.modalItemText}>{item.name}</Text>
                         </View>
                         {isSelected && (
-                          <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
+                          <Ionicons name="checkmark-circle" size={moderateScale(22)} color={COLORS.primary} />
                         )}
                       </TouchableOpacity>
                     );
@@ -663,16 +1079,12 @@ export default function SignupVendorScreen() {
                   windowSize={10}
                 />
 
-                {/* Refresh Button */}
                 <TouchableOpacity
                   style={styles.refreshButton}
-                  onPress={() => {
-                    console.log('🔄 [SignupVendor] Manual refresh categories');
-                    dispatch(fetchCategories());
-                  }}
+                  onPress={() => dispatch(fetchCategories())}
                   disabled={categoriesLoading}
                 >
-                  <Ionicons name="refresh-outline" size={20} color={COLORS.primary} />
+                  <Ionicons name="refresh-outline" size={moderateScale(18)} color={COLORS.primary} />
                   <Text style={styles.refreshText}>
                     {categoriesLoading ? 'Loading...' : 'Refresh Categories'}
                   </Text>
@@ -688,33 +1100,44 @@ export default function SignupVendorScreen() {
     );
   }, [showCategoriesModal, categoryOptions, categoriesLoading, searchCategories, form.categories, toggleSelection, dispatch]);
 
-  // ─── Operating Hours Presets Modal ───────────────────────────
+  // ─── Operating Hours Modal ───────────────────────────────────
   const renderHoursPresetsModal = useCallback(() => (
     <Modal visible={showHoursModal} transparent animationType="slide">
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
+          <View style={styles.modalGrabber} />
           <Text style={styles.modalTitle}>Select Operating Hours</Text>
           <FlatList
             data={HOURS_PRESETS}
             keyExtractor={(item) => item.label}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.modalItem}
-                onPress={() => {
-                  if (item.value === "custom") {
-                    setShowHoursModal(false);
-                  } else {
-                    setForm((prev) => ({ ...prev, operatingHours: item.value }));
-                    setShowHoursModal(false);
-                  }
-                }}
-              >
-                <Text style={styles.modalItemText}>{item.label}</Text>
-                {form.operatingHours === item.value && (
-                  <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
-                )}
-              </TouchableOpacity>
-            )}
+            renderItem={({ item }) => {
+              const isCustom = item.value === "custom";
+              const isSelected = isCustom
+                ? !!form.operatingHours &&
+                  !HOURS_PRESETS.some(
+                    (p) => p.value !== "custom" && p.value === form.operatingHours
+                  )
+                : form.operatingHours === item.value;
+              return (
+                <TouchableOpacity
+                  style={styles.modalItem}
+                  onPress={() => {
+                    if (isCustom) {
+                      setShowHoursModal(false);
+                      setTimeout(() => setShowCustomHoursModal(true), 220);
+                    } else {
+                      setForm((prev) => ({ ...prev, operatingHours: item.value }));
+                      setShowHoursModal(false);
+                    }
+                  }}
+                >
+                  <Text style={styles.modalItemText}>{item.label}</Text>
+                  {isSelected && (
+                    <Ionicons name="checkmark-circle" size={moderateScale(22)} color={COLORS.primary} />
+                  )}
+                </TouchableOpacity>
+              );
+            }}
             showsVerticalScrollIndicator={false}
           />
           <TouchableOpacity style={styles.modalDoneButton} onPress={() => setShowHoursModal(false)}>
@@ -724,6 +1147,179 @@ export default function SignupVendorScreen() {
       </View>
     </Modal>
   ), [showHoursModal, form.operatingHours]);
+
+  // ─── Custom Hours Modal ─────────────────────────────────────
+  const renderCustomHoursModal = useMemo(() => {
+    if (!showCustomHoursModal) return null;
+
+    return (
+      <Modal
+        visible={showCustomHoursModal}
+        animationType="slide"
+        onRequestClose={() => setShowCustomHoursModal(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={{ flex: 1 }}
+          >
+            <View style={customHoursStyles.header}>
+              <TouchableOpacity
+                onPress={() => setShowCustomHoursModal(false)}
+                style={customHoursStyles.headerBtn}
+              >
+                <Ionicons name="close" size={moderateScale(20)} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+              <Text style={customHoursStyles.headerTitle}>Custom Operating Hours</Text>
+              <TouchableOpacity
+                onPress={applyCustomHours}
+                style={[customHoursStyles.headerBtn, customHoursStyles.headerApply]}
+              >
+                <Text style={customHoursStyles.headerApplyText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={customHoursStyles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={customHoursStyles.quickRow}>
+                <TouchableOpacity
+                  style={customHoursStyles.quickBtn}
+                  onPress={() => enableAllDays(true)}
+                >
+                  <Ionicons name="checkmark-done" size={moderateScale(14)} color={COLORS.primary} />
+                  <Text style={customHoursStyles.quickText}>Open all</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={customHoursStyles.quickBtn}
+                  onPress={() => enableAllDays(false)}
+                >
+                  <Ionicons name="close" size={moderateScale(14)} color={COLORS.primary} />
+                  <Text style={customHoursStyles.quickText}>Close all</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={customHoursStyles.quickBtn}
+                  onPress={copyToAllDays}
+                >
+                  <Ionicons name="copy-outline" size={moderateScale(14)} color={COLORS.primary} />
+                  <Text style={customHoursStyles.quickText}>Copy Mon → all</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={customHoursStyles.hint}>
+                Use the number keys to enter times in 24-hour format. Hour 00–23, minute 00–59.
+              </Text>
+
+              {DAYS.map(({ key, label }) => {
+                const d = customHours[key];
+                const [oh, om] = d.open.split(":");
+                const [ch, cm] = d.close.split(":");
+                return (
+                  <View
+                    key={key}
+                    style={[
+                      customHoursStyles.dayCard,
+                      !d.enabled && customHoursStyles.dayCardDisabled,
+                    ]}
+                  >
+                    <View style={customHoursStyles.dayHeader}>
+                      <Text style={customHoursStyles.dayLabel}>{label}</Text>
+                      <Switch
+                        value={d.enabled}
+                        onValueChange={(v) => updateDaySchedule(key, { enabled: v })}
+                        trackColor={{ false: COLORS.cardBorderStrong, true: COLORS.primaryLight }}
+                        thumbColor={d.enabled ? COLORS.primary : "#FFFFFF"}
+                        ios_backgroundColor={COLORS.cardBorder}
+                      />
+                    </View>
+
+                    <View style={customHoursStyles.timeRow}>
+                      <Text style={customHoursStyles.rowLabel}>Open</Text>
+                      <View style={customHoursStyles.timeGroup}>
+                        <NumberStepper
+                          value={oh ?? "09"}
+                          onChange={(v) =>
+                            updateDaySchedule(key, { open: `${v}:${om ?? "00"}` })
+                          }
+                          min={0}
+                          max={23}
+                        />
+                        <Text style={customHoursStyles.colon}>:</Text>
+                        <NumberStepper
+                          value={om ?? "00"}
+                          onChange={(v) =>
+                            updateDaySchedule(key, { open: `${oh ?? "09"}:${v}` })
+                          }
+                          min={0}
+                          max={59}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={customHoursStyles.timeRow}>
+                      <Text style={customHoursStyles.rowLabel}>Close</Text>
+                      <View style={customHoursStyles.timeGroup}>
+                        <NumberStepper
+                          value={ch ?? "18"}
+                          onChange={(v) =>
+                            updateDaySchedule(key, { close: `${v}:${cm ?? "00"}` })
+                          }
+                          min={0}
+                          max={23}
+                        />
+                        <Text style={customHoursStyles.colon}>:</Text>
+                        <NumberStepper
+                          value={cm ?? "00"}
+                          onChange={(v) =>
+                            updateDaySchedule(key, { close: `${ch ?? "18"}:${v}` })
+                          }
+                          min={0}
+                          max={59}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+
+              <View style={{ height: verticalScale(30) }} />
+            </ScrollView>
+
+            <View
+              style={[
+                customHoursStyles.bottomBar,
+                { paddingBottom: Math.max(insets.bottom, 12) },
+              ]}
+            >
+              <TouchableOpacity
+                style={customHoursStyles.cancelBtn}
+                onPress={() => setShowCustomHoursModal(false)}
+              >
+                <Text style={customHoursStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={customHoursStyles.applyBtn}
+                onPress={applyCustomHours}
+              >
+                <Ionicons name="checkmark" size={moderateScale(18)} color={COLORS.textOnPrimary} />
+                <Text style={customHoursStyles.applyText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
+    );
+  }, [
+    showCustomHoursModal,
+    customHours,
+    insets.bottom,
+    updateDaySchedule,
+    applyCustomHours,
+    copyToAllDays,
+    enableAllDays,
+  ]);
 
   // ─── Dropdown field helper ────────────────────────────────────
   const DropdownField = useCallback(({
@@ -740,113 +1336,190 @@ export default function SignupVendorScreen() {
     placeholder?: string;
   }) => (
     <TouchableOpacity style={styles.dropdownField} onPress={onPress} activeOpacity={0.7}>
-      {icon && <Ionicons name={icon as any} size={20} color={COLORS.primary} style={styles.dropdownIcon} />}
+      {icon && <Ionicons name={icon as any} size={moderateScale(18)} color={COLORS.primary} style={styles.dropdownIcon} />}
       <Text style={[styles.dropdownText, !value && { color: COLORS.textMuted }]}>
         {value || placeholder || `Select ${label}`}
       </Text>
-      <Ionicons name="chevron-down" size={20} color={COLORS.textSecondary} />
+      <Ionicons name="chevron-down" size={moderateScale(18)} color={COLORS.textSecondary} />
     </TouchableOpacity>
   ), []);
 
-  // ─── Map Modal ─────────────────────────────────────────────────
+  // ─── Map Modal ────────────────────────────────────────────────
   const renderMapModal = useMemo(() => {
     if (!showMapModal) return null;
-    return (
-      <Modal visible={showMapModal} transparent animationType="slide">
-        <View style={{ flex: 1, backgroundColor: "black" }}>
-          <View style={{ flex: 1 }}>
-            <MapView
-              ref={mapRef}
-              style={{ flex: 1 }}
-              initialRegion={{
-                latitude: userLocation?.lat || 20.5937,
-                longitude: userLocation?.lng || 78.9629,
-                latitudeDelta: userLocation ? 0.02 : 5,
-                longitudeDelta: userLocation ? 0.02 : 5,
-              }}
-              onPress={handleMapPress}
-              showsUserLocation
-            >
-              {selectedCoords && (
-                <Marker
-                  coordinate={{
-                    latitude: selectedCoords.lat,
-                    longitude: selectedCoords.lng,
-                  }}
-                  draggable
-                  onDragEnd={(e) => {
-                    const { latitude, longitude } = e.nativeEvent.coordinate;
-                    setSelectedCoords({ lat: latitude, lng: longitude });
-                    reverseGeocode(latitude, longitude);
-                  }}
-                  pinColor={COLORS.primary}
-                />
-              )}
-            </MapView>
-          </View>
 
-          {/* Search Bar Overlay */}
-          <View style={styles.mapSearchContainer}>
-            <View style={styles.mapSearchBar}>
-              <Ionicons name="search" size={20} color={COLORS.textSecondary} />
-              <TextInput
-                style={styles.mapSearchInput}
-                placeholder="Search locality, city, pincode..."
-                placeholderTextColor={COLORS.textMuted}
-                value={searchQuery}
-                onChangeText={searchLocations}
+    const addressLine1 = [mapAddressDetails.street, mapAddressDetails.colony]
+      .filter(Boolean)
+      .join(", ");
+    const addressLine2Parts: string[] = [];
+    if (mapAddressDetails.district) addressLine2Parts.push(mapAddressDetails.district);
+    if (mapAddressDetails.state) addressLine2Parts.push(mapAddressDetails.state);
+    if (mapAddressDetails.pincode) addressLine2Parts.push(mapAddressDetails.pincode);
+    const addressLine2 = addressLine2Parts.join(", ");
+
+    return (
+      <Modal visible={showMapModal} animationType="slide" onRequestClose={() => setShowMapModal(false)}>
+        <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+          <View style={{ flex: 1, position: "relative" }}>
+            {mapInitialCoords && webViewSource ? (
+              <WebView
+                ref={mapWebViewRef}
+                style={StyleSheet.absoluteFill}
+                source={webViewSource}
+                onMessage={handleMapMessage}
+                scrollEnabled={false}
+                bounces={false}
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
+                originWhitelist={['*']}
+                javaScriptEnabled
+                domStorageEnabled
               />
-              {isSearching && <ActivityIndicator size="small" color={COLORS.primary} />}
-            </View>
-            {searchResults.length > 0 && (
-              <View style={styles.mapSearchResults}>
-                <FlatList
-                  data={searchResults}
-                  keyExtractor={(item, index) => index.toString()}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      style={styles.mapSearchResultItem}
-                      onPress={() => selectSearchResult(item)}
-                    >
-                      <Text style={styles.mapSearchResultText} numberOfLines={1}>
-                        {item.display_name}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                  keyboardShouldPersistTaps="always"
-                />
+            ) : (
+              <View style={styles.mapLoading}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+                <Text style={styles.mapLoadingText}>Finding your current location...</Text>
               </View>
             )}
+
+            <View style={styles.centerMarkerContainer} pointerEvents="none">
+              <View
+                style={[
+                  styles.markerBubble,
+                  isMapMoving && styles.markerBubbleMoving,
+                ]}
+              >
+                <Text style={styles.markerText}>
+                  {isMapMoving ? "Move map to adjust" : "Location selected here"}
+                </Text>
+              </View>
+              <Ionicons
+                name="location"
+                size={moderateScale(44)}
+                color={COLORS.primary}
+                style={[styles.markerIcon, isMapMoving && styles.markerIconMoving]}
+              />
+              <View style={styles.markerShadow} />
+            </View>
+
+            <View style={[styles.searchContainer, { top: Math.max(insets.top, 20) }]}>
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={moderateScale(18)} color={COLORS.textSecondary} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search locality, city, pincode..."
+                  placeholderTextColor={COLORS.textMuted}
+                  value={searchQuery}
+                  onChangeText={searchLocations}
+                  returnKeyType="search"
+                />
+                {isSearching && <ActivityIndicator size="small" color={COLORS.primary} />}
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearchQuery("");
+                      setSearchResults([]);
+                      Keyboard.dismiss();
+                    }}
+                  >
+                    <Ionicons name="close-circle" size={moderateScale(18)} color={COLORS.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {searchResults.length > 0 && (
+                <View style={styles.searchResultsContainer}>
+                  <FlatList
+                    data={searchResults}
+                    keyExtractor={(item, index) => `${item.place_id || index}`}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.searchResultItem}
+                        onPress={() => selectSearchResult(item)}
+                      >
+                        <Ionicons name="location-outline" size={moderateScale(16)} color={COLORS.primary} />
+                        <View style={styles.searchResultTextContainer}>
+                          <Text style={styles.searchResultText} numberOfLines={2}>
+                            {item.display_name}
+                          </Text>
+                          <Text style={styles.searchResultType}>
+                            {item.type || item.class || "Location"}
+                          </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={moderateScale(14)} color={COLORS.textSecondary} />
+                      </TouchableOpacity>
+                    )}
+                    keyboardShouldPersistTaps="always"
+                    style={styles.searchResultsList}
+                  />
+                </View>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.mapCloseButton, { top: Math.max(insets.top, 20) }]}
+              onPress={() => setShowMapModal(false)}
+            >
+              <Ionicons name="close" size={moderateScale(22)} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.mapMyLocationButton} onPress={recenterMap}>
+              <Ionicons name="locate" size={moderateScale(22)} color={COLORS.primary} />
+            </TouchableOpacity>
           </View>
 
-          {/* Bottom bar */}
-          <View style={styles.mapBottomBar}>
-            {fetchingAddress ? (
-              <ActivityIndicator color={COLORS.primary} />
-            ) : (
-              <>
-                {selectedCoords ? (
-                  <View style={styles.mapAddressPreview}>
-                    <Text style={styles.mapAddressText}>
-                      📍 {mapAddressDetails.street || "Street"}, {mapAddressDetails.colony || "Colony"}
-                    </Text>
-                    <Text style={styles.mapAddressText}>
-                      {mapAddressDetails.district && `${mapAddressDetails.district}, `}
-                      {mapAddressDetails.state && `${mapAddressDetails.state}`}
-                      {mapAddressDetails.pincode && ` - ${mapAddressDetails.pincode}`}
-                    </Text>
-                  </View>
+          <View style={[styles.mapBottomSheet, { paddingBottom: insets.bottom + verticalScale(20) }]}>
+            <View style={styles.mapLocationHeader}>
+              <View style={styles.mapLocationIconContainer}>
+                <Ionicons name="location" size={moderateScale(22)} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.mapLocationTitle}>Business Location</Text>
+
+                {fetchingAddress ? (
+                  <Text style={styles.mapLocationSubtitle} numberOfLines={2}>
+                    Fetching address...
+                  </Text>
+                ) : (addressLine1 || addressLine2) ? (
+                  <>
+                    {!!addressLine1 && (
+                      <Text style={styles.mapLocationSubtitle} numberOfLines={2}>
+                        📍 {addressLine1}
+                      </Text>
+                    )}
+                    {!!addressLine2 && (
+                      <Text style={styles.mapLocationSubtitle} numberOfLines={2}>
+                        {addressLine2}
+                      </Text>
+                    )}
+                  </>
+                ) : selectedCoords ? (
+                  <Text style={styles.mapLocationSubtitle} numberOfLines={2}>
+                    Lat: {selectedCoords.lat.toFixed(6)}, Lng: {selectedCoords.lng.toFixed(6)}
+                  </Text>
                 ) : (
-                  <Text style={styles.mapAddressText}>Search or tap on map to select location</Text>
+                  <Text style={styles.mapLocationSubtitle} numberOfLines={2}>
+                    Move the map to select a location
+                  </Text>
                 )}
-              </>
-            )}
+              </View>
+            </View>
+
             <View style={styles.mapButtonRow}>
-              <TouchableOpacity style={styles.mapCancelButton} onPress={() => setShowMapModal(false)}>
-                <Text style={styles.mapButtonText}>Cancel</Text>
+              <TouchableOpacity
+                style={styles.mapCancelButton}
+                onPress={() => setShowMapModal(false)}
+              >
+                <Text style={styles.mapCancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.mapConfirmButton} onPress={confirmMapAddress}>
-                <Text style={[styles.mapButtonText, { color: "#0A0A0A" }]}>Confirm</Text>
+              <TouchableOpacity
+                style={styles.mapConfirmButton}
+                onPress={confirmMapAddress}
+                disabled={fetchingAddress || !selectedCoords}
+              >
+                <Text style={styles.mapConfirmButtonText}>
+                  {fetchingAddress ? "..." : "Confirm"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -855,17 +1528,21 @@ export default function SignupVendorScreen() {
     );
   }, [
     showMapModal,
-    userLocation,
-    selectedCoords,
-    mapAddressDetails,
-    fetchingAddress,
+    mapInitialCoords,
+    webViewSource,
+    handleMapMessage,
+    isMapMoving,
+    insets.top,
+    insets.bottom,
     searchQuery,
     searchResults,
     isSearching,
-    handleMapPress,
-    reverseGeocode,
+    mapAddressDetails,
+    fetchingAddress,
+    selectedCoords,
     searchLocations,
     selectSearchResult,
+    recenterMap,
     confirmMapAddress,
   ]);
 
@@ -880,8 +1557,8 @@ export default function SignupVendorScreen() {
           style={styles.container}
           contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          {/* Header */}
           <View style={styles.header}>
             <View style={styles.logoContainer}>
               <View style={styles.logoCircle}>
@@ -893,7 +1570,6 @@ export default function SignupVendorScreen() {
             <Text style={styles.subtitle}>Join our premium marketplace</Text>
           </View>
 
-          {/* Toggle */}
           <View style={styles.toggleContainer}>
             <TouchableOpacity
               style={[styles.toggleButton, registerMethod === "otp" && styles.activeToggle]}
@@ -916,11 +1592,9 @@ export default function SignupVendorScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Form */}
           <View style={styles.form}>
-            {/* Name */}
             <View style={styles.inputGroup}>
-              <Ionicons name="person-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+              <Ionicons name="person-outline" size={moderateScale(18)} color={COLORS.primary} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Full Name *"
@@ -931,9 +1605,8 @@ export default function SignupVendorScreen() {
               />
             </View>
 
-            {/* Email */}
             <View style={styles.inputGroup}>
-              <Ionicons name="mail-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+              <Ionicons name="mail-outline" size={moderateScale(18)} color={COLORS.primary} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Email *"
@@ -946,9 +1619,8 @@ export default function SignupVendorScreen() {
               />
             </View>
 
-            {/* Password */}
             <View style={styles.inputGroup}>
-              <Ionicons name="lock-closed-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+              <Ionicons name="lock-closed-outline" size={moderateScale(18)} color={COLORS.primary} style={styles.inputIcon} />
               <TextInput
                 style={[styles.input, { flex: 1 }]}
                 placeholder="Password *"
@@ -959,13 +1631,12 @@ export default function SignupVendorScreen() {
                 editable={!otpSent}
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
-                <Ionicons name={showPassword ? "eye-off" : "eye"} size={20} color={COLORS.textSecondary} />
+                <Ionicons name={showPassword ? "eye-off" : "eye"} size={moderateScale(18)} color={COLORS.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            {/* Phone */}
             <View style={styles.inputGroup}>
-              <Ionicons name="call-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+              <Ionicons name="call-outline" size={moderateScale(18)} color={COLORS.primary} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Phone Number *"
@@ -977,9 +1648,8 @@ export default function SignupVendorScreen() {
               />
             </View>
 
-            {/* Shop Name */}
             <View style={styles.inputGroup}>
-              <Ionicons name="storefront-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+              <Ionicons name="storefront-outline" size={moderateScale(18)} color={COLORS.primary} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Shop Name *"
@@ -990,7 +1660,6 @@ export default function SignupVendorScreen() {
               />
             </View>
 
-            {/* Business Type */}
             <DropdownField
               label="Business Type"
               value={form.businessType}
@@ -999,9 +1668,8 @@ export default function SignupVendorScreen() {
               placeholder="Select Business Type *"
             />
 
-            {/* GST */}
             <View style={styles.inputGroup}>
-              <Ionicons name="document-text-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+              <Ionicons name="document-text-outline" size={moderateScale(18)} color={COLORS.primary} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="GST Number (Optional)"
@@ -1012,9 +1680,8 @@ export default function SignupVendorScreen() {
               />
             </View>
 
-            {/* Delivery Range */}
             <View style={styles.inputGroup}>
-              <Ionicons name="navigate-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+              <Ionicons name="navigate-outline" size={moderateScale(18)} color={COLORS.primary} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Delivery Range (km, default 0)"
@@ -1026,45 +1693,46 @@ export default function SignupVendorScreen() {
               />
             </View>
 
-            {/* Shop Image */}
             <TouchableOpacity style={styles.imagePicker} onPress={handlePickImage} disabled={otpSent}>
-              <FontAwesome name="image" size={24} color={COLORS.primary} />
+              <FontAwesome name="image" size={moderateScale(22)} color={COLORS.primary} />
               <Text style={styles.imagePickerText}>
                 {form.shopImage ? "Change Shop Image" : "Select Shop Image"}
               </Text>
             </TouchableOpacity>
             {form.shopImage && (
-              <Image source={{ uri: form.shopImage.uri }} style={styles.imagePreview} />
+              <Image
+                source={{ uri: form.shopImage.uri }}
+                style={styles.imagePreviewFull}
+                resizeMode="contain"
+              />
             )}
 
-            {/* Address Section */}
             <Text style={styles.sectionTitle}>Business Address</Text>
-            <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
+            <View style={{ flexDirection: "row", gap: scale(10), marginBottom: verticalScale(10) }}>
               <TouchableOpacity
                 style={[styles.locationButton, { flex: 1 }]}
                 onPress={handleFetchLocation}
                 disabled={loadingAddress || otpSent}
               >
                 {loadingAddress ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={COLORS.textOnPrimary} />
                 ) : (
                   <>
-                    <FontAwesome name="map-marker" size={20} color="white" />
+                    <FontAwesome name="map-marker" size={moderateScale(18)} color={COLORS.textOnPrimary} />
                     <Text style={styles.locationButtonText}>Use Current</Text>
                   </>
                 )}
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.locationButton, { flex: 1, backgroundColor: COLORS.primary }]}
-                onPress={() => setShowMapModal(true)}
+                style={[styles.locationButton, styles.locationButtonPrimary, { flex: 1 }]}
+                onPress={openMapModal}
                 disabled={otpSent}
               >
-                <Ionicons name="map-outline" size={20} color="#0A0A0A" />
-                <Text style={[styles.locationButtonText, { color: "#0A0A0A" }]}>Pick from Map</Text>
+                <Ionicons name="map-outline" size={moderateScale(18)} color={COLORS.textOnPrimary} />
+                <Text style={styles.locationButtonText}>Pick from Map</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Address fields */}
             {[
               { key: "street", icon: "navigate-outline", placeholder: "Street / Road" },
               { key: "colony", icon: "home-outline", placeholder: "Colony / Neighbourhood" },
@@ -1076,7 +1744,7 @@ export default function SignupVendorScreen() {
               { key: "longitude", icon: "location-outline", placeholder: "Longitude", numeric: true },
             ].map((field) => (
               <View key={field.key} style={styles.inputGroup}>
-                <Ionicons name={field.icon as any} size={20} color={COLORS.primary} style={styles.inputIcon} />
+                <Ionicons name={field.icon as any} size={moderateScale(18)} color={COLORS.primary} style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder={`${field.placeholder} *`}
@@ -1089,15 +1757,12 @@ export default function SignupVendorScreen() {
               </View>
             ))}
 
-            {/* Directory Information */}
             <Text style={styles.sectionTitle}>Directory Information</Text>
 
-            {/* Categories (with image modal) */}
             <DropdownField
               label="Categories"
               value={form.categories.length > 0 ? `${form.categories.length} selected` : ""}
               onPress={() => {
-                // 🔥 Force fresh fetch when opening modal
                 dispatch(fetchCategories());
                 setShowCategoriesModal(true);
               }}
@@ -1106,7 +1771,6 @@ export default function SignupVendorScreen() {
             />
             {renderChips("categories", form.categories)}
 
-            {/* Services */}
             <DropdownField
               label="Services"
               value={form.services.length > 0 ? `${form.services.length} selected` : ""}
@@ -1116,7 +1780,6 @@ export default function SignupVendorScreen() {
             />
             {renderChips("services", form.services)}
 
-            {/* Tags */}
             <DropdownField
               label="Tags"
               value={form.tags.length > 0 ? `${form.tags.length} selected` : ""}
@@ -1126,7 +1789,6 @@ export default function SignupVendorScreen() {
             />
             {renderChips("tags", form.tags)}
 
-            {/* Operating Hours */}
             <DropdownField
               label="Operating Hours"
               value={
@@ -1142,26 +1804,20 @@ export default function SignupVendorScreen() {
               placeholder="Select Operating Hours"
             />
             {form.operatingHours && !HOURS_PRESETS.some(p => p.value === form.operatingHours) && (
-              <View style={styles.inputGroup}>
-                <Ionicons name="code-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.input, { minHeight: 60, textAlignVertical: "top" }]}
-                  placeholder='Custom JSON, e.g. {"monday":{"open":"09:00","close":"18:00"}}'
-                  placeholderTextColor={COLORS.textMuted}
-                  value={form.operatingHours}
-                  onChangeText={(val) => handleChange("operatingHours", val)}
-                  multiline
-                  editable={!otpSent}
-                />
-              </View>
+              <TouchableOpacity
+                style={styles.editCustomHoursBtn}
+                onPress={() => setShowCustomHoursModal(true)}
+              >
+                <Ionicons name="create-outline" size={moderateScale(16)} color={COLORS.primary} />
+                <Text style={styles.editCustomHoursText}>Edit custom hours</Text>
+              </TouchableOpacity>
             )}
 
-            {/* OTP Input */}
             {registerMethod === "otp" && otpSent && (
               <View style={styles.inputGroup}>
-                <Ionicons name="key-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+                <Ionicons name="key-outline" size={moderateScale(18)} color={COLORS.primary} style={styles.inputIcon} />
                 <TextInput
-                  style={[styles.input, { letterSpacing: 5, textAlign: "center", fontSize: 20 }]}
+                  style={[styles.input, { letterSpacing: scale(5), textAlign: "center", fontSize: moderateScale(20) }]}
                   placeholder="Enter 6-Digit OTP"
                   placeholderTextColor={COLORS.textMuted}
                   value={otpCode}
@@ -1172,17 +1828,15 @@ export default function SignupVendorScreen() {
               </View>
             )}
 
-            {/* Error Message */}
             {error && <Text style={styles.errorText}>{error as string}</Text>}
 
-            {/* Submit Button */}
             <TouchableOpacity
               style={styles.submitButton}
               onPress={registerMethod === "password" ? handleSubmit : otpSent ? handleSubmit : handleSendOtp}
               disabled={loading || sendingOtp}
             >
               {loading || sendingOtp ? (
-                <ActivityIndicator color="#0A0A0A" />
+                <ActivityIndicator color={COLORS.textOnPrimary} />
               ) : (
                 <Text style={styles.submitButtonText}>
                   {registerMethod === "password"
@@ -1201,7 +1855,6 @@ export default function SignupVendorScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ─── Modals ─────────────────────────────────────────────── */}
       {renderSearchableModal(
         showBusinessTypeModal,
         () => setShowBusinessTypeModal(false),
@@ -1237,327 +1890,639 @@ export default function SignupVendorScreen() {
         true
       )}
       {renderHoursPresetsModal()}
+      {renderCustomHoursModal}
       {renderMapModal}
     </SafeAreaView>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────
+// ─── Custom Hours Modal Styles ─────────────────────────────────
+const customHoursStyles = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: scale(16),
+    paddingVertical: verticalScale(12),
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.cardBorder,
+    backgroundColor: COLORS.background,
+  },
+  headerBtn: {
+    width: moderateScale(40),
+    height: moderateScale(40),
+    borderRadius: moderateScale(20),
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: COLORS.cardMuted,
+  },
+  headerApply: {
+    backgroundColor: COLORS.primary,
+    width: "auto",
+    paddingHorizontal: scale(14),
+  },
+  headerApplyText: {
+    color: COLORS.textOnPrimary,
+    fontWeight: "800",
+    fontSize: moderateScale(13),
+  },
+  headerTitle: {
+    flex: 1,
+    color: COLORS.textPrimary,
+    fontWeight: "700",
+    fontSize: moderateScale(15),
+    textAlign: "center",
+    marginHorizontal: scale(8),
+  },
+  scrollContent: {
+    paddingHorizontal: scale(16),
+    paddingTop: verticalScale(12),
+  },
+  quickRow: {
+    flexDirection: "row",
+    gap: scale(8),
+    marginBottom: verticalScale(12),
+    flexWrap: "wrap",
+  },
+  quickBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(4),
+    paddingHorizontal: scale(10),
+    paddingVertical: verticalScale(7),
+    borderRadius: moderateScale(10),
+    backgroundColor: COLORS.primarySoft,
+    borderWidth: 1,
+    borderColor: COLORS.primarySoftBorder,
+  },
+  quickText: {
+    color: COLORS.primary,
+    fontSize: moderateScale(12),
+    fontWeight: "700",
+  },
+  hint: {
+    color: COLORS.textSecondary,
+    fontSize: moderateScale(11),
+    lineHeight: moderateScale(16),
+    marginBottom: verticalScale(12),
+  },
+  dayCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: moderateScale(12),
+    padding: moderateScale(12),
+    marginBottom: verticalScale(10),
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  dayCardDisabled: {
+    opacity: 0.5,
+  },
+  dayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: verticalScale(8),
+  },
+  dayLabel: {
+    color: COLORS.textPrimary,
+    fontWeight: "700",
+    fontSize: moderateScale(14),
+  },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: verticalScale(6),
+  },
+  rowLabel: {
+    width: scale(52),
+    color: COLORS.textSecondary,
+    fontSize: moderateScale(11),
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  timeGroup: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  colon: {
+    color: COLORS.textSecondary,
+    fontWeight: "800",
+    fontSize: moderateScale(18),
+    marginHorizontal: scale(4),
+  },
+  bottomBar: {
+    flexDirection: "row",
+    gap: scale(10),
+    paddingHorizontal: scale(16),
+    paddingTop: verticalScale(12),
+    borderTopWidth: 1,
+    borderTopColor: COLORS.cardBorder,
+    backgroundColor: COLORS.background,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: verticalScale(14),
+    borderRadius: moderateScale(12),
+    alignItems: "center",
+    backgroundColor: COLORS.cardMuted,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  cancelText: {
+    color: COLORS.textPrimary,
+    fontWeight: "700",
+    fontSize: moderateScale(14),
+  },
+  applyBtn: {
+    flex: 1.4,
+    flexDirection: "row",
+    gap: scale(6),
+    paddingVertical: verticalScale(14),
+    borderRadius: moderateScale(12),
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
+  },
+  applyText: {
+    color: COLORS.textOnPrimary,
+    fontWeight: "800",
+    fontSize: moderateScale(14),
+  },
+});
+
+// ─── Main Styles ───────────────────────────────────────────────
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { flex: 1, backgroundColor: COLORS.background },
-  contentContainer: { paddingBottom: 40 },
-  header: { alignItems: "center", paddingTop: 20, paddingBottom: 10 },
-  logoContainer: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  contentContainer: { paddingBottom: verticalScale(40) },
+  header: { alignItems: "center", paddingTop: verticalScale(20), paddingBottom: verticalScale(10) },
+  logoContainer: { flexDirection: "row", alignItems: "center", marginBottom: verticalScale(8) },
   logoCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: moderateScale(50),
+    height: moderateScale(50),
+    borderRadius: moderateScale(25),
     backgroundColor: COLORS.primary,
     justifyContent: "center",
     alignItems: "center",
   },
-  logoB: { color: "#0A0A0A", fontSize: 28, fontWeight: "bold" },
-  logoText: { fontSize: 32, fontWeight: "bold", color: COLORS.primary, marginLeft: 8 },
-  title: { fontSize: 24, fontWeight: "bold", color: COLORS.textPrimary, marginTop: 8 },
-  subtitle: { fontSize: 14, color: COLORS.textSecondary, marginBottom: 16 },
+  logoB: { color: COLORS.textOnPrimary, fontSize: moderateScale(26), fontWeight: "bold" },
+  logoText: { fontSize: moderateScale(30), fontWeight: "bold", color: COLORS.primary, marginLeft: scale(8) },
+  title: { fontSize: moderateScale(22), fontWeight: "bold", color: COLORS.textPrimary, marginTop: verticalScale(8) },
+  subtitle: { fontSize: moderateScale(13), color: COLORS.textSecondary, marginBottom: verticalScale(16) },
 
   toggleContainer: {
     flexDirection: "row",
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    marginHorizontal: 20,
-    padding: 4,
+    backgroundColor: COLORS.cardMuted,
+    borderRadius: moderateScale(12),
+    marginHorizontal: scale(20),
+    padding: scale(4),
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
-    marginBottom: 20,
+    marginBottom: verticalScale(20),
   },
   toggleButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(10),
     alignItems: "center",
   },
   activeToggle: { backgroundColor: COLORS.primary },
-  toggleText: { fontSize: 16, fontWeight: "600", color: COLORS.textSecondary },
-  activeToggleText: { color: "#0A0A0A" },
+  toggleText: { fontSize: moderateScale(15), fontWeight: "600", color: COLORS.textSecondary },
+  activeToggleText: { color: COLORS.textOnPrimary },
 
-  form: { paddingHorizontal: 20 },
+  form: { paddingHorizontal: scale(20) },
   inputGroup: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.inputBg,
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     borderWidth: 1,
     borderColor: COLORS.inputBorder,
-    paddingHorizontal: 12,
-    marginBottom: 14,
-    height: 52,
+    paddingHorizontal: scale(12),
+    marginBottom: verticalScale(14),
+    minHeight: moderateScale(52),
+    height: moderateScale(52),
   },
-  inputIcon: { marginRight: 10 },
+  inputIcon: { marginRight: scale(10) },
   input: {
     flex: 1,
     color: COLORS.textPrimary,
-    fontSize: 16,
+    fontSize: moderateScale(15),
     height: "100%",
     paddingVertical: 0,
   },
-  eyeIcon: { padding: 8 },
+  eyeIcon: { padding: scale(8) },
 
   dropdownField: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.inputBg,
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     borderWidth: 1,
     borderColor: COLORS.inputBorder,
-    paddingHorizontal: 12,
-    marginBottom: 14,
-    height: 52,
+    paddingHorizontal: scale(12),
+    marginBottom: verticalScale(14),
+    minHeight: moderateScale(52),
+    height: moderateScale(52),
   },
-  dropdownIcon: { marginRight: 10 },
-  dropdownText: { flex: 1, color: COLORS.textPrimary, fontSize: 16 },
+  dropdownIcon: { marginRight: scale(10) },
+  dropdownText: { flex: 1, color: COLORS.textPrimary, fontSize: moderateScale(15) },
 
   imagePicker: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: COLORS.primarySoft,
+    borderRadius: moderateScale(12),
+    padding: moderateScale(14),
     borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    marginBottom: 14,
+    borderColor: COLORS.primarySoftBorder,
+    marginBottom: verticalScale(14),
   },
-  imagePickerText: { color: COLORS.primary, marginLeft: 10, fontWeight: "600" },
-  imagePreview: {
-    width: 80,
-    height: 80,
-    borderRadius: 12,
+  imagePickerText: { color: COLORS.primary, marginLeft: scale(10), fontWeight: "700", fontSize: moderateScale(14) },
+  imagePreviewFull: {
+    width: "100%",
+    height: verticalScale(220),
+    borderRadius: moderateScale(12),
     alignSelf: "center",
-    marginBottom: 14,
+    marginBottom: verticalScale(14),
     borderWidth: 2,
     borderColor: COLORS.primary,
+    backgroundColor: COLORS.cardMuted,
   },
 
   sectionTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(17),
     fontWeight: "bold",
     color: COLORS.textPrimary,
-    marginTop: 14,
-    marginBottom: 12,
+    marginTop: verticalScale(14),
+    marginBottom: verticalScale(12),
     borderBottomWidth: 1,
     borderBottomColor: COLORS.cardBorder,
-    paddingBottom: 8,
+    paddingBottom: verticalScale(8),
   },
 
   locationButton: {
     flexDirection: "row",
     backgroundColor: COLORS.primaryDark,
-    padding: 14,
-    borderRadius: 12,
+    paddingVertical: verticalScale(14),
+    paddingHorizontal: scale(10),
+    borderRadius: moderateScale(12),
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 14,
+    marginBottom: verticalScale(14),
   },
-  locationButtonText: { color: "white", fontWeight: "bold", marginLeft: 10 },
+  locationButtonPrimary: {
+    backgroundColor: COLORS.primary,
+  },
+  locationButtonText: {
+    color: COLORS.textOnPrimary,
+    fontWeight: "700",
+    marginLeft: scale(8),
+    fontSize: moderateScale(13),
+  },
 
-  chipContainer: { flexDirection: "row", flexWrap: "wrap", marginBottom: 12 },
+  chipContainer: { flexDirection: "row", flexWrap: "wrap", marginBottom: verticalScale(12) },
   chip: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.chipBg,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
-    marginBottom: 8,
+    backgroundColor: COLORS.primarySoft,
+    borderRadius: moderateScale(16),
+    paddingHorizontal: scale(12),
+    paddingVertical: verticalScale(6),
+    marginRight: scale(8),
+    marginBottom: verticalScale(8),
     borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    borderColor: COLORS.primarySoftBorder,
   },
-  chipText: { color: COLORS.textPrimary, fontSize: 14, marginRight: 6 },
+  chipText: { color: COLORS.primary, fontSize: moderateScale(13), marginRight: scale(6), fontWeight: "600" },
 
-  errorText: { color: COLORS.error, textAlign: "center", marginBottom: 8 },
+  errorText: { color: COLORS.error, textAlign: "center", marginBottom: verticalScale(8), fontSize: moderateScale(13) },
 
   submitButton: {
     backgroundColor: COLORS.primary,
-    padding: 16,
-    borderRadius: 12,
+    paddingVertical: verticalScale(16),
+    paddingHorizontal: scale(16),
+    borderRadius: moderateScale(12),
     alignItems: "center",
-    marginTop: 8,
-    marginBottom: 16,
+    marginTop: verticalScale(8),
+    marginBottom: verticalScale(16),
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  submitButtonText: { color: "#0A0A0A", fontSize: 18, fontWeight: "bold" },
+  submitButtonText: { color: COLORS.textOnPrimary, fontSize: moderateScale(17), fontWeight: "bold" },
 
   loginLink: { alignItems: "center" },
-  linkText: { color: COLORS.textSecondary, fontSize: 14 },
+  linkText: { color: COLORS.textSecondary, fontSize: moderateScale(13) },
   linkHighlight: { color: COLORS.primary, fontWeight: "bold" },
 
-  // Modal styles
+  editCustomHoursBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: scale(6),
+    paddingVertical: verticalScale(10),
+    marginTop: verticalScale(-6),
+    marginBottom: verticalScale(12),
+    borderRadius: moderateScale(10),
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderStyle: "dashed",
+  },
+  editCustomHoursText: { color: COLORS.primary, fontWeight: "700", fontSize: moderateScale(13) },
+
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
+    backgroundColor: COLORS.scrim,
     justifyContent: "flex-end",
   },
   modalContent: {
-    backgroundColor: COLORS.card,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: moderateScale(24),
+    borderTopRightRadius: moderateScale(24),
+    paddingHorizontal: scale(20),
+    paddingBottom: verticalScale(20),
     maxHeight: "75%",
+  },
+  modalGrabber: {
+    alignSelf: "center",
+    width: scale(40),
+    height: verticalScale(4),
+    borderRadius: moderateScale(2),
+    backgroundColor: COLORS.cardBorderStrong,
+    marginTop: verticalScale(8),
   },
   modalTitle: {
     color: COLORS.textPrimary,
-    fontSize: 20,
+    fontSize: moderateScale(19),
     fontWeight: "bold",
-    paddingVertical: 16,
+    paddingVertical: verticalScale(16),
     textAlign: "center",
   },
   modalSearchContainer: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.inputBg,
-    borderRadius: 10,
+    borderRadius: moderateScale(10),
     borderWidth: 1,
     borderColor: COLORS.inputBorder,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-    height: 44,
+    paddingHorizontal: scale(12),
+    marginBottom: verticalScale(12),
+    height: moderateScale(44),
   },
   modalSearchInput: {
     flex: 1,
     color: COLORS.textPrimary,
-    fontSize: 16,
+    fontSize: moderateScale(15),
     paddingVertical: 0,
-    marginLeft: 8,
+    marginLeft: scale(8),
   },
   modalItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 14,
+    paddingVertical: verticalScale(14),
     borderBottomWidth: 1,
     borderBottomColor: COLORS.cardBorder,
   },
-  modalItemText: { color: COLORS.textPrimary, fontSize: 16, marginLeft: 12 },
+  modalItemText: { color: COLORS.textPrimary, fontSize: moderateScale(15), marginLeft: scale(12), flex: 1 },
   modalDoneButton: {
     backgroundColor: COLORS.primary,
-    padding: 14,
-    borderRadius: 10,
+    paddingVertical: verticalScale(14),
+    paddingHorizontal: scale(16),
+    borderRadius: moderateScale(10),
     alignItems: "center",
-    marginTop: 12,
+    marginTop: verticalScale(12),
   },
-  modalDoneText: { color: "#0A0A0A", fontSize: 16, fontWeight: "bold" },
+  modalDoneText: { color: COLORS.textOnPrimary, fontSize: moderateScale(15), fontWeight: "bold" },
 
   categoryImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 8,
+    width: moderateScale(32),
+    height: moderateScale(32),
+    borderRadius: moderateScale(16),
+    marginRight: scale(8),
   },
 
-  // Refresh button for categories
   refreshButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    marginTop: 8,
+    paddingVertical: verticalScale(10),
+    marginTop: verticalScale(8),
     borderWidth: 1,
     borderColor: COLORS.primary,
-    borderRadius: 10,
+    borderRadius: moderateScale(10),
   },
   refreshText: {
     color: COLORS.primary,
-    marginLeft: 8,
-    fontWeight: '600',
+    marginLeft: scale(8),
+    fontWeight: '700',
+    fontSize: moderateScale(13),
   },
 
-  // Map Modal styles
-  mapSearchContainer: {
+  mapLoading: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: COLORS.cardMuted,
+  },
+  mapLoadingText: { marginTop: verticalScale(12), color: COLORS.textPrimary, fontWeight: "600", fontSize: moderateScale(14) },
+
+  centerMarkerContainer: {
     position: "absolute",
-    top: 40,
-    left: 16,
-    right: 16,
+    top: "50%",
+    left: "50%",
+    marginLeft: -scale(100),
+    marginTop: -verticalScale(85),
+    width: scale(200),
+    alignItems: "center",
+    zIndex: 2,
+  },
+  markerBubble: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: scale(12),
+    paddingVertical: verticalScale(8),
+    borderRadius: moderateScale(8),
+    marginBottom: verticalScale(5),
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  markerBubbleMoving: { opacity: 0.6 },
+  markerText: { color: COLORS.textPrimary, fontSize: moderateScale(12), fontWeight: "600" },
+  markerIcon: { transform: [{ translateY: 0 }] },
+  markerIconMoving: { transform: [{ translateY: -12 }] },
+  markerShadow: {
+    width: scale(8),
+    height: verticalScale(4),
+    backgroundColor: "rgba(0,0,0,0.25)",
+    borderRadius: moderateScale(4),
+    marginTop: -verticalScale(6),
+    transform: [{ scaleX: 2.5 }],
+  },
+
+  searchContainer: {
+    position: "absolute",
+    left: scale(16),
+    right: scale(16),
     zIndex: 10,
   },
-  mapSearchBar: {
+  searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: moderateScale(12),
+    paddingHorizontal: scale(14),
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
-    height: 48,
+    height: moderateScale(50),
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  mapSearchInput: {
+  searchInput: {
     flex: 1,
     color: COLORS.textPrimary,
-    fontSize: 16,
+    fontSize: moderateScale(14),
     paddingVertical: 0,
-    marginLeft: 8,
+    marginLeft: scale(10),
+    marginRight: scale(8),
   },
-  mapSearchResults: {
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    marginTop: 4,
-    maxHeight: 200,
+  searchResultsContainer: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: moderateScale(12),
+    marginTop: verticalScale(4),
+    maxHeight: verticalScale(250),
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  mapSearchResultItem: {
-    padding: 12,
+  searchResultsList: { maxHeight: verticalScale(250) },
+  searchResultItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(14),
     borderBottomWidth: 1,
     borderBottomColor: COLORS.cardBorder,
   },
-  mapSearchResultText: {
-    color: COLORS.textPrimary,
-    fontSize: 14,
+  searchResultTextContainer: { flex: 1, marginLeft: scale(12), marginRight: scale(8) },
+  searchResultText: { color: COLORS.textPrimary, fontSize: moderateScale(13), fontWeight: "500" },
+  searchResultType: {
+    color: COLORS.textSecondary,
+    fontSize: moderateScale(11),
+    marginTop: verticalScale(2),
+    textTransform: "capitalize",
   },
-  mapBottomBar: {
+
+  mapCloseButton: {
     position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: COLORS.card,
-    padding: 20,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    left: scale(16),
+    backgroundColor: "#FFFFFF",
+    width: moderateScale(44),
+    height: moderateScale(44),
+    borderRadius: moderateScale(22),
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    zIndex: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  mapAddressPreview: {
-    marginBottom: 12,
+  mapMyLocationButton: {
+    position: "absolute",
+    right: scale(16),
+    bottom: verticalScale(24),
+    backgroundColor: "#FFFFFF",
+    width: moderateScale(48),
+    height: moderateScale(48),
+    borderRadius: moderateScale(24),
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    zIndex: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  mapAddressText: {
-    color: COLORS.textPrimary,
-    fontSize: 16,
-    textAlign: "center",
+
+  mapBottomSheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: moderateScale(24),
+    borderTopRightRadius: moderateScale(24),
+    paddingHorizontal: scale(20),
+    paddingTop: verticalScale(20),
+    borderTopWidth: 1,
+    borderColor: COLORS.cardBorder,
+    marginTop: -verticalScale(20),
+    zIndex: 5,
   },
+  mapLocationHeader: { flexDirection: "row", alignItems: "center", marginBottom: verticalScale(16) },
+  mapLocationIconContainer: {
+    width: moderateScale(40),
+    height: moderateScale(40),
+    borderRadius: moderateScale(20),
+    backgroundColor: COLORS.primarySoft,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: scale(12),
+  },
+  mapLocationTitle: { fontSize: moderateScale(15), fontWeight: "700", color: COLORS.textPrimary, marginBottom: verticalScale(4) },
+  mapLocationSubtitle: { fontSize: moderateScale(12), color: COLORS.textSecondary, lineHeight: moderateScale(18) },
   mapButtonRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 8,
+    marginTop: verticalScale(8),
   },
   mapCancelButton: {
     flex: 1,
-    backgroundColor: COLORS.cardBorder,
-    padding: 12,
-    borderRadius: 10,
-    marginRight: 8,
+    backgroundColor: COLORS.cardMuted,
+    paddingVertical: verticalScale(14),
+    borderRadius: moderateScale(10),
+    marginRight: scale(8),
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  mapCancelButtonText: {
+    color: COLORS.textPrimary,
+    fontWeight: "700",
+    fontSize: moderateScale(15),
   },
   mapConfirmButton: {
     flex: 1,
     backgroundColor: COLORS.primary,
-    padding: 12,
-    borderRadius: 10,
-    marginLeft: 8,
+    paddingVertical: verticalScale(14),
+    borderRadius: moderateScale(10),
+    marginLeft: scale(8),
     alignItems: "center",
   },
-  mapButtonText: {
-    color: COLORS.textPrimary,
+  mapConfirmButtonText: {
+    color: COLORS.textOnPrimary,
     fontWeight: "bold",
-    fontSize: 16,
+    fontSize: moderateScale(15),
   },
 });
