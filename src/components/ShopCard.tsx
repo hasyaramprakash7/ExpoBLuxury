@@ -10,8 +10,12 @@ import {
   Linking,
   Platform,
   ActivityIndicator,
+  Modal,
+  StatusBar,
+  TouchableWithoutFeedback,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { LinearGradient } from "expo-linear-gradient";
 import { Vendor } from "../types";
 import { Colors, getFullAddress, scale, verticalScale, moderateScale } from "../constants/colors";
 import VendorHorizontalScroll from "./VendorHorizontalScroll";
@@ -26,7 +30,7 @@ const APP_STORE_LINK = 'https://apps.apple.com/app/bluxury/id123456789';
 // 🔥 Helper to parse array fields (categories, services, tags)
 const parseArrayField = (field: any): string[] => {
   if (!field) return [];
-  
+
   if (Array.isArray(field)) {
     if (field.length === 1 && typeof field[0] === 'string' && field[0].startsWith('[')) {
       try {
@@ -38,7 +42,7 @@ const parseArrayField = (field: any): string[] => {
     }
     return field.map(item => String(item).trim()).filter(Boolean);
   }
-  
+
   if (typeof field === 'string') {
     try {
       const parsed = JSON.parse(field);
@@ -53,7 +57,7 @@ const parseArrayField = (field: any): string[] => {
       return [field.trim()].filter(Boolean);
     }
   }
-  
+
   return [];
 };
 
@@ -71,22 +75,22 @@ interface ShopCardProps {
 // 🔥 Check if shop is currently open based on operating hours
 const isShopCurrentlyOpen = (operatingHours: any): boolean => {
   if (!operatingHours) return false;
-  
+
   try {
     const parsed = typeof operatingHours === 'string' ? JSON.parse(operatingHours) : operatingHours;
     const now = new Date();
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const currentDay = days[now.getDay()];
     const currentTime = now.getHours() * 60 + now.getMinutes();
-    
+
     const daySchedule = parsed[currentDay];
     if (!daySchedule || !daySchedule.open || !daySchedule.close) return false;
-    
+
     const [openHour, openMinute] = daySchedule.open.split(':').map(Number);
     const [closeHour, closeMinute] = daySchedule.close.split(':').map(Number);
     const openTime = openHour * 60 + openMinute;
     const closeTime = closeHour * 60 + closeMinute;
-    
+
     if (closeTime < openTime) {
       return currentTime >= openTime || currentTime < closeTime;
     }
@@ -99,7 +103,7 @@ const isShopCurrentlyOpen = (operatingHours: any): boolean => {
 // 🔥 Format all days with their hours
 const formatAllDays = (hours: any): Array<{ day: string; hours: string; isToday: boolean }> => {
   if (!hours) return [];
-  
+
   try {
     const parsed = typeof hours === 'string' ? JSON.parse(hours) : hours;
     const dayNames = {
@@ -112,15 +116,15 @@ const formatAllDays = (hours: any): Array<{ day: string; hours: string; isToday:
       sunday: 'Sunday',
     };
     const daysOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    
+
     const now = new Date();
     const currentDayIndex = now.getDay();
     const currentDayName = daysOrder[currentDayIndex === 0 ? 6 : currentDayIndex - 1];
-    
-    const result = daysOrder.map((day) => {
+
+    return daysOrder.map((day) => {
       const dayData = parsed[day];
-      const hoursStr = dayData && dayData.open && dayData.close 
-        ? `${dayData.open} - ${dayData.close}` 
+      const hoursStr = dayData && dayData.open && dayData.close
+        ? `${dayData.open} - ${dayData.close}`
         : 'Closed';
       return {
         day: dayNames[day as keyof typeof dayNames] || day,
@@ -128,77 +132,53 @@ const formatAllDays = (hours: any): Array<{ day: string; hours: string; isToday:
         isToday: day === currentDayName,
       };
     });
-    
-    return result;
   } catch {
     return [];
   }
 };
 
 export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
-  const [showFullHours, setShowFullHours] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
-  
+  const [isImageFullScreen, setIsImageFullScreen] = useState(false);
+
   // 🔥 Parse categories, services, and tags using the helper
   const categories = useMemo(() => parseArrayField(shop.categories), [shop.categories]);
   const services = useMemo(() => parseArrayField(shop.services), [shop.services]);
   const tags = useMemo(() => parseArrayField(shop.tags), [shop.tags]);
-  
+
   const fullAddress = getFullAddress(shop.address);
-  
+
   const isOpen = isShopCurrentlyOpen(shop.operatingHours);
-  const allDays = formatAllDays(shop.operatingHours);
-  const todayHours = allDays.find(d => d.isToday);
-  const displayDays = showFullHours ? allDays : allDays.slice(0, 2);
-  const hasMoreDays = allDays.length > 2;
 
-  // 🔥 Get category tags only
-  const categoryTags = useMemo(() => {
-    return categories.slice(0, 3);
-  }, [categories]);
+  // 🔥 Category / service tags
+  const categoryTags = useMemo(() => categories.slice(0, 3), [categories]);
+  const serviceTags = useMemo(() => services.slice(0, 3), [services]);
 
-  // 🔥 Get service tags only
-  const serviceTags = useMemo(() => {
-    return services.slice(0, 3);
-  }, [services]);
+  // ✅ Has a real image
+  const hasShopImage = Boolean(shop.shopImage && shop.shopImage.trim().length > 0);
 
-  // Get shop image URL
-  const getShopImageUrl = (): string => {
-    return shop.shopImage || 'https://via.placeholder.com/600x400?text=Shop';
-  };
+  const getShopImageUrl = (): string => (hasShopImage ? (shop.shopImage as string) : '');
 
-  // Get Google Maps link
+  // Google Maps link
   const getGoogleMapsLink = (): string => {
     const lat = shop.address?.latitude;
     const lng = shop.address?.longitude;
     const fullAddressStr = getFullAddress(shop.address);
-    
-    if (lat && lng) {
-      return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-    }
-    
-    if (fullAddressStr) {
-      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddressStr)}`;
-    }
-    
+
+    if (lat && lng) return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    if (fullAddressStr) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddressStr)}`;
     return '';
   };
 
-  // Download image to local cache for sharing
+  // Download image locally for share
   const downloadImageToLocal = async (imageUrl: string): Promise<string | null> => {
     try {
       const timestamp = Date.now();
       const filePath = `${FileSystem.cacheDirectory}shop_${timestamp}.jpg`;
-      
-      const downloadResult = await FileSystem.downloadAsync(
-        imageUrl,
-        filePath
-      );
-      
+      const downloadResult = await FileSystem.downloadAsync(imageUrl, filePath);
+
       if (downloadResult.status === 200) {
-        if (Platform.OS === 'android') {
-          return `file://${downloadResult.uri}`;
-        }
+        if (Platform.OS === 'android') return `file://${downloadResult.uri}`;
         return downloadResult.uri;
       }
       return null;
@@ -208,7 +188,7 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
     }
   };
 
-  // Build share message with shop details
+  // Build share message
   const buildShareMessage = (): string => {
     const shopName = shop.shopName || 'Shop';
     const fullAddressStr = getFullAddress(shop.address);
@@ -217,74 +197,41 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
     const categoryStr = categories.length > 0 ? categories.join(', ') : 'N/A';
     const serviceStr = services.length > 0 ? services.join(', ') : 'N/A';
     const productCount = shop.productsCount || 0;
-    
+
     let message = `🏪 *${shopName}*\n\n`;
     message += `📋 *Business Type:* ${shop.businessType || 'Shop'}\n`;
-    
-    if (fullAddressStr) {
-      message += `📍 *Location:* ${fullAddressStr}\n`;
-    }
-    
-    if (mapsLink) {
-      message += `🗺️ *View on Google Maps:* ${mapsLink}\n`;
-    }
-    
-    if (shop.phone) {
-      message += `📞 *Phone:* ${shop.phone}\n`;
-    }
-    
-    if (shop.distance !== undefined && shop.distance !== null) {
-      message += `📏 *Distance:* ${shop.distance.toFixed(1)} km\n`;
-    }
-    
-    if (categoryStr && categoryStr !== 'N/A') {
-      message += `📂 *Categories:* ${categoryStr}\n`;
-    }
-    
-    if (serviceStr && serviceStr !== 'N/A') {
-      message += `🛠️ *Services:* ${serviceStr}\n`;
-    }
-    
+    if (fullAddressStr) message += `📍 *Location:* ${fullAddressStr}\n`;
+    if (mapsLink) message += `🗺️ *View on Google Maps:* ${mapsLink}\n`;
+    if (shop.phone) message += `📞 *Phone:* ${shop.phone}\n`;
+    if (shop.distance !== undefined && shop.distance !== null) message += `📏 *Distance:* ${shop.distance.toFixed(1)} km\n`;
+    if (categoryStr && categoryStr !== 'N/A') message += `📂 *Categories:* ${categoryStr}\n`;
+    if (serviceStr && serviceStr !== 'N/A') message += `🛠️ *Services:* ${serviceStr}\n`;
     message += `🛍️ *Products:* ${productCount} items\n`;
-    
-    if (shop.deliveryRange && shop.deliveryRange > 0) {
-      message += `🚚 *Delivery Range:* ${shop.deliveryRange} km\n`;
-    }
-    
-    // Status
+    if (shop.deliveryRange && shop.deliveryRange > 0) message += `🚚 *Delivery Range:* ${shop.deliveryRange} km\n`;
     message += `🕐 *Status:* ${isOpen ? '✅ Open Now' : '❌ Closed'}\n`;
-    
-    // Rating
-    if (shop.averageRating) {
-      message += `⭐ *Rating:* ${shop.averageRating.toFixed(1)} (${shop.reviewCount || 0} reviews)\n`;
-    }
-    
+    if (shop.averageRating) message += `⭐ *Rating:* ${shop.averageRating.toFixed(1)} (${shop.reviewCount || 0} reviews)\n`;
     message += `\n📱 *Download App:* ${appLink}`;
     return message;
   };
 
-  // Share to WhatsApp
+  // WhatsApp share
   const handleShareWhatsApp = async () => {
     setIsSharing(true);
     try {
       const imageUrl = getShopImageUrl();
       const message = buildShareMessage();
-      
-      // Try to share with image
-      if (imageUrl && !imageUrl.includes('placeholder')) {
+
+      if (imageUrl) {
         try {
           const localFilePath = await downloadImageToLocal(imageUrl);
-          
           if (localFilePath) {
-            const shareOptions = {
+            await Share.shareSingle({
               title: 'BLuxury Shop',
-              message: message,
+              message,
               url: localFilePath,
               type: 'image/jpeg',
               social: Share.Social.WHATSAPP,
-            };
-            
-            await Share.shareSingle(shareOptions);
+            });
             setIsSharing(false);
             return;
           }
@@ -292,21 +239,12 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
           console.log('WhatsApp image share failed:', imageError);
         }
       }
-      
-      // Fallback: Share text only via WhatsApp URL
+
       const phone = shop.phone || '';
       const waUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
-      
       const canOpen = await Linking.canOpenURL(waUrl);
-      if (canOpen) {
-        await Linking.openURL(waUrl);
-      } else {
-        await Share.open({
-          title: 'BLuxury Shop',
-          message: message,
-        });
-      }
-      
+      if (canOpen) await Linking.openURL(waUrl);
+      else await Share.open({ title: 'BLuxury Shop', message });
     } catch (error) {
       console.error('WhatsApp share error:', error);
       if (error instanceof Error && error.message !== 'User cancelled') {
@@ -317,27 +255,23 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
     }
   };
 
-  // General share function
+  // General share
   const handleShare = async () => {
     setIsSharing(true);
     try {
       const imageUrl = getShopImageUrl();
       const message = buildShareMessage();
-      
-      // Try to share with image
-      if (imageUrl && !imageUrl.includes('placeholder')) {
+
+      if (imageUrl) {
         try {
           const localFilePath = await downloadImageToLocal(imageUrl);
-          
           if (localFilePath) {
-            const shareOptions = {
+            await Share.open({
               title: 'BLuxury Shop',
-              message: message,
+              message,
               url: localFilePath,
               type: 'image/jpeg',
-            };
-            
-            await Share.open(shareOptions);
+            });
             setIsSharing(false);
             return;
           }
@@ -345,13 +279,8 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
           console.log('Image sharing failed:', imageError);
         }
       }
-      
-      // Fallback: share text only
-      await RNShare.share({
-        message: message,
-        title: 'BLuxury Shop',
-      });
-      
+
+      await RNShare.share({ message, title: 'BLuxury Shop' });
     } catch (error) {
       console.error('Share error:', error);
       if (error instanceof Error && error.message !== 'User cancelled') {
@@ -363,314 +292,368 @@ export const ShopCard: React.FC<ShopCardProps> = ({ shop, onPress }) => {
   };
 
   return (
-    <TouchableOpacity
-      style={shopCardStyles.cardContainer}
-      onPress={onPress}
-      activeOpacity={0.95}
-    >
-      {/* Shop Image Header */}
-      <View style={shopCardStyles.imageHeader}>
-        {shop.shopImage ? (
+    <>
+      <TouchableOpacity
+        style={shopCardStyles.cardContainer}
+        onPress={onPress}
+        activeOpacity={0.95}
+      >
+        {/* 🔥 FULL-HEIGHT BACKGROUND IMAGE */}
+        {hasShopImage && (
           <Image
-            source={{ uri: shop.shopImage }}
-            style={shopCardStyles.shopImage}
+            source={{ uri: shop.shopImage as string }}
+            style={shopCardStyles.backgroundImage}
             resizeMode="cover"
           />
-        ) : (
-          <View style={shopCardStyles.shopImagePlaceholder}>
-            <Ionicons name="storefront" size={moderateScale(40)} color={Colors.textLightGray} />
-            <Text style={shopCardStyles.placeholderText}>No Image</Text>
-          </View>
         )}
-        
-        {/* Overlay Badges */}
-        <View style={shopCardStyles.imageOverlayBadges}>
-          {shop.isVerified && (
-            <View style={shopCardStyles.overlayBadge}>
-              <Ionicons name="checkmark-circle" size={scale(16)} color={Colors.accentBlue} />
-            </View>
-          )}
-          {shop.isPremium && (
-            <View style={[shopCardStyles.overlayBadge, { backgroundColor: Colors.gold }]}>
-              <Text style={shopCardStyles.premiumBadgeText}>PREMIUM</Text>
-            </View>
-          )}
-        </View>
 
-        {/* Online Status Overlay */}
-        <View style={shopCardStyles.onlineStatusOverlay}>
-          <View
-            style={[
-              shopCardStyles.statusDot,
-              { backgroundColor: isOpen ? Colors.onlineGreen : Colors.offlineRed },
-            ]}
-          />
-          <Text
-            style={[
-              shopCardStyles.statusTextOverlay,
-              { color: isOpen ? Colors.onlineGreen : Colors.offlineRed },
-            ]}
+        {/* 🔥 Gradient overlay for readability */}
+        <LinearGradient
+          colors={
+            hasShopImage
+              ? ['rgba(0,0,0,0.10)', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.88)', 'rgba(0,0,0,0.96)']
+              : ['#1F1F1F', '#0F0F0F']
+          }
+          locations={hasShopImage ? [0, 0.35, 0.72, 1] : [0, 1]}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
+
+        {/* CONTENT OVERLAY */}
+        <View style={shopCardStyles.contentOverlay}>
+          {/* TOP ROW: status + badges + expand */}
+          <View style={shopCardStyles.topRow}>
+            <View style={shopCardStyles.onlineStatusOverlay}>
+              <View
+                style={[
+                  shopCardStyles.statusDot,
+                  { backgroundColor: isOpen ? Colors.onlineGreen : Colors.offlineRed },
+                ]}
+              />
+              <Text
+                style={[
+                  shopCardStyles.statusTextOverlay,
+                  { color: isOpen ? Colors.onlineGreen : Colors.offlineRed },
+                ]}
+              >
+                {isOpen ? "Open Now" : "Closed"}
+              </Text>
+            </View>
+
+            <View style={shopCardStyles.topRowRight}>
+              {shop.isInRange === false && shop.distance ? (
+                <View style={shopCardStyles.outOfRangeBadge}>
+                  <Ionicons name="location-outline" size={scale(10)} color={Colors.white} />
+                  <Text style={shopCardStyles.outOfRangeText}>{shop.distance.toFixed(1)} km</Text>
+                </View>
+              ) : null}
+
+              {shop.isVerified && (
+                <View style={shopCardStyles.overlayBadge}>
+                  <Ionicons name="checkmark-circle" size={scale(16)} color={Colors.accentBlue} />
+                </View>
+              )}
+
+              {shop.isPremium && (
+                <View style={[shopCardStyles.overlayBadge, { backgroundColor: Colors.gold }]}>
+                  <Text style={shopCardStyles.premiumBadgeText}>PREMIUM</Text>
+                </View>
+              )}
+
+              {hasShopImage && (
+                <TouchableOpacity
+                  style={shopCardStyles.expandBtn}
+                  onPress={() => setIsImageFullScreen(true)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="expand-outline" size={scale(14)} color={Colors.white} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* SPACER pushes content to bottom, letting image shine through */}
+          <View style={shopCardStyles.spacer} />
+
+          {/* INFO SECTION */}
+          <View style={shopCardStyles.infoSection}>
+            <View style={shopCardStyles.nameRow}>
+              <Text style={[shopCardStyles.shopName, shopCardStyles.textShadow]} numberOfLines={1}>
+                {shop.shopName}
+              </Text>
+              <Text style={[shopCardStyles.businessType, shopCardStyles.textShadow]} numberOfLines={1}>
+                {shop.businessType || "Shop"}
+              </Text>
+            </View>
+
+            <View style={shopCardStyles.ratingRow}>
+              {shop.averageRating ? (
+                <View style={shopCardStyles.ratingPill}>
+                  <Text style={shopCardStyles.ratingNumber}>
+                    {shop.averageRating.toFixed(1)}
+                  </Text>
+                  <Ionicons name="star" size={scale(12)} color={Colors.white} />
+                </View>
+              ) : null}
+              {shop.reviewCount ? (
+                <Text style={[shopCardStyles.reviewCount, shopCardStyles.textShadow]}>
+                  ({shop.reviewCount} reviews)
+                </Text>
+              ) : null}
+              {shop.distance !== undefined && shop.distance !== null && (
+                <View style={shopCardStyles.distancePill}>
+                  <Ionicons
+                    name="location-outline"
+                    size={scale(12)}
+                    color={shop.isInRange ? Colors.onlineGreen : Colors.offlineRed}
+                  />
+                  <Text
+                    style={[
+                      shopCardStyles.distanceText,
+                      { color: shop.isInRange ? Colors.onlineGreen : Colors.offlineRed },
+                    ]}
+                  >
+                    {shop.distance.toFixed(1)} km {!shop.isInRange && '• Out of Range'}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={shopCardStyles.addressRow}>
+              <Ionicons name="location-outline" size={scale(14)} color="rgba(255,255,255,0.85)" />
+              <Text style={[shopCardStyles.addressText, shopCardStyles.textShadow]}>
+                {fullAddress}
+              </Text>
+            </View>
+
+            {/* Categories */}
+            {categoryTags.length > 0 && (
+              <View style={shopCardStyles.tagsContainer}>
+                {categoryTags.map((cat, idx) => (
+                  <View key={`cat-${idx}`} style={[shopCardStyles.tagPill, shopCardStyles.categoryTag]}>
+                    <Text style={shopCardStyles.tagText}>{cat}</Text>
+                  </View>
+                ))}
+                {categories.length > 3 && (
+                  <Text style={shopCardStyles.moreTag}>+{categories.length - 3}</Text>
+                )}
+              </View>
+            )}
+
+            {/* Services */}
+            {serviceTags.length > 0 && (
+              <View style={shopCardStyles.tagsContainer}>
+                {serviceTags.map((service, idx) => (
+                  <View key={`service-${idx}`} style={[shopCardStyles.tagPill, shopCardStyles.serviceTag]}>
+                    <Text style={shopCardStyles.tagText}>{service}</Text>
+                  </View>
+                ))}
+                {services.length > 3 && (
+                  <Text style={shopCardStyles.moreTag}>+{services.length - 3}</Text>
+                )}
+              </View>
+            )}
+
+            {/* Tags fallback */}
+            {categories.length === 0 && services.length === 0 && tags.length > 0 && (
+              <View style={shopCardStyles.tagsContainer}>
+                {tags.slice(0, 4).map((tag, idx) => (
+                  <View key={`tag-${idx}`} style={[shopCardStyles.tagPill, shopCardStyles.tagTag]}>
+                    <Text style={shopCardStyles.tagText}>{tag}</Text>
+                  </View>
+                ))}
+                {tags.length > 4 && (
+                  <Text style={shopCardStyles.moreTag}>+{tags.length - 4}</Text>
+                )}
+              </View>
+            )}
+
+            {/* Delivery */}
+            {shop.deliveryRange !== undefined && shop.deliveryRange > 0 && (
+              <View style={shopCardStyles.deliveryRow}>
+                <Ionicons name="bicycle-outline" size={scale(14)} color="rgba(255,255,255,0.85)" />
+                <Text style={[shopCardStyles.deliveryText, shopCardStyles.textShadow]}>
+                  Delivers: {shop.deliveryRange} km
+                </Text>
+              </View>
+            )}
+
+            {/* Contacts */}
+            {(shop.phone || shop.email) && (
+              <View style={shopCardStyles.contactRow}>
+                {shop.phone && (
+                  <Text style={[shopCardStyles.contactText, shopCardStyles.textShadow]}>📞 {shop.phone}</Text>
+                )}
+                {shop.phone && shop.email && <Text style={shopCardStyles.dotSeparator}> • </Text>}
+                {shop.email && (
+                  <Text style={[shopCardStyles.contactText, shopCardStyles.textShadow]}>✉️ {shop.email}</Text>
+                )}
+              </View>
+            )}
+          </View>
+
+          {/* Horizontal scroll */}
+          {shop._id && (
+            <View style={shopCardStyles.horizontalScrollContainer}>
+              <VendorHorizontalScroll
+                vendorId={shop._id}
+                vendorName={shop.shopName}
+                isVendorOffline={!shop.isOnline}
+                onSeeAll={onPress}
+              />
+            </View>
+          )}
+
+          <View style={shopCardStyles.divider} />
+
+          {/* BOTTOM ROW */}
+          <View style={shopCardStyles.bottomRow}>
+            <View style={shopCardStyles.bottomLeft}>
+              <View style={shopCardStyles.offerIconBadge}>
+                <Ionicons name="flash" size={moderateScale(18)} color={Colors.white} />
+              </View>
+              <View>
+                <Text style={[shopCardStyles.offerTitle, shopCardStyles.textShadow]}>
+                  {shop.productsCount > 0 ? `${shop.productsCount} Products` : "Explore Shop"}
+                </Text>
+                <Text style={shopCardStyles.offerSubtitle}>AVAILABLE NOW | VIEW ALL</Text>
+              </View>
+            </View>
+
+            <View style={shopCardStyles.rightSection}>
+              <View style={shopCardStyles.productImagesContainer}>
+                {shop.productImages && shop.productImages.length > 0 ? (
+                  shop.productImages.slice(0, 3).map((img, idx) => (
+                    <Image
+                      key={idx}
+                      source={{ uri: img }}
+                      style={[
+                        shopCardStyles.miniProductImg,
+                        { marginLeft: idx > 0 ? -scale(12) : 0, zIndex: 3 - idx },
+                      ]}
+                    />
+                  ))
+                ) : (
+                  <Ionicons name="arrow-forward-circle" size={moderateScale(28)} color={Colors.accentGreen} />
+                )}
+              </View>
+
+              <View style={shopCardStyles.shareButtonsContainer}>
+                <TouchableOpacity
+                  style={[shopCardStyles.shareBtnSmall, shopCardStyles.shareBtnStyle]}
+                  onPress={handleShare}
+                  disabled={isSharing}
+                >
+                  {isSharing ? (
+                    <ActivityIndicator size="small" color={Colors.white} />
+                  ) : (
+                    <Ionicons name="share-social-outline" size={12} color={Colors.white} />
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[shopCardStyles.shareBtnSmall, shopCardStyles.whatsappShareBtn]}
+                  onPress={handleShareWhatsApp}
+                  disabled={isSharing}
+                >
+                  {isSharing ? (
+                    <ActivityIndicator size="small" color={Colors.white} />
+                  ) : (
+                    <Ionicons name="logo-whatsapp" size={12} color={Colors.white} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {/* 🔥 FULL SCREEN IMAGE VIEWER */}
+      <Modal
+        visible={isImageFullScreen && hasShopImage}
+        transparent={false}
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setIsImageFullScreen(false)}
+      >
+        <View style={shopCardStyles.fullScreenContainer}>
+          <StatusBar hidden={isImageFullScreen} />
+          <TouchableWithoutFeedback onPress={() => setIsImageFullScreen(false)}>
+            <View style={shopCardStyles.fullScreenTouchable}>
+              <Image
+                source={{ uri: shop.shopImage as string }}
+                style={shopCardStyles.fullScreenImage}
+                resizeMode="contain"
+              />
+            </View>
+          </TouchableWithoutFeedback>
+          <TouchableOpacity
+            style={shopCardStyles.closeButton}
+            onPress={() => setIsImageFullScreen(false)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            {isOpen ? "Open Now" : "Closed"}
-          </Text>
+            <Ionicons name="close" size={moderateScale(26)} color={Colors.white} />
+          </TouchableOpacity>
         </View>
-
-        {/* Out of Range Badge */}
-        {shop.isInRange === false && shop.distance && (
-          <View style={shopCardStyles.outOfRangeBadge}>
-            <Ionicons name="location-outline" size={scale(10)} color={Colors.white} />
-            <Text style={shopCardStyles.outOfRangeText}>
-              {shop.distance.toFixed(1)} km
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Shop Info Section */}
-      <View style={shopCardStyles.infoSection}>
-        <View style={shopCardStyles.nameRow}>
-          <Text style={shopCardStyles.shopName} numberOfLines={1}>
-            {shop.shopName}
-          </Text>
-          <Text style={shopCardStyles.businessType} numberOfLines={1}>
-            {shop.businessType || "Shop"}
-          </Text>
-        </View>
-
-        <View style={shopCardStyles.ratingRow}>
-          {shop.averageRating ? (
-            <View style={shopCardStyles.ratingPill}>
-              <Text style={shopCardStyles.ratingNumber}>
-                {shop.averageRating.toFixed(1)}
-              </Text>
-              <Ionicons name="star" size={scale(12)} color={Colors.white} />
-            </View>
-          ) : null}
-          {shop.reviewCount ? (
-            <Text style={shopCardStyles.reviewCount}>({shop.reviewCount} reviews)</Text>
-          ) : null}
-          {shop.distance !== undefined && shop.distance !== null && (
-            <View style={shopCardStyles.distancePill}>
-              <Ionicons name="location-outline" size={scale(12)} color={shop.isInRange ? Colors.onlineGreen : Colors.offlineRed} />
-              <Text style={[
-                shopCardStyles.distanceText,
-                { color: shop.isInRange ? Colors.onlineGreen : Colors.offlineRed }
-              ]}>
-                {shop.distance.toFixed(1)} km {!shop.isInRange && '• Out of Range'}
-              </Text>
-            </View>
-          )}
-        </View>
-
-        <View style={shopCardStyles.addressRow}>
-          <Ionicons name="location-outline" size={scale(14)} color={Colors.textGray} />
-          <Text style={shopCardStyles.addressText}>
-            {fullAddress}
-          </Text>
-        </View>
-
-        {/* 🔥 FIXED: Display Categories as chips */}
-        {categoryTags.length > 0 && (
-          <View style={shopCardStyles.tagsContainer}>
-            {categoryTags.map((cat, idx) => (
-              <View key={`cat-${idx}`} style={[shopCardStyles.tagPill, shopCardStyles.categoryTag]}>
-                <Text style={shopCardStyles.tagText}>{cat}</Text>
-              </View>
-            ))}
-            {categories.length > 3 && (
-              <Text style={shopCardStyles.moreTag}>+{categories.length - 3}</Text>
-            )}
-          </View>
-        )}
-
-        {/* 🔥 FIXED: Display Services as chips */}
-        {serviceTags.length > 0 && (
-          <View style={shopCardStyles.tagsContainer}>
-            {serviceTags.map((service, idx) => (
-              <View key={`service-${idx}`} style={[shopCardStyles.tagPill, shopCardStyles.serviceTag]}>
-                <Text style={shopCardStyles.tagText}>{service}</Text>
-              </View>
-            ))}
-            {services.length > 3 && (
-              <Text style={shopCardStyles.moreTag}>+{services.length - 3}</Text>
-            )}
-          </View>
-        )}
-
-        {/* 🔥 FIXED: Display Tags as chips (only if no categories or services) */}
-        {categories.length === 0 && services.length === 0 && tags.length > 0 && (
-          <View style={shopCardStyles.tagsContainer}>
-            {tags.slice(0, 4).map((tag, idx) => (
-              <View key={`tag-${idx}`} style={[shopCardStyles.tagPill, shopCardStyles.tagTag]}>
-                <Text style={shopCardStyles.tagText}>{tag}</Text>
-              </View>
-            ))}
-            {tags.length > 4 && (
-              <Text style={shopCardStyles.moreTag}>+{tags.length - 4}</Text>
-            )}
-          </View>
-        )}
-
-        {/* Delivery Range */}
-        {shop.deliveryRange !== undefined && shop.deliveryRange > 0 && (
-          <View style={shopCardStyles.deliveryRow}>
-            <Ionicons name="bicycle-outline" size={scale(14)} color={Colors.textGray} />
-            <Text style={shopCardStyles.deliveryText}>Delivers: {shop.deliveryRange} km</Text>
-          </View>
-        )}
-
-        {(shop.phone || shop.email) && (
-          <View style={shopCardStyles.contactRow}>
-            {shop.phone && <Text style={shopCardStyles.contactText}>📞 {shop.phone}</Text>}
-            {shop.phone && shop.email && <Text style={shopCardStyles.dotSeparator}> • </Text>}
-            {shop.email && <Text style={shopCardStyles.contactText}>✉️ {shop.email}</Text>}
-          </View>
-        )}
-      </View>
-
-      {/* Horizontal Scroll */}
-      {shop._id && (
-        <View style={shopCardStyles.horizontalScrollContainer}>
-          <VendorHorizontalScroll
-            vendorId={shop._id}
-            vendorName={shop.shopName}
-            isVendorOffline={!shop.isOnline}
-            onSeeAll={onPress}
-          />
-        </View>
-      )}
-
-      <View style={shopCardStyles.divider} />
-
-      {/* Bottom Row with Share Buttons */}
-      <View style={shopCardStyles.bottomRow}>
-        <View style={shopCardStyles.bottomLeft}>
-          <View style={shopCardStyles.offerIconBadge}>
-            <Ionicons name="flash" size={moderateScale(18)} color={Colors.white} />
-          </View>
-          <View>
-            <Text style={shopCardStyles.offerTitle}>
-              {shop.productsCount > 0 ? `${shop.productsCount} Products` : "Explore Shop"}
-            </Text>
-            <Text style={shopCardStyles.offerSubtitle}>AVAILABLE NOW | VIEW ALL</Text>
-          </View>
-        </View>
-        
-        <View style={shopCardStyles.rightSection}>
-          {/* Product Images */}
-          <View style={shopCardStyles.productImagesContainer}>
-            {shop.productImages && shop.productImages.length > 0 ? (
-              shop.productImages.slice(0, 3).map((img, idx) => (
-                <Image
-                  key={idx}
-                  source={{ uri: img }}
-                  style={[
-                    shopCardStyles.miniProductImg,
-                    { marginLeft: idx > 0 ? -scale(12) : 0, zIndex: 3 - idx },
-                  ]}
-                />
-              ))
-            ) : (
-              <Ionicons name="arrow-forward-circle" size={moderateScale(28)} color={Colors.accentGreen} />
-            )}
-          </View>
-
-          {/* Share Buttons - Small */}
-          <View style={shopCardStyles.shareButtonsContainer}>
-            <TouchableOpacity 
-              style={[shopCardStyles.shareBtnSmall, shopCardStyles.shareBtnStyle]} 
-              onPress={handleShare}
-              disabled={isSharing}
-            >
-              {isSharing ? (
-                <ActivityIndicator size="small" color={Colors.white} />
-              ) : (
-                <Ionicons name="share-social-outline" size={12} color={Colors.white} />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[shopCardStyles.shareBtnSmall, shopCardStyles.whatsappShareBtn]} 
-              onPress={handleShareWhatsApp}
-              disabled={isSharing}
-            >
-              {isSharing ? (
-                <ActivityIndicator size="small" color={Colors.white} />
-              ) : (
-                <Ionicons name="logo-whatsapp" size={12} color={Colors.white} />
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </TouchableOpacity>
+      </Modal>
+    </>
   );
 };
 
 const shopCardStyles = StyleSheet.create({
   cardContainer: {
-    backgroundColor: Colors.cardWhite,
     borderRadius: moderateScale(24),
     marginVertical: verticalScale(10),
     marginHorizontal: scale(16),
     shadowColor: Colors.black,
     shadowOffset: { width: 0, height: verticalScale(10) },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.25,
     shadowRadius: moderateScale(15),
-    elevation: 8,
+    elevation: 10,
     overflow: 'hidden',
+    backgroundColor: '#1A1A1A',
+    minHeight: verticalScale(540),
   },
-  imageHeader: {
-    width: '100%',
-    height: verticalScale(180),
-    position: 'relative',
-    backgroundColor: Colors.dividerGray,
-  },
-  shopImage: {
-    width: '100%',
-    height: '100%',
-  },
-  shopImagePlaceholder: {
+
+  // 🔥 Full-bleed background image
+  backgroundImage: {
+    ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#2A2A2A',
   },
-  placeholderText: {
-    color: Colors.textLightGray,
-    fontSize: moderateScale(14),
-    marginTop: verticalScale(8),
+
+  contentOverlay: {
+    flex: 1,
+    paddingTop: verticalScale(14),
+    justifyContent: 'space-between',
   },
-  imageOverlayBadges: {
-    position: 'absolute',
-    top: verticalScale(12),
-    right: scale(12),
+
+  spacer: {
+    flex: 1,
+    minHeight: verticalScale(50),
+  },
+
+  // TOP ROW
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: scale(12),
+  },
+  topRowRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(6),
   },
-  overlayBadge: {
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: moderateScale(12),
-    paddingHorizontal: scale(8),
-    paddingVertical: verticalScale(4),
-  },
-  premiumBadgeText: {
-    color: Colors.white,
-    fontSize: moderateScale(10),
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
+
   onlineStatusOverlay: {
-    position: 'absolute',
-    bottom: verticalScale(12),
-    left: scale(12),
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     paddingHorizontal: scale(10),
     paddingVertical: verticalScale(4),
     borderRadius: moderateScale(12),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   statusDot: {
     width: scale(8),
@@ -679,14 +662,25 @@ const shopCardStyles = StyleSheet.create({
     marginRight: scale(6),
   },
   statusTextOverlay: {
-    color: Colors.cardWhite,
     fontSize: moderateScale(12),
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+
+  overlayBadge: {
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: moderateScale(12),
+    paddingHorizontal: scale(8),
+    paddingVertical: verticalScale(4),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  premiumBadgeText: {
+    color: Colors.white,
+    fontSize: moderateScale(10),
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   outOfRangeBadge: {
-    position: 'absolute',
-    bottom: verticalScale(12),
-    right: scale(12),
     backgroundColor: 'rgba(255, 68, 68, 0.9)',
     flexDirection: 'row',
     alignItems: 'center',
@@ -698,10 +692,23 @@ const shopCardStyles = StyleSheet.create({
   outOfRangeText: {
     color: Colors.cardWhite,
     fontSize: moderateScale(10),
-    fontWeight: '600',
+    fontWeight: '700',
   },
+  expandBtn: {
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    width: scale(30),
+    height: scale(30),
+    borderRadius: scale(15),
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+
+  // INFO
   infoSection: {
-    padding: moderateScale(16),
+    paddingHorizontal: moderateScale(16),
+    paddingBottom: verticalScale(6),
   },
   nameRow: {
     flexDirection: 'row',
@@ -710,16 +717,17 @@ const shopCardStyles = StyleSheet.create({
     marginBottom: verticalScale(4),
   },
   shopName: {
-    fontSize: moderateScale(20),
+    fontSize: moderateScale(22),
     fontWeight: '900',
-    color: Colors.textDark,
+    color: '#FFFFFF',
     letterSpacing: -0.5,
     flex: 1,
   },
   businessType: {
     fontSize: moderateScale(13),
-    color: Colors.textGray,
+    color: 'rgba(255,255,255,0.85)',
     marginLeft: scale(8),
+    fontWeight: '600',
   },
   ratingRow: {
     flexDirection: 'row',
@@ -743,35 +751,40 @@ const shopCardStyles = StyleSheet.create({
     marginRight: scale(2),
   },
   reviewCount: {
-    color: Colors.textLightGray,
+    color: 'rgba(255,255,255,0.75)',
     fontSize: moderateScale(13),
     marginRight: scale(6),
   },
   distancePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F0F0',
+    backgroundColor: 'rgba(255,255,255,0.15)',
     paddingHorizontal: scale(8),
     paddingVertical: verticalScale(3),
     borderRadius: moderateScale(8),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   distanceText: {
     fontSize: moderateScale(12),
     marginLeft: scale(2),
+    fontWeight: '700',
   },
+
   addressRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginTop: verticalScale(4),
+    marginTop: verticalScale(6),
   },
   addressText: {
     fontSize: moderateScale(14),
-    color: Colors.textGray,
+    color: 'rgba(255,255,255,0.9)',
     marginLeft: scale(4),
     flex: 1,
     flexWrap: 'wrap',
     lineHeight: moderateScale(20),
   },
+
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -783,95 +796,32 @@ const shopCardStyles = StyleSheet.create({
     paddingVertical: verticalScale(4),
     marginRight: scale(6),
     marginBottom: verticalScale(4),
+    borderWidth: 1,
   },
   categoryTag: {
-    backgroundColor: '#E8F5E9',
+    backgroundColor: 'rgba(76, 175, 80, 0.25)',
+    borderColor: 'rgba(76, 175, 80, 0.65)',
   },
   serviceTag: {
-    backgroundColor: '#E3F2FD',
+    backgroundColor: 'rgba(33, 150, 243, 0.25)',
+    borderColor: 'rgba(33, 150, 243, 0.65)',
   },
   tagTag: {
-    backgroundColor: '#FCE4EC',
+    backgroundColor: 'rgba(233, 30, 99, 0.25)',
+    borderColor: 'rgba(233, 30, 99, 0.65)',
   },
   tagText: {
     fontSize: moderateScale(12),
-    color: Colors.textGray,
-    fontWeight: '500',
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   moreTag: {
     fontSize: moderateScale(12),
-    color: Colors.textLightGray,
+    color: 'rgba(255,255,255,0.7)',
     marginLeft: scale(4),
     alignSelf: 'center',
   },
-  hoursContainer: {
-    marginTop: verticalScale(6),
-    marginBottom: verticalScale(4),
-    backgroundColor: '#F8F8F8',
-    borderRadius: moderateScale(8),
-    padding: moderateScale(10),
-  },
-  hoursHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: verticalScale(4),
-    paddingBottom: verticalScale(4),
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
-  },
-  hoursHeaderText: {
-    fontSize: moderateScale(13),
-    fontWeight: '700',
-    marginLeft: scale(4),
-  },
-  todayHoursText: {
-    fontSize: moderateScale(12),
-    color: Colors.textGray,
-    marginLeft: 'auto',
-    fontWeight: '500',
-  },
-  dayRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: verticalScale(2),
-  },
-  todayRow: {
-    backgroundColor: 'rgba(27, 140, 64, 0.08)',
-    borderRadius: moderateScale(4),
-    paddingHorizontal: scale(4),
-    marginHorizontal: -scale(4),
-  },
-  dayName: {
-    fontSize: moderateScale(12),
-    color: Colors.textGray,
-    fontWeight: '500',
-  },
-  todayText: {
-    color: Colors.accentGreen,
-    fontWeight: '700',
-  },
-  dayHours: {
-    fontSize: moderateScale(12),
-    color: Colors.textDark,
-  },
-  closedText: {
-    color: Colors.offlineRed,
-  },
-  showMoreBtn: {
-    marginTop: verticalScale(2),
-    paddingVertical: verticalScale(2),
-  },
-  showMoreText: {
-    fontSize: moderateScale(11),
-    color: Colors.accentBlue,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  horizontalScrollContainer: {
-    marginTop: verticalScale(4),
-    marginBottom: verticalScale(4),
-  },
+
   deliveryRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -879,7 +829,7 @@ const shopCardStyles = StyleSheet.create({
   },
   deliveryText: {
     fontSize: moderateScale(12),
-    color: Colors.textGray,
+    color: 'rgba(255,255,255,0.85)',
     marginLeft: scale(4),
   },
   contactRow: {
@@ -890,18 +840,25 @@ const shopCardStyles = StyleSheet.create({
   },
   contactText: {
     fontSize: moderateScale(12),
-    color: Colors.textGray,
+    color: 'rgba(255,255,255,0.85)',
     fontWeight: '500',
   },
   dotSeparator: {
-    color: Colors.textLightGray,
+    color: 'rgba(255,255,255,0.5)',
   },
+
+  horizontalScrollContainer: {
+    marginTop: verticalScale(6),
+    marginBottom: verticalScale(4),
+  },
+
   divider: {
     height: 1,
-    backgroundColor: Colors.dividerGray,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     width: '100%',
     marginVertical: verticalScale(4),
   },
+
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -931,13 +888,13 @@ const shopCardStyles = StyleSheet.create({
   offerTitle: {
     fontSize: moderateScale(15),
     fontWeight: '800',
-    color: Colors.textDark,
+    color: '#FFFFFF',
     marginBottom: verticalScale(1),
   },
   offerSubtitle: {
     fontSize: moderateScale(10),
     fontWeight: '600',
-    color: Colors.textLightGray,
+    color: 'rgba(255,255,255,0.7)',
     letterSpacing: 0.5,
   },
   productImagesContainer: {
@@ -949,7 +906,7 @@ const shopCardStyles = StyleSheet.create({
     height: scale(28),
     borderRadius: moderateScale(14),
     borderWidth: 2,
-    borderColor: Colors.cardWhite,
+    borderColor: 'rgba(255,255,255,0.9)',
     backgroundColor: Colors.dividerGray,
   },
   shareButtonsContainer: {
@@ -959,17 +916,57 @@ const shopCardStyles = StyleSheet.create({
     marginLeft: scale(4),
   },
   shareBtnSmall: {
-    width: scale(28),
-    height: scale(28),
-    borderRadius: scale(14),
+    width: scale(30),
+    height: scale(30),
+    borderRadius: scale(15),
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   shareBtnStyle: {
     backgroundColor: Colors.accentGreen,
   },
   whatsappShareBtn: {
     backgroundColor: '#25D366',
+  },
+
+  // Text shadow helper
+  textShadow: {
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
+  // Full screen viewer
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullScreenTouchable: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullScreenImage: {
+    width: '100%',
+    height: '100%',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: verticalScale(44),
+    right: scale(20),
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(20),
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
 });
 
