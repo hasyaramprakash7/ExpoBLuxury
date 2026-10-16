@@ -1,5 +1,5 @@
-// screens/UserRentalListScreen.tsx
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+// src/screens/UserRentalListScreen.tsx
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,13 +18,22 @@ import {
   Animated,
   Platform,
   Alert,
+  Linking,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
-import { fetchRentals, selectAllRentals, selectRentalLoading, selectRentalPagination } from '../features/rentalSlice';
+import {
+  fetchRentals,
+  selectAllRentals,
+  selectRentalLoading,
+  selectRentalPagination,
+} from '../features/rentalSlice';
 import { RootState } from '../app/store';
 import Toast from 'react-native-toast-message';
 import { Colors as AppColors, scale, verticalScale, moderateScale } from '../constants/colors';
@@ -38,39 +47,83 @@ import {
   selectAllAddresses,
 } from '../features/locationSlice';
 import AddAddressScreen from '../screens/AddAddressScreen';
+import { useDeferredMount } from '../hooks/useDeferredMount';
+
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import ReAnimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withRepeat,
+  withSequence,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
 
 const { width, height } = Dimensions.get('window');
 
 const isTablet = width >= 768;
 const isSmallPhone = width < 375;
-const CARD_WIDTH = isTablet ? (width - 48) / 3 : (width - 48) / 2;
-const CARD_HEIGHT = isTablet ? 220 : 200;
 const HEADER_HEIGHT = 250;
+
+// ─────────────────────────────────────────────────────────────
+// 🎨 UNIFIED PALETTE — matches ShopListings feel
+// ─────────────────────────────────────────────────────────────
+const Royal = {
+  gold: '#D4AF37',
+  goldSoft: '#E8CC7A',
+  goldBright: '#F4DC90',
+  goldDim: 'rgba(212,175,55,0.35)',
+  goldFaint: 'rgba(212,175,55,0.10)',
+  royalGreen: '#0A3D2B',
+  royalGreenDeep: '#062318',
+  obsidian: '#0B0B0F',
+  ivory: '#FFFFFF',
+  cream: '#FBF7EE',
+  maroon: '#5C1A2B',
+  redAlert: '#B91C1C',
+  // White surfaces (ShopListings feel)
+  whiteBg: '#FFFFFF',
+  offWhite: '#F4F4F6',
+  softWhite: '#F2F2F7',
+  borderLight: 'rgba(0,0,0,0.08)',
+  borderMedium: 'rgba(0,0,0,0.15)',
+  shadow: 'rgba(0,0,0,0.10)',
+  // Text (dark on white)
+  textPrimary: '#0B0B0F',
+  textSecondary: 'rgba(11,11,15,0.65)',
+  textTertiary: 'rgba(11,11,15,0.45)',
+  // Accents
+  pureBlack: '#000000',
+  pureWhite: '#FFFFFF',
+};
 
 const Colors = {
   royalNavy: '#0B1021',
-  champagneGold: '#D4AF37',
-  offWhite: '#F8F9FA',
+  champagneGold: Royal.gold,
+  offWhite: Royal.offWhite,
   pureWhite: '#FFFFFF',
   charcoal: '#2D3748',
   slate: '#64748B',
-  lightBorder: '#EAEAEA',
+  lightBorder: Royal.borderLight,
   success: '#10B981',
   error: '#EF4444',
-  gradientStart: '#0B1021',
-  gradientEnd: '#1A1F3A',
-  accentGreen: '#1B8C40',
-  textDark: '#1C1C1E',
-  textGray: '#6B7280',
-  textLightGray: '#9CA3AF',
+  gradientStart: Royal.royalGreenDeep,
+  gradientEnd: Royal.royalGreen,
+  accentGreen: Royal.royalGreen,
+  textDark: Royal.textPrimary,
+  textGray: Royal.textSecondary,
+  textLightGray: Royal.textTertiary,
+  luxuryGold: Royal.gold,
 };
 
 const RENTAL_TYPES = ['PG', 'Hotel', 'Apartment', 'Villa', 'Hostel', 'Guest House'];
 
-// Create Animated FlatList
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
-// Address Modal Component (Without Delete Option)
+// ================================================================
+// 👑 Address Modal — ShopListings-style (White bg + black accents)
+// ================================================================
 interface AddressModalProps {
   visible: boolean;
   onClose: () => void;
@@ -92,12 +145,16 @@ const AddressModal: React.FC<AddressModalProps> = ({
   isLoading,
   onOpenMap,
 }) => {
+  const insets = useSafeAreaInsets();
+  const footerPaddingBottom = Math.max(insets.bottom, 12) + 12;
+
   return (
     <Modal
       visible={visible}
       animationType="slide"
       transparent={true}
       onRequestClose={onClose}
+      statusBarTranslucent
     >
       <View style={addressModalStyles.overlay}>
         <TouchableOpacity
@@ -106,140 +163,164 @@ const AddressModal: React.FC<AddressModalProps> = ({
           onPress={onClose}
         />
         <View style={addressModalStyles.bottomSheet}>
-          <View style={addressModalStyles.bottomSheetHandle} />
+          <View style={addressModalStyles.bottomSheetContent}>
+            <View style={addressModalStyles.bottomSheetHandle} />
 
-          <View style={addressModalStyles.sheetHeader}>
-            <Text style={addressModalStyles.sheetTitle}>Select Location</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color={Colors.textDark} />
-            </TouchableOpacity>
-          </View>
+            <View style={addressModalStyles.sheetHeader}>
+              <View style={addressModalStyles.sheetTitleRow}>
+                <Ionicons name="diamond" size={14} color={Royal.pureBlack} />
+                <Text style={addressModalStyles.sheetTitle}>SELECT LOCATION</Text>
+              </View>
+              <TouchableOpacity onPress={onClose} hitSlop={10}>
+                <Ionicons name="close" size={22} color={Royal.pureBlack} />
+              </TouchableOpacity>
+            </View>
 
-          <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
-            <TouchableOpacity
-              style={addressModalStyles.currentLocationContainer}
-              onPress={onAddAddress}
+            <ScrollView
+              style={addressModalStyles.addressList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 8 }}
             >
-              <View style={addressModalStyles.currentLocationIcon}>
-                <Ionicons name="locate" size={22} color={Colors.royalNavy} />
-              </View>
-              <View style={addressModalStyles.addressInfo}>
-                <Text style={addressModalStyles.currentLocationTitle}>
-                  Use my current location
-                </Text>
-                <Text style={addressModalStyles.addressString} numberOfLines={1}>
-                  {selectedAddress
-                    ? selectedAddress.addressString
-                    : "Fetch GPS & find nearby rentals"}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.textGray} />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={addressModalStyles.currentLocationContainer}
+                onPress={onAddAddress}
+                activeOpacity={0.75}
+              >
+                <View style={addressModalStyles.currentLocationIcon}>
+                  <Ionicons name="locate" size={20} color={Royal.pureBlack} />
+                </View>
+                <View style={addressModalStyles.addressInfo}>
+                  <Text style={addressModalStyles.currentLocationTitle}>
+                    Use my current location
+                  </Text>
+                  <Text style={addressModalStyles.addressString} numberOfLines={1}>
+                    {selectedAddress
+                      ? selectedAddress.addressString
+                      : 'Fetch GPS & find nearby rentals'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Royal.pureBlack} />
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]}
-              onPress={onOpenMap}
-            >
-              <View style={[addressModalStyles.currentLocationIcon, { backgroundColor: 'rgba(27, 140, 64, 0.1)' }]}>
-                <Ionicons name="map" size={22} color={Colors.accentGreen} />
-              </View>
-              <View style={addressModalStyles.addressInfo}>
-                <Text style={[addressModalStyles.currentLocationTitle, { color: Colors.accentGreen }]}>
-                  Pick from Map
-                </Text>
-                <Text style={addressModalStyles.addressString} numberOfLines={1}>
-                  Search and select location on map
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.textGray} />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  addressModalStyles.currentLocationContainer,
+                  { borderTopWidth: 0 },
+                ]}
+                onPress={onOpenMap}
+                activeOpacity={0.75}
+              >
+                <View style={addressModalStyles.currentLocationIcon}>
+                  <Ionicons name="map" size={20} color={Royal.pureBlack} />
+                </View>
+                <View style={addressModalStyles.addressInfo}>
+                  <Text style={addressModalStyles.currentLocationTitle}>
+                    Pick from Map
+                  </Text>
+                  <Text style={addressModalStyles.addressString} numberOfLines={1}>
+                    Search and select a location on map
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Royal.pureBlack} />
+              </TouchableOpacity>
 
-            <View style={addressModalStyles.sectionDivider} />
+              <View style={addressModalStyles.sectionDivider} />
 
-            {addresses.length > 0 && (
-              <>
-                <Text style={addressModalStyles.savedAddressesHeader}>
-                  SAVED ADDRESSES
-                </Text>
-                {addresses.map((addr) => {
-                  const isSelected = selectedAddress?.id === addr.id;
-                  let iconName = "location";
-                  if (addr.type === "Home") iconName = "home";
-                  if (addr.type === "Work") iconName = "briefcase";
-                  if (addr.type === "Current Location") iconName = "locate";
+              {addresses.length > 0 && (
+                <>
+                  <Text style={addressModalStyles.savedAddressesHeader}>
+                    SAVED ADDRESSES
+                  </Text>
+                  {addresses.map((addr) => {
+                    const isSelected = selectedAddress?.id === addr.id;
+                    let iconName = 'location';
+                    if (addr.type === 'Home') iconName = 'home';
+                    if (addr.type === 'Work') iconName = 'briefcase';
+                    if (addr.type === 'Current Location') iconName = 'locate';
 
-                  return (
-                    <TouchableOpacity
-                      key={addr.id}
-                      style={[
-                        addressModalStyles.addressItem,
-                        isSelected && addressModalStyles.addressItemSelected,
-                      ]}
-                      onPress={() => onSelectAddress(addr)}
-                    >
-                      <View style={addressModalStyles.iconContainer}>
-                        <Ionicons
-                          name={iconName as any}
-                          size={22}
-                          color={isSelected ? Colors.royalNavy : Colors.textDark}
-                        />
-                      </View>
-                      <View style={addressModalStyles.addressInfo}>
-                        <View style={addressModalStyles.addressTypeRow}>
+                    return (
+                      <TouchableOpacity
+                        key={addr.id}
+                        style={[
+                          addressModalStyles.addressItem,
+                          isSelected && addressModalStyles.addressItemSelected,
+                        ]}
+                        onPress={() => onSelectAddress(addr)}
+                        activeOpacity={0.75}
+                      >
+                        <View style={addressModalStyles.iconContainer}>
+                          <Ionicons
+                            name={iconName as any}
+                            size={20}
+                            color={Royal.pureBlack}
+                          />
+                        </View>
+                        <View style={addressModalStyles.addressInfo}>
+                          <View style={addressModalStyles.addressTypeRow}>
+                            <Text
+                              style={[
+                                addressModalStyles.addressType,
+                                isSelected && { color: Royal.pureBlack },
+                              ]}
+                            >
+                              {addr.type}
+                            </Text>
+                            {isSelected && (
+                              <View style={addressModalStyles.selectedBadge}>
+                                <Text style={addressModalStyles.selectedBadgeText}>
+                                  SELECTED
+                                </Text>
+                              </View>
+                            )}
+                          </View>
                           <Text
-                            style={[
-                              addressModalStyles.addressType,
-                              isSelected && { color: Colors.royalNavy },
-                            ]}
+                            style={addressModalStyles.addressString}
+                            numberOfLines={2}
                           >
-                            {addr.type}
+                            {addr.addressString}
                           </Text>
-                          {isSelected && (
-                            <View style={addressModalStyles.selectedBadge}>
-                              <Text style={addressModalStyles.selectedBadgeText}>
-                                Selected
-                              </Text>
-                            </View>
+                          {addr.landmark && (
+                            <Text style={addressModalStyles.landmarkText}>
+                              ◆ {addr.landmark}
+                            </Text>
                           )}
                         </View>
-                        <Text style={addressModalStyles.addressString} numberOfLines={2}>
-                          {addr.addressString}
-                        </Text>
-                        {addr.landmark && (
-                          <Text style={addressModalStyles.landmarkText}>
-                            📍 {addr.landmark}
-                          </Text>
+                        {isSelected && (
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={22}
+                            color={Royal.pureBlack}
+                          />
                         )}
-                      </View>
-                      {isSelected && (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={24}
-                          color={Colors.success}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </>
-            )}
-            {isLoading && (
-              <View style={addressModalStyles.loadingContainer}>
-                <ActivityIndicator size="small" color={Colors.royalNavy} />
-              </View>
-            )}
-          </ScrollView>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
+              {isLoading && (
+                <View style={addressModalStyles.loadingContainer}>
+                  <ActivityIndicator size="small" color={Royal.pureBlack} />
+                </View>
+              )}
+            </ScrollView>
 
-          <View style={addressModalStyles.addAddressFooter}>
-            <TouchableOpacity
-              style={addressModalStyles.addAddressButton}
-              onPress={onAddAddress}
+            <View
+              style={[
+                addressModalStyles.addAddressFooter,
+                { paddingBottom: footerPaddingBottom },
+              ]}
             >
-              <Ionicons name="add" size={20} color={Colors.royalNavy} />
-              <Text style={addressModalStyles.addAddressButtonText}>
-                Add new address
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={addressModalStyles.addAddressButton}
+                onPress={onAddAddress}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="add" size={18} color={Royal.pureWhite} />
+                <Text style={addressModalStyles.addAddressButtonText}>
+                  ADD NEW ADDRESS
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
@@ -250,24 +331,30 @@ const AddressModal: React.FC<AddressModalProps> = ({
 const addressModalStyles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(10,10,12,0.45)',
     justifyContent: 'flex-end',
   },
   bottomSheet: {
-    backgroundColor: Colors.offWhite,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
-    maxHeight: height * 0.8,
+    backgroundColor: Royal.whiteBg,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
     overflow: 'hidden',
+    maxHeight: height * 0.88,
+    borderTopWidth: 1,
+    borderTopColor: Royal.borderLight,
+  },
+  bottomSheetContent: {
+    paddingTop: 12,
+    backgroundColor: Royal.whiteBg,
   },
   bottomSheetHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: '#D1D5DB',
+    width: 42,
+    height: 4,
+    backgroundColor: Royal.pureBlack,
     borderRadius: 3,
     alignSelf: 'center',
     marginBottom: 16,
+    opacity: 0.55,
   },
   sheetHeader: {
     flexDirection: 'row',
@@ -276,223 +363,405 @@ const addressModalStyles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.lightBorder,
+    borderBottomColor: Royal.borderLight,
   },
+  sheetTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sheetTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.textDark,
-    letterSpacing: -0.3,
+    fontSize: 15,
+    fontWeight: '900',
+    color: Royal.pureBlack,
+    letterSpacing: 2,
   },
-  addressList: {
-    maxHeight: height * 0.55,
-  },
+  addressList: { flexGrow: 0, maxHeight: height * 0.55 },
   currentLocationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: Colors.pureWhite,
+    padding: 18,
+    backgroundColor: Royal.whiteBg,
     marginTop: 10,
     borderTopWidth: 1,
-    borderTopColor: Colors.lightBorder,
+    borderTopColor: Royal.borderLight,
   },
   currentLocationIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(11, 16, 33, 0.1)',
+    backgroundColor: Royal.offWhite,
+    borderWidth: 1,
+    borderColor: Royal.borderLight,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   currentLocationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.royalNavy,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Royal.pureBlack,
     marginBottom: 2,
   },
-  addressInfo: {
-    flex: 1,
-    paddingRight: 10,
-  },
+  addressInfo: { flex: 1, paddingRight: 10 },
   addressString: {
-    fontSize: 13,
-    color: Colors.textGray,
+    fontSize: 12,
+    color: Royal.pureBlack,
     lineHeight: 18,
+    opacity: 0.7,
   },
   landmarkText: {
-    fontSize: 12,
-    color: Colors.textLightGray,
-    marginTop: 2,
+    fontSize: 11,
+    color: Royal.pureBlack,
+    marginTop: 3,
+    fontWeight: '700',
+    opacity: 0.7,
   },
   sectionDivider: {
-    height: 8,
-    backgroundColor: '#F0F0F0',
+    height: 1,
+    backgroundColor: Royal.borderLight,
     width: '100%',
   },
   savedAddressesHeader: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textGray,
-    letterSpacing: 0.5,
+    fontSize: 10,
+    fontWeight: '900',
+    color: Royal.pureBlack,
+    opacity: 0.7,
+    letterSpacing: 2,
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
+    paddingTop: 18,
+    paddingBottom: 8,
   },
   addressItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 20,
-    backgroundColor: Colors.pureWhite,
+    backgroundColor: Royal.whiteBg,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.lightBorder,
+    borderBottomColor: Royal.borderLight,
   },
-  addressItemSelected: {
-    backgroundColor: 'rgba(212, 175, 55, 0.04)',
-  },
-  iconContainer: {
-    width: 30,
-    alignItems: 'flex-start',
-  },
+  addressItemSelected: { backgroundColor: 'rgba(0,0,0,0.04)' },
+  iconContainer: { width: 30, alignItems: 'flex-start' },
   addressTypeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 4,
   },
   addressType: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.textDark,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Royal.pureBlack,
   },
   selectedBadge: {
     marginLeft: 8,
-    backgroundColor: Colors.success,
+    backgroundColor: Royal.pureBlack,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
   selectedBadgeText: {
-    color: Colors.pureWhite,
-    fontSize: 11,
-    fontWeight: '700',
+    color: Royal.pureWhite,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
   },
   addAddressFooter: {
-    padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-    backgroundColor: Colors.pureWhite,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    backgroundColor: Royal.whiteBg,
     borderTopWidth: 1,
-    borderTopColor: Colors.lightBorder,
+    borderTopColor: Royal.borderLight,
   },
   addAddressButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.pureWhite,
-    borderWidth: 1,
-    borderColor: Colors.lightBorder,
+    backgroundColor: Royal.pureBlack,
     paddingVertical: 14,
     borderRadius: 12,
   },
   addAddressButtonText: {
-    color: Colors.royalNavy,
-    fontSize: 16,
-    fontWeight: '700',
+    color: Royal.pureWhite,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.8,
     marginLeft: 8,
   },
-  loadingContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
+  loadingContainer: { padding: 20, alignItems: 'center' },
 });
 
-// Rental Card Component
-const RentalCard = ({ item }: { item: any }) => {
-  const navigation = useNavigation<any>();
-  const coverImage = item.images?.[0] || 'https://via.placeholder.com/600x400';
-  const isAvailable = item.isAvailable !== false;
+// ================================================================
+// 👑 Rental Card — ShopListings-style card (white/black accents)
+// ================================================================
+const RentalViewCTA = ({ onPress }: { onPress: () => void }) => {
+  const arrowTranslateX = useSharedValue(0);
+
+  useEffect(() => {
+    arrowTranslateX.value = withRepeat(
+      withSequence(withTiming(6, { duration: 700 }), withTiming(0, { duration: 700 })),
+      -1,
+      true
+    );
+  }, []);
+
+  const animatedArrowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: arrowTranslateX.value }],
+  }));
 
   return (
-    <TouchableOpacity
-      style={[styles.card, { width: CARD_WIDTH }]}
-      onPress={() => navigation.navigate('RentalDetail', { rentalId: item._id })}
-      activeOpacity={0.9}
-    >
-      <View style={[styles.cardImageWrapper, { height: CARD_HEIGHT }]}>
-        <Image source={{ uri: coverImage }} style={styles.cardImage} />
-        <LinearGradient
-          colors={['transparent', 'rgba(11, 16, 33, 0.8)']}
-          style={styles.imageGradient}
-        />
-        
-        <View style={[styles.statusBadge, isAvailable ? styles.availableBadge : styles.bookedBadge]}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText}>
-            {isAvailable ? 'Available' : 'Booked'}
-          </Text>
-        </View>
-
-        <View style={styles.typeBadge}>
-          <Ionicons name="home-outline" size={isSmallPhone ? 10 : 12} color={Colors.pureWhite} />
-          <Text style={styles.typeText}>{item.rentalType}</Text>
-        </View>
-
-        <View style={styles.priceOverlay}>
-          <Text style={styles.priceOverlayText}>₹{item.monthlyRent?.toLocaleString() || 'N/A'}</Text>
-          <Text style={styles.priceOverlaySub}>/month</Text>
-        </View>
-      </View>
-
-      <View style={styles.cardBody}>
-        <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-        
-        <View style={styles.locationRow}>
-          <Ionicons name="location-sharp" size={isSmallPhone ? 12 : 14} color={Colors.champagneGold} />
-          <Text style={styles.locationText} numberOfLines={1}>
-            {item.location?.locality || item.city}, {item.location?.city || item.state}
-          </Text>
-        </View>
-
-        <View style={styles.cardFooter}>
-          <View style={styles.specsContainer}>
-            {item.bedrooms && (
-              <View style={styles.specItem}>
-                <Ionicons name="bed-outline" size={isSmallPhone ? 12 : 14} color={Colors.slate} />
-                <Text style={styles.specText}>{item.bedrooms}</Text>
-              </View>
-            )}
-            {item.bathrooms && (
-              <View style={styles.specItem}>
-                <Ionicons name="water-outline" size={isSmallPhone ? 12 : 14} color={Colors.slate} />
-                <Text style={styles.specText}>{item.bathrooms}</Text>
-              </View>
-            )}
-            {item.maxGuests && (
-              <View style={styles.specItem}>
-                <Ionicons name="people-outline" size={isSmallPhone ? 12 : 14} color={Colors.slate} />
-                <Text style={styles.specText}>{item.maxGuests}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-      </View>
+    <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={styles.ctaButton}>
+      <Text style={styles.ctaText}>VIEW RENTAL</Text>
+      <ReAnimated.View style={animatedArrowStyle}>
+        <Ionicons name="arrow-forward" size={14} color={Royal.pureWhite} />
+      </ReAnimated.View>
     </TouchableOpacity>
   );
 };
 
+const RentalCardInner = ({ item }: { item: any }) => {
+  const navigation = useNavigation<any>();
+  const [flipped, setFlipped] = useState(false);
+  const rotateY = useSharedValue(0);
+
+  const coverImage: string | undefined = item.images?.[0];
+  const isAvailable = item.isAvailable !== false;
+
+  const fullAddress =
+    [
+      item.location?.address,
+      item.location?.locality,
+      item.location?.city,
+      item.location?.state,
+      item.location?.pincode,
+    ]
+      .filter(Boolean)
+      .join(', ') || 'Location not specified';
+
+  const rentDisplay = item.monthlyRent
+    ? `₹${Number(item.monthlyRent).toLocaleString()}`
+    : '₹—';
+
+  const flipCard = useCallback(() => {
+    const nextValue = !flipped;
+    setFlipped(nextValue);
+    rotateY.value = withSpring(nextValue ? 180 : 0, { damping: 12, stiffness: 90 });
+  }, [flipped, rotateY]);
+
+  const navigateToDetails = useCallback(() => {
+    navigation.navigate('RentalDetail', { rentalId: item._id });
+  }, [navigation, item._id]);
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan().onEnd((event) => {
+        const { translationX, velocityX } = event;
+        if (Math.abs(translationX) > 50 || Math.abs(velocityX) > 500) {
+          runOnJS(flipCard)();
+        }
+      }),
+    [flipCard]
+  );
+
+  const frontAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ perspective: 1200 }, { rotateY: `${rotateY.value}deg` }],
+    zIndex: rotateY.value > 90 ? 0 : 1,
+    opacity: rotateY.value > 90 ? 0 : 1,
+  }));
+
+  const backAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ perspective: 1200 }, { rotateY: `${rotateY.value + 180}deg` }],
+    zIndex: rotateY.value > 90 ? 1 : 0,
+    opacity: rotateY.value > 90 ? 1 : 0,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  }));
+
+  const specsLine = useMemo(
+    () =>
+      [
+        item.bedrooms ? `${item.bedrooms} BHK` : null,
+        item.bathrooms ? `${item.bathrooms} BATH` : null,
+        item.maxGuests ? `${item.maxGuests} GUESTS` : null,
+      ]
+        .filter(Boolean)
+        .join(' • '),
+    [item.bedrooms, item.bathrooms, item.maxGuests]
+  );
+
+  return (
+    <GestureDetector gesture={panGesture}>
+      <View style={styles.cardWrapper}>
+        {/* ---------- FRONT ---------- */}
+        <ReAnimated.View style={[styles.cardBase, frontAnimatedStyle]}>
+          <TouchableOpacity activeOpacity={1} onPress={navigateToDetails} style={styles.cardTouchable}>
+            {coverImage ? (
+              <Image
+                source={{ uri: coverImage, cache: 'force-cache' }}
+                style={styles.cardBgImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <LinearGradient
+                colors={[Royal.royalGreenDeep, Royal.royalGreen, Royal.obsidian]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.cardBgImage}
+              />
+            )}
+            <LinearGradient
+              colors={['rgba(0,0,0,0.10)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.75)']}
+              style={styles.cardGradient}
+            />
+
+            <View style={styles.frontHeader}>
+              <View style={styles.glassBadge}>
+                <Text style={styles.badgeText}>
+                  {(item.rentalType || 'RENTAL').toString().toUpperCase()}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.frontBody}>
+              <Text style={styles.miniLabel}>MONTHLY RENT</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                <Text style={styles.priceValue}>{rentDisplay}</Text>
+                <Text style={styles.priceValueSub}>/month</Text>
+              </View>
+              <View
+                style={[
+                  styles.availablePill,
+                  !isAvailable && { backgroundColor: 'rgba(185,28,28,0.92)' },
+                ]}
+              >
+                <View style={styles.availableDot} />
+                <Text style={styles.availablePillText}>
+                  {isAvailable ? 'AVAILABLE' : 'BOOKED'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.frontFooter}>
+              <View style={styles.footerLeft}>
+                <Text style={styles.miniLabel}>RENTAL TITLE</Text>
+                <Text style={styles.boldTitle} numberOfLines={1}>
+                  {(item.title || 'UNTITLED').toString().toUpperCase()}
+                </Text>
+                <View style={styles.addressRow}>
+                  <Ionicons name="location-sharp" size={11} color={Royal.goldSoft} />
+                  <Text style={styles.locationText} numberOfLines={2}>
+                    {fullAddress}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.specColumn}>
+                <Text style={styles.specText}>
+                  {item.bedrooms ? `${item.bedrooms} BHK` : '—'}
+                </Text>
+                <Text style={styles.specTextSub}>
+                  {item.bathrooms ? `${item.bathrooms} BATH` : ''}
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </ReAnimated.View>
+
+        {/* ---------- BACK ---------- */}
+        <ReAnimated.View style={[styles.cardBase, styles.cardBack, backAnimatedStyle]}>
+          <View style={styles.vCardContainer}>
+            <View style={styles.vCardHeader}>
+              <View style={styles.vCardLogoArea}>
+                <Ionicons name="diamond" size={16} color={Royal.pureBlack} />
+                <Text style={styles.vCardBrandName}>BLUXURY</Text>
+              </View>
+              <TouchableOpacity onPress={flipCard} style={styles.flipIcon}>
+                <Ionicons name="refresh-circle" size={24} color={Royal.pureBlack} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.vCardMainInfo}>
+              <Text style={styles.vendorName} numberOfLines={1}>
+                {(item.rentalType || 'RENTAL').toString().toUpperCase()}
+              </Text>
+              <Text style={styles.vendorTitle} numberOfLines={1}>
+                {(item.title || 'PROPERTY').toString().toUpperCase()}
+              </Text>
+              <View style={styles.goldDivider} />
+            </View>
+
+            <View style={styles.contactGrid}>
+              {item.contactPhone ? (
+                <TouchableOpacity
+                  style={styles.contactItem}
+                  onPress={() => Linking.openURL(`tel:${item.contactPhone}`)}
+                >
+                  <Ionicons name="call" size={14} color={Royal.pureBlack} />
+                  <Text style={styles.contactText}>+91 {item.contactPhone}</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {item.contactPhone ? (
+                <TouchableOpacity
+                  style={styles.contactItem}
+                  onPress={() =>
+                    Linking.openURL(`whatsapp://send?phone=${item.contactPhone}`)
+                  }
+                >
+                  <FontAwesome name="whatsapp" size={14} color={Royal.pureBlack} />
+                  <Text style={styles.contactText}>WHATSAPP</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {specsLine ? (
+                <View style={styles.contactItem}>
+                  <Ionicons name="home" size={14} color={Royal.pureBlack} />
+                  <Text style={styles.contactText} numberOfLines={1}>
+                    {specsLine}
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={styles.contactItem}>
+                <Ionicons name="location-sharp" size={14} color={Royal.pureBlack} />
+                <Text style={styles.contactText} numberOfLines={1}>
+                  {(item.location?.locality || 'LOCALE').toString().toUpperCase()},{' '}
+                  {(item.location?.city || 'CITY').toString().toUpperCase()}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.vCardFooter}>
+              <RentalViewCTA onPress={navigateToDetails} />
+            </View>
+          </View>
+        </ReAnimated.View>
+      </View>
+    </GestureDetector>
+  );
+};
+
+const RentalCard = React.memo(
+  RentalCardInner,
+  (prev, next) => prev.item._id === next.item._id
+);
+
+// ================================================================
 // Main Component
+// ================================================================
 const UserRentalListScreen: React.FC = () => {
   const dispatch = useDispatch<any>();
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const rentals = useSelector(selectAllRentals);
   const loading = useSelector(selectRentalLoading);
   const { currentPage, hasMore } = useSelector(selectRentalPagination);
-  
+
   const addresses = useSelector(selectAllAddresses);
   const selectedAddress = useSelector((state: RootState) => state.location.selectedAddress);
   const userLocation = useSelector((state: RootState) => state.location.location);
   const locationLoading = useSelector((state: RootState) => state.location.loading);
   const token = useSelector((state: RootState) => state.auth.user?.token);
+
+  const ready = useDeferredMount();
 
   const [searchText, setSearchText] = useState('');
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -508,100 +777,30 @@ const UserRentalListScreen: React.FC = () => {
   const [isLocating, setIsLocating] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [showAddAddressModal, setShowAddAddressModal] = useState(false);
-  
-  // Animated header
-  const headerTranslateY = useRef(new Animated.Value(0)).current;
-  const lastScrollY = useRef(0);
-  const isHeaderHidden = useRef(false);
-  
-  const savedState = useRef({
-    scrollOffset: 0,
-    isHeaderHidden: false,
-    headerTranslateYValue: 0,
-  });
-  const isNavigatingAway = useRef(false);
 
+  const savedScrollOffset = useRef(0);
   const flatListRef = useRef<FlatList>(null);
-
-  // Track previous address to detect changes (for watcher)
   const prevSelectedAddressRef = useRef<any>(null);
   const initialFilterApplied = useRef(false);
+  const lastFetchAtRef = useRef<number>(0);
+  const isNavigatingAway = useRef(false);
 
-  // ============================
-  // Load addresses when token is available
-  // ============================
   useEffect(() => {
     if (token) {
       dispatch(fetchUserAddresses(token));
     }
   }, [dispatch, token]);
 
-  // ============================
-  // Sync local filters when selectedAddress changes (for UI display)
-  // ============================
   useEffect(() => {
     if (selectedAddress) {
-      console.log('📍 [RentalList] selectedAddress updated:', {
-        city: selectedAddress.city,
-        locality: selectedAddress.locality,
-        state: selectedAddress.state,
-        pincode: selectedAddress.pincode,
-        addressString: selectedAddress.addressString?.substring(0, 50),
-      });
       setCity(selectedAddress.city || '');
       setLocality(selectedAddress.locality || '');
       setState(selectedAddress.state || '');
       setPincode(selectedAddress.pincode || '');
-    } else {
-      console.log('⚠️ [RentalList] selectedAddress is null');
     }
   }, [selectedAddress]);
 
-  // ============================
-  // 🔥 WATCH: selectedAddress changes → automatically re-fetch
-  // ============================
-  useEffect(() => {
-    if (!selectedAddress) {
-      console.log('⏭️ [RentalList] selectedAddress is null, skipping watcher');
-      return;
-    }
-
-    // On first valid address, mark as initialized but don't fetch (initial load handled separately)
-    if (!initialFilterApplied.current) {
-      console.log('🚀 [RentalList] First valid address – marking initialized');
-      initialFilterApplied.current = true;
-      prevSelectedAddressRef.current = selectedAddress;
-      return;
-    }
-
-    const prev = prevSelectedAddressRef.current;
-    if (prev) {
-      const hasChanged =
-        prev.city !== selectedAddress.city ||
-        prev.locality !== selectedAddress.locality ||
-        prev.state !== selectedAddress.state ||
-        prev.pincode !== selectedAddress.pincode;
-
-      if (hasChanged) {
-        console.log('🔄 [RentalList] Address fields changed – re-fetching with location', {
-          prev: { city: prev.city, locality: prev.locality, state: prev.state, pincode: prev.pincode },
-          current: { city: selectedAddress.city, locality: selectedAddress.locality, state: selectedAddress.state, pincode: selectedAddress.pincode },
-        });
-        // Update local state (already done by the sync effect above)
-        // Now call applyFilters() – it will use selectedAddress via getFilterParams
-        applyFilters();
-      } else {
-        console.log('✅ [RentalList] Address fields unchanged – no re-fetch');
-      }
-    }
-    prevSelectedAddressRef.current = selectedAddress;
-  }, [selectedAddress, applyFilters]);
-
-  // ============================
-  // Build filter params – always use selectedAddress unless overridden
-  // ============================
   const getFilterParams = useCallback((overrides: any = {}) => {
-    // Priority: overrides > selectedAddress > local state (fallback)
     const finalCity = overrides.city !== undefined ? overrides.city : (selectedAddress?.city ?? city);
     const finalLocality = overrides.locality !== undefined ? overrides.locality : (selectedAddress?.locality ?? locality);
     const finalState = overrides.state !== undefined ? overrides.state : (selectedAddress?.state ?? state);
@@ -622,37 +821,42 @@ const UserRentalListScreen: React.FC = () => {
       ...overrides,
     };
 
-    console.log('📦 [RentalList] getFilterParams output:', {
-      city: params.city,
-      locality: params.locality,
-      state: params.state,
-      pincode: params.pincode,
-      hasLocation: !!(params.city || params.locality || params.state || params.pincode),
-    });
-
     return params;
   }, [searchText, selectedType, minRent, maxRent, city, state, locality, pincode, isAvailable, selectedAddress]);
 
-  // ============================
-  // Apply filters – dispatches fetch
-  // ============================
   const applyFilters = useCallback((overrides?: any) => {
     const params = getFilterParams(overrides);
-    console.log('🚀 [RentalList] Dispatching fetchRentals with params:', JSON.stringify(params, null, 2));
+    lastFetchAtRef.current = Date.now();
     dispatch(fetchRentals(params));
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [dispatch, getFilterParams]);
 
-  // ============================
-  // Location handlers (manual triggers)
-  // ============================
-  const handleLocationFromAddAddress = useCallback((lat: number, lng: number, addressDetails: any) => {
-    console.log('📍 [RentalList] Location selected from AddAddressScreen:', { lat, lng, addressDetails });
+  useEffect(() => {
+    if (!selectedAddress) return;
+    if (!initialFilterApplied.current) {
+      initialFilterApplied.current = true;
+      prevSelectedAddressRef.current = selectedAddress;
+      return;
+    }
+    const prev = prevSelectedAddressRef.current;
+    if (prev) {
+      const hasChanged =
+        prev.city !== selectedAddress.city ||
+        prev.locality !== selectedAddress.locality ||
+        prev.state !== selectedAddress.state ||
+        prev.pincode !== selectedAddress.pincode;
+      if (hasChanged) {
+        applyFilters();
+      }
+    }
+    prevSelectedAddressRef.current = selectedAddress;
+  }, [selectedAddress, applyFilters]);
 
-    const city = addressDetails.city || addressDetails.district || '';
-    const locality = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || addressDetails.district || '';
-    const state = addressDetails.state || '';
-    const pincode = addressDetails.pincode || '';
+  const handleLocationFromAddAddress = useCallback((lat: number, lng: number, addressDetails: any) => {
+    const cityVal = addressDetails.city || addressDetails.district || '';
+    const localityVal = addressDetails.colony || addressDetails.suburb || addressDetails.neighbourhood || addressDetails.street || addressDetails.district || '';
+    const stateVal = addressDetails.state || '';
+    const pincodeVal = addressDetails.pincode || '';
     const country = addressDetails.country || 'India';
     const street = addressDetails.street || '';
     const fullAddress = addressDetails.addressString || addressDetails.fullAddress || '';
@@ -662,11 +866,11 @@ const UserRentalListScreen: React.FC = () => {
       addressDetails.colony,
       addressDetails.suburb,
       addressDetails.neighbourhood,
-      locality,
-      city,
+      localityVal,
+      cityVal,
       addressDetails.district,
-      state,
-      pincode,
+      stateVal,
+      pincodeVal,
       country,
     ].filter(Boolean);
     const displayAddress = addressParts.join(', ') || fullAddress;
@@ -675,13 +879,13 @@ const UserRentalListScreen: React.FC = () => {
       type: "Home" as "Home" | "Work" | "Other" | "Current Location",
       addressString: displayAddress || "Selected location",
       landmark: "",
-      city: city || '',
-      pincode: pincode || '',
+      city: cityVal || '',
+      pincode: pincodeVal || '',
       latitude: lat,
       longitude: lng,
       isDefault: addresses.length === 0,
-      state: state || '',
-      locality: locality || '',
+      state: stateVal || '',
+      locality: localityVal || '',
     };
 
     if (token) {
@@ -689,21 +893,18 @@ const UserRentalListScreen: React.FC = () => {
         .unwrap()
         .then((savedAddress: any) => {
           dispatch(setSelectedAddress(savedAddress));
-          // applyFilters will be triggered by the watcher
           setShowAddAddressModal(false);
           Toast.show({ type: 'success', text1: 'Location Saved', text2: `📍 ${displayAddress}` });
         })
-        .catch((error: any) => {
-          console.error('Failed to save address:', error);
+        .catch(() => {
           Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
         });
     } else {
-      // No token – just update local state and fetch
-      setCity(city);
-      setLocality(locality);
-      setState(state);
-      setPincode(pincode);
-      applyFilters({ city, locality, state, pincode });
+      setCity(cityVal);
+      setLocality(localityVal);
+      setState(stateVal);
+      setPincode(pincodeVal);
+      applyFilters({ city: cityVal, locality: localityVal, state: stateVal, pincode: pincodeVal });
       setShowAddAddressModal(false);
       Toast.show({ type: 'info', text1: 'Location Updated', text2: displayAddress });
     }
@@ -712,7 +913,6 @@ const UserRentalListScreen: React.FC = () => {
   const handleSelectAddress = useCallback((address: any) => {
     dispatch(setSelectedAddress(address));
     setShowAddressModal(false);
-    // Watcher will trigger applyFilters
   }, [dispatch]);
 
   const handleAddCurrentLocation = useCallback(async () => {
@@ -720,7 +920,7 @@ const UserRentalListScreen: React.FC = () => {
       Toast.show({ type: 'error', text1: 'Authentication Required', text2: 'Please login to save address' });
       return;
     }
-    
+
     setIsLocating(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -732,7 +932,7 @@ const UserRentalListScreen: React.FC = () => {
 
       const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const { latitude, longitude } = location.coords;
-      
+
       const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
       if (geocode.length > 0) {
         const { city, region, district, postalCode, street, name } = geocode[0];
@@ -742,15 +942,15 @@ const UserRentalListScreen: React.FC = () => {
         const detectedPincode = postalCode || '';
 
         const addressString = [detectedLocality, detectedCity, detectedState, detectedPincode].filter(Boolean).join(", ");
-        
+
         const addressData = {
           type: "Current Location" as "Home" | "Work" | "Other" | "Current Location",
           addressString: addressString || "Current Location",
           landmark: "",
           city: detectedCity,
           pincode: detectedPincode,
-          latitude: latitude,
-          longitude: longitude,
+          latitude,
+          longitude,
           isDefault: addresses.length === 0,
         };
 
@@ -759,18 +959,17 @@ const UserRentalListScreen: React.FC = () => {
           .then((savedAddress: any) => {
             dispatch(setSelectedAddress(savedAddress));
             setShowAddressModal(false);
-            Toast.show({ 
-              type: 'success', 
-              text1: 'Location Detected', 
-              text2: `📍 ${detectedLocality}, ${detectedCity}` 
+            Toast.show({
+              type: 'success',
+              text1: 'Location Detected',
+              text2: `📍 ${detectedLocality}, ${detectedCity}`,
             });
           })
-          .catch((error: any) => {
+          .catch(() => {
             Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save location' });
           });
       }
     } catch (error) {
-      console.error('❌ Location detection error:', error);
       Toast.show({ type: 'error', text1: 'Location Error', text2: 'Could not detect location.' });
     } finally {
       setIsLocating(false);
@@ -782,100 +981,47 @@ const UserRentalListScreen: React.FC = () => {
     setShowAddAddressModal(true);
   }, []);
 
-  // ============================
-  // Initial fetch & focus handling
-  // ============================
   useEffect(() => {
-    console.log('🔄 [RentalList] Component mounted – initial fetch');
-    // Mark that we've seen the initial address (if any)
     if (selectedAddress) {
       initialFilterApplied.current = true;
       prevSelectedAddressRef.current = selectedAddress;
     }
-    applyFilters();
+    if (rentals.length === 0) {
+      applyFilters();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      console.log('📱 [RentalList] Screen FOCUSED');
-      console.log('📱 [RentalList] Current saved scroll position:', savedState.current.scrollOffset);
-
       isNavigatingAway.current = false;
 
-      // Restore scroll
-      if (savedState.current.scrollOffset > 10) {
-        console.log('📍 [RentalList] Restoring scroll to:', savedState.current.scrollOffset);
-        if (savedState.current.isHeaderHidden) {
-          isHeaderHidden.current = true;
-          headerTranslateY.setValue(-HEADER_HEIGHT);
-        } else {
-          isHeaderHidden.current = false;
-          headerTranslateY.setValue(0);
-        }
-        const restoreScroll = (attempt = 0) => {
-          if (flatListRef.current) {
-            flatListRef.current.scrollToOffset({
-              offset: savedState.current.scrollOffset,
-              animated: false,
-            });
-          }
-          if (attempt < 3) {
-            setTimeout(() => restoreScroll(attempt + 1), 100 * (attempt + 1));
-          }
-        };
-        restoreScroll(0);
-      } else {
-        console.log('🔄 [RentalList] No saved position, staying at top');
-        setTimeout(() => {
-          if (flatListRef.current) {
-            flatListRef.current.scrollToOffset({
-              offset: 0,
-              animated: false,
-            });
-          }
-        }, 100);
-      }
-
-      // Refresh data
       if (token) {
         dispatch(fetchUserAddresses(token));
       }
-      // Re-apply filters on focus – will use current selectedAddress
-      applyFilters();
+
+      const now = Date.now();
+      const stale = now - lastFetchAtRef.current > 60_000;
+      if (rentals.length === 0 || stale) {
+        lastFetchAtRef.current = now;
+        applyFilters();
+      }
 
       return () => {
-        console.log('💾 [RentalList] Saving scroll position:', lastScrollY.current);
-        savedState.current.scrollOffset = lastScrollY.current;
-        savedState.current.isHeaderHidden = isHeaderHidden.current;
         isNavigatingAway.current = true;
       };
-    }, [dispatch, token, applyFilters])
+    }, [dispatch, token, applyFilters, rentals.length])
   );
 
-  // beforeRemove listener for scroll saving
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-      savedState.current.scrollOffset = lastScrollY.current;
-      savedState.current.isHeaderHidden = isHeaderHidden.current;
-      console.log('💾 [RentalList] Before remove, saving scroll:', savedState.current.scrollOffset);
-    });
-    return unsubscribe;
-  }, [navigation]);
-
-  // ============================
-  // Pull to refresh
-  // ============================
   const onRefresh = useCallback(async () => {
-    console.log('🔄 [RentalList] Pull-to-refresh started');
     setRefreshing(true);
     try {
       if (token) {
         await dispatch(fetchUserAddresses(token)).unwrap();
       }
       await applyFilters();
-      console.log('✅ [RentalList] Pull-to-refresh completed');
     } catch (error) {
-      console.error('❌ [RentalList] Refresh error:', error);
+      console.error('Refresh error:', error);
     } finally {
       setRefreshing(false);
     }
@@ -885,7 +1031,6 @@ const UserRentalListScreen: React.FC = () => {
     if (hasMore && !loading && !refreshing) {
       const nextPage = currentPage + 1;
       const params = getFilterParams();
-      console.log(`📄 [RentalList] Loading more (page ${nextPage})`);
       dispatch(fetchRentals({ ...params, page: nextPage }));
     }
   };
@@ -894,25 +1039,22 @@ const UserRentalListScreen: React.FC = () => {
     if (!loading || rentals.length === 0) return null;
     return (
       <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color={Colors.champagneGold} />
-        <Text style={styles.footerText}>Loading more...</Text>
+        <ActivityIndicator size="small" color={Royal.pureBlack} />
+        <Text style={styles.footerText}>LOADING MORE…</Text>
       </View>
     );
   };
 
   const clearAllFilters = () => {
-    console.log('🧹 [RentalList] Clearing all filters');
     setSearchText('');
     setSelectedType('');
     setMinRent('');
     setMaxRent('');
-    // Clear location fields (will be refilled by selectedAddress if available)
     setCity('');
     setState('');
     setLocality('');
     setPincode('');
     setIsAvailable(true);
-    // Apply with empty location overrides
     applyFilters({
       q: '',
       rentalType: '',
@@ -927,199 +1069,212 @@ const UserRentalListScreen: React.FC = () => {
     setFiltersVisible(false);
   };
 
-  // ============================
-  // Scroll handler for header
-  // ============================
-  const handleScroll = (event: any) => {
-    const currentScrollY = event.nativeEvent.contentOffset.y;
-    const diff = currentScrollY - lastScrollY.current;
+  const renderItem = useCallback(
+    ({ item }: { item: any }) => <RentalCard item={item} />,
+    []
+  );
 
-    savedState.current.scrollOffset = currentScrollY;
-    savedState.current.isHeaderHidden = isHeaderHidden.current;
+  const keyExtractor = useCallback((item: any) => item._id, []);
 
-    if (currentScrollY > 20) {
-      if (diff > 5 && !isHeaderHidden.current) {
-        isHeaderHidden.current = true;
-        savedState.current.isHeaderHidden = true;
-        Animated.spring(headerTranslateY, {
-          toValue: -HEADER_HEIGHT,
-          useNativeDriver: true,
-          damping: 20,
-          mass: 0.5,
-          stiffness: 150,
-        }).start();
-      } else if (diff < -5 && isHeaderHidden.current) {
-        isHeaderHidden.current = false;
-        savedState.current.isHeaderHidden = false;
-        Animated.spring(headerTranslateY, {
-          toValue: 0,
-          useNativeDriver: true,
-          damping: 20,
-          mass: 0.5,
-          stiffness: 150,
-        }).start();
-      }
-    } else {
-      if (isHeaderHidden.current) {
-        isHeaderHidden.current = false;
-        savedState.current.isHeaderHidden = false;
-        Animated.spring(headerTranslateY, {
-          toValue: 0,
-          useNativeDriver: true,
-          damping: 20,
-          mass: 0.5,
-          stiffness: 150,
-        }).start();
-      }
-    }
-    lastScrollY.current = currentScrollY;
-  };
+  const getLocationSummary = useCallback(() => {
+    if (selectedAddress?.addressString) return selectedAddress.addressString;
+    const parts: string[] = [];
+    if (locality) parts.push(locality);
+    if (city) parts.push(city);
+    if (state) parts.push(state);
+    if (pincode) parts.push(pincode);
+    return parts.length ? parts.join(', ') : 'Select a location';
+  }, [selectedAddress, locality, city, state, pincode]);
 
   if (locationLoading && addresses.length === 0) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.champagneGold} />
-        <Text style={styles.loadingText}>Loading locations...</Text>
+        <ActivityIndicator size="large" color={Royal.pureBlack} />
+        <Text style={styles.loadingText}>Loading locations…</Text>
+        <View style={styles.loadingDivider} />
       </View>
     );
   }
 
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={Colors.pureWhite} />
-
-      {/* ANIMATED HEADER */}
-      <Animated.View
+  // Header content — part of the scrollable FlatList (ShopListings feel)
+  const renderTopHeader = useCallback(() => {
+    return (
+      <View
         style={[
-          styles.headerContainer,
-          {
-            transform: [{ translateY: headerTranslateY }],
-          }
+          styles.headerScrollContent,
+          { paddingTop: insets.top + 8 },
         ]}
       >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.headerSubtitle}>Find Your</Text>
-            <Text style={styles.headerTitle}>Perfect Rental</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity 
-              style={styles.locationBtn} 
-              onPress={() => setShowAddressModal(true)}
-            >
-              <Ionicons name="location-outline" size={22} color={Colors.champagneGold} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.notificationBtn}>
-              <Ionicons name="notifications-outline" size={24} color={Colors.royalNavy} />
-              <View style={styles.notificationDot} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <TouchableOpacity 
-          style={styles.locationBar} 
+        {/* 1. Location bar */}
+        <TouchableOpacity
+          style={styles.glassPill}
           onPress={() => setShowAddressModal(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="location-sharp" size={scale(18)} color={Colors.accentGreen} />
+          <Ionicons name="location" size={18} color={Royal.pureBlack} />
           <Text style={styles.locationBarText} numberOfLines={1}>
-            {selectedAddress?.addressString || city || locality || "Select a location"}
+            {getLocationSummary()}
           </Text>
-          <Ionicons name="chevron-down" size={scale(16)} color={Colors.textGray} />
+          <Ionicons name="chevron-down" size={16} color={Royal.pureBlack} />
         </TouchableOpacity>
 
-        <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={20} color={Colors.slate} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by name, location, or pincode..."
-            placeholderTextColor={Colors.slate}
-            value={searchText}
-            onChangeText={setSearchText}
-            onSubmitEditing={() => applyFilters({ q: searchText })}
-            returnKeyType="search"
-          />
-          <TouchableOpacity onPress={() => setFiltersVisible(true)} style={styles.filterBtn}>
-            <Ionicons name="options-outline" size={22} color={Colors.pureWhite} />
+        {/* 2. Search bar */}
+        <TouchableOpacity
+          style={[styles.glassPill, styles.searchBarExtraMargin]}
+          onPress={() => setFiltersVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="search" size={18} color={Royal.pureBlack} />
+          <Text style={styles.searchBarPlaceholder}>
+            {searchText || 'Search the royal collection...'}
+          </Text>
+          <Ionicons name="options-outline" size={18} color={Royal.pureBlack} />
+        </TouchableOpacity>
+
+        {/* 3. Results row */}
+        <View style={styles.resultsRow}>
+          <Ionicons name="key-outline" size={16} color={Royal.pureBlack} />
+          <Text style={styles.resultsLabel}>
+            {rentals.length} {rentals.length === 1 ? 'RENTAL' : 'RENTALS'} FOUND
+          </Text>
+          <TouchableOpacity onPress={clearAllFilters} style={styles.clearFiltersBtn}>
+            <Text style={styles.clearFiltersText}>CLEAR ALL</Text>
           </TouchableOpacity>
         </View>
 
+        {/* 4. Rental type chips */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.categoryScroll}
-          contentContainerStyle={styles.categoryContent}
+          contentContainerStyle={styles.presetScrollContent}
+          style={styles.presetScrollView}
         >
           <TouchableOpacity
-            style={[styles.categoryPill, !selectedType && styles.categoryPillActive]}
+            style={[
+              styles.presetChipWrapper,
+              !selectedType && styles.presetChipWrapperActive,
+            ]}
             onPress={() => {
               setSelectedType('');
               applyFilters({ rentalType: '' });
             }}
           >
-            <Text style={[styles.categoryText, !selectedType && styles.categoryTextActive]}>All</Text>
-          </TouchableOpacity>
-          {RENTAL_TYPES.map((type) => (
-            <TouchableOpacity
-              key={type}
-              style={[styles.categoryPill, selectedType === type && styles.categoryPillActive]}
-              onPress={() => {
-                setSelectedType(type);
-                applyFilters({ rentalType: type });
-              }}
+            <View
+              style={!selectedType ? styles.presetChipActive : styles.presetChipGlass}
             >
-              <Text style={[styles.categoryText, selectedType === type && styles.categoryTextActive]}>
-                {type}
+              <Text
+                style={
+                  !selectedType ? styles.presetChipTextActive : styles.presetChipText
+                }
+              >
+                ALL
               </Text>
-            </TouchableOpacity>
-          ))}
+            </View>
+          </TouchableOpacity>
+          {RENTAL_TYPES.map((type) => {
+            const isActive = selectedType === type;
+            return (
+              <TouchableOpacity
+                key={type}
+                style={[
+                  styles.presetChipWrapper,
+                  isActive && styles.presetChipWrapperActive,
+                ]}
+                onPress={() => {
+                  setSelectedType(type);
+                  applyFilters({ rentalType: type });
+                }}
+              >
+                <View
+                  style={isActive ? styles.presetChipActive : styles.presetChipGlass}
+                >
+                  <Text
+                    style={
+                      isActive ? styles.presetChipTextActive : styles.presetChipText
+                    }
+                  >
+                    {type.toUpperCase()}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
-      </Animated.View>
+      </View>
+    );
+  }, [
+    insets.top,
+    getLocationSummary,
+    rentals.length,
+    selectedType,
+    searchText,
+    applyFilters,
+    clearAllFilters,
+  ]);
 
-      {/* Main FlatList */}
-      <AnimatedFlatList
-        ref={flatListRef}
-        data={rentals}
-        keyExtractor={(item) => item._id}
-        numColumns={isTablet ? 3 : 2}
-        columnWrapperStyle={styles.columnWrapper}
-        contentContainerStyle={[styles.listContent, { paddingTop: HEADER_HEIGHT + 10 }]}
-        renderItem={({ item }) => <RentalCard item={item} />}
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.5}
-        ListFooterComponent={renderFooter}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.champagneGold} />
-        }
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        ListHeaderComponent={
-          <View style={styles.resultsRow}>
-            <Text style={styles.resultsText}>
-              {rentals.length} {rentals.length === 1 ? 'property' : 'properties'} found
-            </Text>
-            <TouchableOpacity onPress={clearAllFilters} style={styles.clearFiltersBtn}>
-              <Text style={styles.clearFiltersText}>Clear All</Text>
-            </TouchableOpacity>
-          </View>
-        }
-        ListEmptyComponent={
-  !loading ? (
-    <View style={styles.emptyContainer}>
-      <Ionicons name="home-outline" size={48} color={Colors.champagneGold} />
-      <Text style={styles.emptyTitle}>No Rentals Found</Text>
-      <Text style={styles.emptySubtitle}>
-        Try adjusting your filters or search terms
-      </Text>
-      {/* <TouchableOpacity style={styles.emptyBtn} onPress={clearAllFilters}>
-        <Text style={styles.emptyBtnText}>Clear Filters</Text>
-      </TouchableOpacity> */}
-    </View>
-  ) : null
-}
-      />
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={Royal.whiteBg} />
 
-      {/* Address Modal */}
+      {ready ? (
+        <AnimatedFlatList
+          ref={flatListRef}
+          data={rentals}
+          keyExtractor={keyExtractor}
+          numColumns={1}
+          contentContainerStyle={styles.listContent}
+          renderItem={renderItem}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={renderFooter}
+          initialNumToRender={3}
+          maxToRenderPerBatch={3}
+          updateCellsBatchingPeriod={50}
+          windowSize={5}
+          removeClippedSubviews={true}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Royal.pureBlack}
+              colors={[Royal.pureBlack]}
+            />
+          }
+          onScroll={(e) => {
+            savedScrollOffset.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          ListHeaderComponent={renderTopHeader()}
+          ListEmptyComponent={
+            !loading ? (
+              <View style={styles.emptyContainer}>
+                <View style={styles.emptyIconCircle}>
+                  <Ionicons name="home-outline" size={28} color={Royal.pureBlack} />
+                </View>
+                <Text style={styles.emptyTitle}>NO RENTALS FOUND</Text>
+                <View style={styles.emptyDivider} />
+                <Text style={styles.emptySubText}>
+                  Try adjusting your filters or search terms.
+                </Text>
+                <TouchableOpacity
+                  onPress={clearAllFilters}
+                  style={styles.retryButton}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.retryButtonText}>CLEAR FILTERS</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null
+          }
+        />
+      ) : (
+        <View style={{ flex: 1, paddingTop: 200 }}>
+          <ActivityIndicator size="small" color={Royal.pureBlack} />
+        </View>
+      )}
+
       <AddressModal
         visible={showAddressModal}
         onClose={() => setShowAddressModal(false)}
@@ -1131,21 +1286,25 @@ const UserRentalListScreen: React.FC = () => {
         onOpenMap={handleOpenMapPicker}
       />
 
-      {/* AddAddressScreen modal */}
       <Modal
         visible={showAddAddressModal}
         animationType="slide"
         transparent={false}
         onRequestClose={() => setShowAddAddressModal(false)}
+        statusBarTranslucent
       >
-        <AddAddressScreen
-          onClose={() => setShowAddAddressModal(false)}
-          onLocationSelect={handleLocationFromAddAddress}
-        />
+        <SafeAreaView
+          style={{ flex: 1, backgroundColor: Royal.whiteBg }}
+          edges={["top", "bottom", "left", "right"]}
+        >
+          <AddAddressScreen
+            onClose={() => setShowAddAddressModal(false)}
+            onLocationSelect={handleLocationFromAddAddress}
+          />
+        </SafeAreaView>
       </Modal>
 
-      {/* Filter Modal */}
-      <Modal visible={filtersVisible} transparent animationType="slide">
+      <Modal visible={filtersVisible} transparent animationType="slide" statusBarTranslucent>
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
@@ -1153,33 +1312,36 @@ const UserRentalListScreen: React.FC = () => {
         >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Filters</Text>
+              <View style={styles.modalTitleRow}>
+                <Ionicons name="diamond" size={12} color={Royal.pureBlack} />
+                <Text style={styles.modalTitle}>FILTERS</Text>
+              </View>
               <TouchableOpacity onPress={() => setFiltersVisible(false)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={24} color={Colors.royalNavy} />
+                <Ionicons name="close" size={22} color={Royal.pureBlack} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} style={styles.modalScroll}>
-              <Text style={styles.filterLabel}>Search by Name</Text>
+              <Text style={styles.filterLabel}>SEARCH BY NAME</Text>
               <TextInput
                 style={styles.filterInput}
-                placeholder="Search rentals..."
+                placeholder=""
                 value={searchText}
                 onChangeText={setSearchText}
-                placeholderTextColor={Colors.slate}
+                placeholderTextColor={Royal.textTertiary}
               />
 
-              <Text style={styles.filterLabel}>Rent Range (₹/month)</Text>
+              <Text style={styles.filterLabel}>RENT RANGE (₹/MONTH)</Text>
               <View style={styles.rangeRow}>
                 <View style={styles.rangeInputWrapper}>
                   <Text style={styles.rangePrefix}>₹</Text>
                   <TextInput
                     style={styles.rangeInput}
-                    placeholder="Min"
+                    placeholder=""
                     keyboardType="numeric"
                     value={minRent}
                     onChangeText={setMinRent}
-                    placeholderTextColor={Colors.slate}
+                    placeholderTextColor={Royal.textTertiary}
                   />
                 </View>
                 <Text style={styles.rangeDash}>–</Text>
@@ -1187,45 +1349,20 @@ const UserRentalListScreen: React.FC = () => {
                   <Text style={styles.rangePrefix}>₹</Text>
                   <TextInput
                     style={styles.rangeInput}
-                    placeholder="Max"
+                    placeholder=""
                     keyboardType="numeric"
                     value={maxRent}
                     onChangeText={setMaxRent}
-                    placeholderTextColor={Colors.slate}
+                    placeholderTextColor={Royal.textTertiary}
                   />
                 </View>
               </View>
 
-              <Text style={styles.filterLabel}>Location</Text>
-              <TextInput
-                style={styles.filterInput}
-                placeholder="City"
-                value={city}
-                onChangeText={setCity}
-                placeholderTextColor={Colors.slate}
-              />
-              <TextInput
-                style={styles.filterInput}
-                placeholder="State"
-                value={state}
-                onChangeText={setState}
-                placeholderTextColor={Colors.slate}
-              />
-              <TextInput
-                style={styles.filterInput}
-                placeholder="Locality"
-                value={locality}
-                onChangeText={setLocality}
-                placeholderTextColor={Colors.slate}
-              />
-              <TextInput
-                style={styles.filterInput}
-                placeholder="Pincode"
-                value={pincode}
-                onChangeText={setPincode}
-                keyboardType="numeric"
-                placeholderTextColor={Colors.slate}
-              />
+              <Text style={styles.filterLabel}>LOCATION</Text>
+              <TextInput style={styles.filterInput} placeholder="" value={city} onChangeText={setCity} placeholderTextColor={Royal.textTertiary} />
+              <TextInput style={styles.filterInput} placeholder="" value={state} onChangeText={setState} placeholderTextColor={Royal.textTertiary} />
+              <TextInput style={styles.filterInput} placeholder="" value={locality} onChangeText={setLocality} placeholderTextColor={Royal.textTertiary} />
+              <TextInput style={styles.filterInput} placeholder="" value={pincode} onChangeText={setPincode} keyboardType="numeric" placeholderTextColor={Royal.textTertiary} />
 
               <View style={styles.switchRow}>
                 <View>
@@ -1235,26 +1372,25 @@ const UserRentalListScreen: React.FC = () => {
                 <Switch
                   value={isAvailable}
                   onValueChange={setIsAvailable}
-                  trackColor={{ false: Colors.lightBorder, true: Colors.champagneGold }}
-                  thumbColor={isAvailable ? Colors.royalNavy : Colors.pureWhite}
+                  trackColor={{ false: Royal.borderMedium, true: Royal.pureBlack }}
+                  thumbColor={isAvailable ? Royal.pureWhite : Royal.offWhite}
                 />
               </View>
 
               <View style={styles.modalActions}>
                 <TouchableOpacity style={styles.clearFiltersModalBtn} onPress={clearAllFilters}>
-                  <Text style={styles.clearFiltersModalText}>Clear All</Text>
+                  <Text style={styles.clearFiltersModalText}>CLEAR ALL</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.applyButton} onPress={() => {
-                  setFiltersVisible(false);
-                  applyFilters();
-                }}>
-                  <LinearGradient
-                    colors={[Colors.royalNavy, Colors.gradientEnd]}
-                    style={styles.applyGradient}
-                  >
-                    <Text style={styles.applyButtonText}>Apply Filters</Text>
-                    <Ionicons name="arrow-forward" size={20} color={Colors.pureWhite} />
-                  </LinearGradient>
+                <TouchableOpacity
+                  style={styles.applyButton}
+                  onPress={() => {
+                    setFiltersVisible(false);
+                    applyFilters();
+                  }}
+                  activeOpacity={0.9}
+                >
+                  <Text style={styles.applyButtonText}>APPLY FILTERS</Text>
+                  <Ionicons name="arrow-forward" size={16} color={Royal.pureWhite} />
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -1265,148 +1401,558 @@ const UserRentalListScreen: React.FC = () => {
   );
 };
 
-// Styles (unchanged)
+// ================================================================
+// 👑 Styles — ShopListings unified feel (white bg + black accents)
+// ================================================================
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.offWhite },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.pureWhite },
-  loadingText: { marginTop: 12, fontSize: 14, color: Colors.slate },
-  headerContainer: {
+  container: { flex: 1, backgroundColor: Royal.offWhite },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Royal.offWhite,
+  },
+  loadingText: {
+    marginTop: 14,
+    fontSize: 13,
+    color: Royal.pureBlack,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  loadingDivider: {
+    width: 48,
+    height: 1.5,
+    backgroundColor: Royal.pureBlack,
+    marginTop: 12,
+    opacity: 0.4,
+  },
+
+  // Header content (inside scroll view)
+  headerScrollContent: {
+    backgroundColor: Royal.whiteBg,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: Royal.borderLight,
+  },
+
+  glassPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Royal.borderLight,
+    backgroundColor: Royal.offWhite,
+    marginTop: 4,
+    shadowColor: Royal.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  searchBarExtraMargin: {
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  locationBarText: {
+    flex: 1,
+    color: Royal.pureBlack,
+    fontSize: 13,
+    marginLeft: 8,
+    marginRight: 8,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  searchBarPlaceholder: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 14,
+    color: Royal.pureBlack,
+    opacity: 0.55,
+    fontWeight: '500',
+  },
+
+  resultsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginVertical: 4,
+    paddingVertical: 4,
+  },
+  resultsLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: Royal.pureBlack,
+    marginLeft: 6,
+    marginRight: 6,
+    flex: 1,
+    letterSpacing: 0.5,
+  },
+  clearFiltersBtn: { paddingHorizontal: 8, paddingVertical: 4 },
+  clearFiltersText: {
+    fontSize: 11,
+    color: Royal.pureBlack,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    opacity: 0.7,
+  },
+
+  presetScrollView: {
+    flexGrow: 0,
+    marginBottom: 6,
+    marginTop: 2,
+  },
+  presetScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    columnGap: 8,
+  },
+  presetChipWrapper: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Royal.borderLight,
+    backgroundColor: Royal.softWhite,
+  },
+  presetChipWrapperActive: {
+    borderColor: Royal.pureBlack,
+    backgroundColor: Royal.pureBlack,
+  },
+  presetChipGlass: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    minWidth: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presetChipActive: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    minWidth: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Royal.pureBlack,
+  },
+  presetChipText: {
+    fontSize: 11,
+    color: Royal.pureBlack,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  presetChipTextActive: {
+    color: Royal.pureWhite,
+    fontWeight: '900',
+    fontSize: 11,
+    letterSpacing: 0.6,
+  },
+
+  listContent: { paddingBottom: 40 },
+
+  // Card
+  cardWrapper: {
+    width: '100%',
+    aspectRatio: 1.586,
+    marginBottom: 16,
+  },
+  cardTouchable: { flex: 1, position: 'relative' },
+  cardBase: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16,
+    backgroundColor: Royal.whiteBg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Royal.borderLight,
+    backfaceVisibility: 'hidden',
+    shadowColor: Royal.shadow,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  cardBack: {
+    backgroundColor: Royal.whiteBg,
+    borderColor: Royal.borderLight,
+    borderWidth: 1,
+  },
+  cardBgImage: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: Colors.pureWhite,
-    zIndex: 10,
-    paddingTop: Platform.OS === 'ios' ? 8 : 12,
-    shadowColor: Colors.royalNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 3,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
   },
-  header: {
+  cardGradient: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+
+  frontHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    padding: 16,
+    paddingTop: 18,
+    zIndex: 4,
+  },
+  glassBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+  },
+  badgeText: {
+    color: Royal.pureBlack,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+  },
+
+  frontBody: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '40%',
+    paddingHorizontal: 22,
+    zIndex: 3,
+  },
+  miniLabel: {
+    color: Royal.goldSoft,
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
+  priceValue: { color: Royal.pureWhite, fontSize: 26, fontWeight: '900', letterSpacing: 0.5 },
+  priceValueSub: { color: 'rgba(255,255,255,0.78)', fontSize: 11, fontWeight: '600', marginLeft: 4 },
+
+  availablePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16,185,129,0.92)',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  availableDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: Royal.pureWhite, marginRight: 5 },
+  availablePillText: {
+    color: Royal.pureWhite,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+
+  frontFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    padding: 16,
+    zIndex: 3,
+  },
+  footerLeft: { flex: 1 },
+  boldTitle: {
+    color: Royal.pureWhite,
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  addressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
+  locationText: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 10,
+    marginLeft: 4,
+    letterSpacing: 0.3,
+    lineHeight: 13,
+    flex: 1,
+  },
+  specColumn: { alignItems: 'flex-end' },
+  specText: { color: Royal.pureWhite, fontSize: 12, fontWeight: '900' },
+  specTextSub: { color: Royal.goldSoft, fontSize: 8, fontWeight: '900', letterSpacing: 1 },
+
+  // Back card
+  vCardContainer: {
+    padding: 16,
+    flex: 1,
+    justifyContent: 'space-between',
+    backgroundColor: Royal.whiteBg,
+  },
+  vCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  vCardLogoArea: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  vCardBrandName: {
+    color: Royal.pureBlack,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 3,
+  },
+  flipIcon: { padding: 4 },
+  vCardMainInfo: { marginTop: 4 },
+  vendorName: {
+    color: Royal.pureBlack,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  vendorTitle: {
+    color: Royal.pureBlack,
+    fontSize: 9,
+    fontWeight: '800',
+    marginTop: 3,
+    letterSpacing: 1.6,
+    opacity: 0.7,
+  },
+  goldDivider: {
+    width: 34,
+    height: 2,
+    backgroundColor: Royal.pureBlack,
+    marginTop: 8,
+    borderRadius: 1,
+    opacity: 0.85,
+  },
+  contactGrid: { marginVertical: 4 },
+  contactItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  contactText: {
+    color: Royal.pureBlack,
+    fontSize: 10,
+    marginLeft: 10,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    opacity: 0.85,
+  },
+  vCardFooter: { width: '100%' },
+  ctaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: Royal.pureBlack,
+    borderWidth: 1,
+    borderColor: Royal.pureBlack,
+  },
+  ctaText: {
+    color: Royal.pureWhite,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 2,
+    marginRight: 10,
+  },
+
+  // Empty
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 50,
+    paddingHorizontal: 20,
+  },
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Royal.borderLight,
+    marginBottom: 18,
+    backgroundColor: Royal.offWhite,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: Royal.pureBlack,
+    marginTop: 4,
+    letterSpacing: 1.5,
+    textAlign: 'center',
+  },
+  emptyDivider: {
+    width: 36,
+    height: 1.5,
+    backgroundColor: Royal.pureBlack,
+    marginVertical: 10,
+    opacity: 0.55,
+  },
+  emptySubText: {
+    fontSize: 12,
+    color: Royal.pureBlack,
+    textAlign: 'center',
+    marginTop: 4,
+    opacity: 0.6,
+    paddingHorizontal: 16,
+    lineHeight: 18,
+  },
+  retryButton: {
+    marginTop: 22,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 24,
+    backgroundColor: Royal.pureBlack,
+    borderWidth: 1,
+    borderColor: Royal.pureBlack,
+  },
+  retryButtonText: {
+    color: Royal.pureWhite,
+    fontWeight: '900',
+    letterSpacing: 2,
+    fontSize: 11,
+  },
+
+  footerLoader: { paddingVertical: 20, alignItems: 'center', gap: 8 },
+  footerText: {
+    fontSize: 11,
+    color: Royal.pureBlack,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    opacity: 0.6,
+  },
+
+  // Filters modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(10,10,12,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Royal.whiteBg,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    padding: 20,
+    maxHeight: '90%',
+    borderTopWidth: 1,
+    borderTopColor: Royal.borderLight,
+  },
+  modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 4,
+    marginBottom: 16,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Royal.borderLight,
   },
-  headerSubtitle: { fontSize: isSmallPhone ? 12 : 14, color: Colors.slate, fontWeight: '500', letterSpacing: 1, textTransform: 'uppercase' },
-  headerTitle: { fontSize: isSmallPhone ? 22 : 28, fontWeight: '800', color: Colors.royalNavy, marginTop: 2 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  locationBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.offWhite, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: Colors.champagneGold },
-  notificationBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.offWhite, justifyContent: 'center', alignItems: 'center' },
-  notificationDot: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.champagneGold, borderWidth: 2, borderColor: Colors.pureWhite },
-  locationBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.pureWhite,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginHorizontal: 16,
-    marginTop: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.lightBorder,
-    shadowColor: Colors.royalNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+  modalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  modalTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: Royal.pureBlack,
+    letterSpacing: 2,
   },
-  locationBarText: { flex: 1, color: Colors.textDark, fontSize: 14, marginLeft: 8, marginRight: 8, fontWeight: '500' },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.pureWhite,
-    marginHorizontal: 16,
-    marginTop: 6,
-    paddingHorizontal: 16,
-    paddingVertical: isSmallPhone ? 2 : 4,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.lightBorder,
-    shadowColor: Colors.royalNavy,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  searchInput: { flex: 1, paddingVertical: isSmallPhone ? 10 : 12, marginLeft: 8, fontSize: isSmallPhone ? 14 : 16, color: Colors.royalNavy },
-  filterBtn: { backgroundColor: Colors.royalNavy, padding: isSmallPhone ? 8 : 10, borderRadius: 12, marginLeft: 8 },
-  categoryScroll: { marginTop: 6, maxHeight: 50, paddingBottom: 4 },
-  categoryContent: { paddingHorizontal: 16, paddingBottom: 4 },
-  categoryPill: {
-    paddingHorizontal: isSmallPhone ? 14 : 18,
-    paddingVertical: isSmallPhone ? 6 : 8,
-    borderRadius: 25,
-    backgroundColor: Colors.pureWhite,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: Colors.lightBorder,
-  },
-  categoryPillActive: { backgroundColor: Colors.royalNavy, borderColor: Colors.royalNavy, shadowColor: Colors.royalNavy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
-  categoryText: { color: Colors.slate, fontWeight: '600', fontSize: isSmallPhone ? 12 : 14 },
-  categoryTextActive: { color: Colors.pureWhite },
-  resultsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
-  resultsText: { fontSize: isSmallPhone ? 12 : 13, color: Colors.slate, fontWeight: '500' },
-  clearFiltersBtn: { paddingHorizontal: 12, paddingVertical: 4 },
-  clearFiltersText: { fontSize: isSmallPhone ? 11 : 12, color: Colors.champagneGold, fontWeight: '600' },
-  listContent: { padding: 8, paddingBottom: 100 },
-  columnWrapper: { justifyContent: 'space-between', paddingHorizontal: 8 },
-  card: { borderRadius: 16, overflow: 'hidden', marginBottom: 16, backgroundColor: Colors.pureWhite, shadowColor: Colors.royalNavy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 4 },
-  cardImageWrapper: { position: 'relative', width: '100%', backgroundColor: Colors.offWhite },
-  cardImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-  imageGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 80 },
-  statusBadge: { position: 'absolute', top: 8, right: 8, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
-  availableBadge: { backgroundColor: 'rgba(16, 185, 129, 0.9)' },
-  bookedBadge: { backgroundColor: 'rgba(239, 68, 68, 0.9)' },
-  statusDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: Colors.pureWhite, marginRight: 4 },
-  statusText: { color: Colors.pureWhite, fontSize: isSmallPhone ? 8 : 10, fontWeight: '700', letterSpacing: 0.5 },
-  typeBadge: { position: 'absolute', top: 8, left: 8, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(212, 175, 55, 0.9)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, gap: 3 },
-  typeText: { color: Colors.pureWhite, fontSize: isSmallPhone ? 8 : 10, fontWeight: '700', letterSpacing: 0.5 },
-  priceOverlay: { position: 'absolute', bottom: 8, left: 8, flexDirection: 'row', alignItems: 'baseline' },
-  priceOverlayText: { color: Colors.pureWhite, fontSize: isSmallPhone ? 14 : 18, fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
-  priceOverlaySub: { color: Colors.pureWhite, fontSize: isSmallPhone ? 9 : 11, fontWeight: '500', marginLeft: 2, textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
-  cardBody: { padding: isSmallPhone ? 8 : 12 },
-  cardTitle: { fontSize: isSmallPhone ? 13 : 15, fontWeight: '700', color: Colors.royalNavy, marginBottom: 3 },
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 6 },
-  locationText: { fontSize: isSmallPhone ? 10 : 12, color: Colors.slate, flex: 1 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'flex-start' },
-  specsContainer: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  specItem: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: Colors.offWhite, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
-  specText: { fontSize: isSmallPhone ? 9 : 11, color: Colors.charcoal, fontWeight: '600' },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: height * 0.1, paddingHorizontal: 40 },
-  emptyIconWrapper: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(212, 175, 55, 0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  emptyTitle: { fontSize: isSmallPhone ? 18 : 20, fontWeight: '700', color: Colors.royalNavy, marginBottom: 8 },
-  emptySubtitle: { fontSize: isSmallPhone ? 13 : 14, color: Colors.slate, textAlign: 'center', lineHeight: 20 },
-  emptyBtn: { marginTop: 20, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 25, borderWidth: 1, borderColor: Colors.champagneGold },
-  emptyBtnText: { color: Colors.champagneGold, fontWeight: '600', fontSize: isSmallPhone ? 13 : 14 },
-  footerLoader: { paddingVertical: 20, alignItems: 'center', gap: 8 },
-  footerText: { fontSize: 12, color: Colors.slate },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(11, 16, 33, 0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: Colors.pureWhite, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '90%', shadowColor: Colors.royalNavy, shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 20 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: Colors.lightBorder },
-  modalTitle: { fontSize: 20, fontWeight: '800', color: Colors.royalNavy },
   modalCloseBtn: { padding: 4 },
   modalScroll: { marginBottom: 10 },
-  filterLabel: { fontSize: isSmallPhone ? 13 : 14, fontWeight: '600', color: Colors.royalNavy, marginTop: 16, marginBottom: 8 },
-  filterInput: { borderWidth: 1, borderColor: Colors.lightBorder, borderRadius: 12, padding: isSmallPhone ? 12 : 14, marginBottom: 8, fontSize: isSmallPhone ? 14 : 16, color: Colors.royalNavy, backgroundColor: Colors.offWhite },
+  filterLabel: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: Royal.pureBlack,
+    marginTop: 16,
+    marginBottom: 8,
+    letterSpacing: 2,
+    opacity: 0.8,
+  },
+  filterInput: {
+    borderWidth: 1,
+    borderColor: Royal.borderLight,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    fontSize: 14,
+    color: Royal.pureBlack,
+    backgroundColor: Royal.offWhite,
+    fontWeight: '500',
+  },
   rangeRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  rangeInputWrapper: { flex: 1, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: Colors.lightBorder, borderRadius: 12, backgroundColor: Colors.offWhite, paddingHorizontal: 12 },
-  rangePrefix: { fontSize: isSmallPhone ? 14 : 16, color: Colors.slate, fontWeight: '600', marginRight: 4 },
-  rangeInput: { flex: 1, paddingVertical: isSmallPhone ? 12 : 14, fontSize: isSmallPhone ? 14 : 16, color: Colors.royalNavy },
-  rangeDash: { fontSize: 18, color: Colors.slate, fontWeight: '300' },
-  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: Colors.lightBorder },
-  switchLabel: { fontSize: isSmallPhone ? 14 : 16, fontWeight: '600', color: Colors.royalNavy },
-  switchSubtext: { fontSize: isSmallPhone ? 11 : 12, color: Colors.slate, marginTop: 2 },
-  modalActions: { flexDirection: 'row', gap: 12, marginTop: 16, marginBottom: Platform.OS === 'ios' ? 20 : 10 },
-  clearFiltersModalBtn: { flex: 0.4, justifyContent: 'center', alignItems: 'center', paddingVertical: 14, borderRadius: 16, borderWidth: 1, borderColor: Colors.lightBorder },
-  clearFiltersModalText: { color: Colors.slate, fontWeight: '600', fontSize: 15 },
-  applyButton: { flex: 0.6, borderRadius: 16, overflow: 'hidden' },
-  applyGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, gap: 8 },
-  applyButtonText: { color: Colors.pureWhite, fontWeight: '700', fontSize: 15, letterSpacing: 0.5 },
+  rangeInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Royal.borderLight,
+    borderRadius: 12,
+    backgroundColor: Royal.offWhite,
+    paddingHorizontal: 12,
+  },
+  rangePrefix: {
+    fontSize: 16,
+    color: Royal.pureBlack,
+    fontWeight: '800',
+    marginRight: 4,
+  },
+  rangeInput: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 14,
+    color: Royal.pureBlack,
+    fontWeight: '500',
+  },
+  rangeDash: { fontSize: 18, color: Royal.pureBlack, fontWeight: '300' },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: Royal.borderLight,
+  },
+  switchLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Royal.pureBlack,
+  },
+  switchSubtext: {
+    fontSize: 12,
+    color: Royal.pureBlack,
+    marginTop: 2,
+    opacity: 0.6,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    marginBottom: Platform.OS === 'ios' ? 20 : 10,
+  },
+  clearFiltersModalBtn: {
+    flex: 0.4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Royal.borderLight,
+    backgroundColor: Royal.offWhite,
+  },
+  clearFiltersModalText: {
+    color: Royal.pureBlack,
+    fontWeight: '900',
+    fontSize: 11,
+    letterSpacing: 1.6,
+  },
+  applyButton: {
+    flex: 0.6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: Royal.pureBlack,
+    gap: 8,
+  },
+  applyButtonText: {
+    color: Royal.pureWhite,
+    fontWeight: '900',
+    fontSize: 12,
+    letterSpacing: 2,
+  },
 });
 
 export default UserRentalListScreen;

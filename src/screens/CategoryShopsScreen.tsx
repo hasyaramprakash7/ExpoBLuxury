@@ -39,13 +39,12 @@ import {
 import * as Location from "expo-location";
 
 const { width, height } = Dimensions.get("window");
-const HEADER_HEIGHT = height * 0.28;
-const AnimatedIcon = Animated.createAnimatedComponent(Ionicons);
+const HEADER_IMAGE_HEIGHT = height * 0.28;
 
 // ✅ Helper to parse categories from vendor - handles all formats
 const parseVendorCategories = (categories: any): string[] => {
   if (!categories) return [];
-  
+
   if (Array.isArray(categories)) {
     if (categories.length === 1 && typeof categories[0] === 'string') {
       try {
@@ -57,7 +56,7 @@ const parseVendorCategories = (categories: any): string[] => {
     }
     return categories.map(item => String(item).trim()).filter(Boolean);
   }
-  
+
   if (typeof categories === 'string') {
     try {
       const parsed = JSON.parse(categories);
@@ -72,7 +71,7 @@ const parseVendorCategories = (categories: any): string[] => {
       return [categories.trim()].filter(Boolean);
     }
   }
-  
+
   return [];
 };
 
@@ -81,11 +80,8 @@ const CategoryShopsScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
 
-  // ✅ Read radius from route params, default 10
   const { categoryName, categoryImage, radius: passedRadius } = route.params || {};
   const [radius, setRadius] = useState<number>(passedRadius || 10);
-
-  console.log('🔷 [CategoryShops] Screen initialized with category:', categoryName, 'radius:', radius);
 
   const { location: userLocation, selectedAddress, loading: isLocationLoading } = useSelector(
     (state: RootState) => state.location,
@@ -101,6 +97,7 @@ const CategoryShopsScreen = () => {
   const { categories } = useSelector((state: RootState) => state.categories);
 
   const [searchText, setSearchText] = useState<string>("");
+  const [debouncedSearchText, setDebouncedSearchText] = useState<string>("");
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [showAddressModal, setShowAddressModal] = useState<boolean>(false);
   const [showMapPicker, setShowMapPicker] = useState<boolean>(false);
@@ -110,46 +107,65 @@ const CategoryShopsScreen = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState<boolean>(false);
 
+  // Measured header height — updated via onLayout for pixel-perfect slide
+  const [headerHeight, setHeaderHeight] = useState<number>(HEADER_IMAGE_HEIGHT + 200);
+
   const scrollY = useRef(new Animated.Value(0)).current;
 
-  // ─── Animated interpolations ──────────────────────────
+  // ─── Header fully slides off screen (including search bar) ─────
+  const headerTranslateY = scrollY.interpolate({
+    inputRange: [0, headerHeight],
+    outputRange: [0, -headerHeight],
+    extrapolate: 'clamp',
+  });
+
+  // ─── Floating sticky search bar fades in on scroll ─────────────
+  const stickySearchOpacity = scrollY.interpolate({
+    inputRange: [0, headerHeight * 0.4, headerHeight * 0.7],
+    outputRange: [0, 0, 1],
+    extrapolate: 'clamp',
+  });
+
+  const stickySearchTranslateY = scrollY.interpolate({
+    inputRange: [0, headerHeight * 0.7],
+    outputRange: [-10, 0],
+    extrapolate: 'clamp',
+  });
+
+  // ─── Animated title / subtitle / icon colors ───────────────────
   const titleColor = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
+    inputRange: [0, headerHeight * 0.5, headerHeight],
     outputRange: ['#FFFFFF', '#777777', '#1A1A1A'],
     extrapolate: 'clamp',
   });
 
   const subtitleColor = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
+    inputRange: [0, headerHeight * 0.5, headerHeight],
     outputRange: ['rgba(255,255,255,0.9)', Colors.textGray, Colors.textGray],
     extrapolate: 'clamp',
   });
 
   const iconColor = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
+    inputRange: [0, headerHeight * 0.5, headerHeight],
     outputRange: ['#FFFFFF', '#777777', '#1A1A1A'],
     extrapolate: 'clamp',
   });
 
-  const iconBgColor = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
-    outputRange: ['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.2)'],
-    extrapolate: 'clamp',
-  });
-
-  const iconBorderColor = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT * 0.5, HEADER_HEIGHT],
-    outputRange: ['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.1)', 'rgba(255,255,255,0.1)'],
-    extrapolate: 'clamp',
-  });
-
-  // ─── Refs & fetch logic ──────────────────
+  // ─── Refs & fetch logic ────────────────────────────────────────
   const initialLocationRequested = useRef(false);
   const isFetchingLocation = useRef(false);
   const isInitialMount = useRef(true);
   const fetchTimeout = useRef<NodeJS.Timeout | null>(null);
   const isFetching = useRef(false);
   const hasFetched = useRef(false);
+
+  // ─── Debounce search text (300ms) ──────────────────────────────
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchText(searchText);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchText]);
 
   const currentLocation = useMemo(() => {
     let lat = userLocation?.latitude;
@@ -167,54 +183,39 @@ const CategoryShopsScreen = () => {
     return found ? { name: found.name, image: found.image } : { name: categoryName, image: null };
   }, [categories, categoryName, categoryImage]);
 
-  // ✅ Updated: include radius in the API call
   const fetchCategoryVendors = useCallback(async (force = false) => {
-    console.log('🔷 [CategoryShops] fetchCategoryVendors called', { categoryName, force, hasFetched: hasFetched.current, isFetching: isFetching.current });
-    
-    if (isFetching.current) {
-      console.log('⏭️ [CategoryShops] Fetch already in progress, skipping');
-      return;
-    }
-    if (!force && hasFetched.current && directoryVendors.length > 0) {
-      console.log('⏭️ [CategoryShops] Already fetched, skipping');
-      return;
-    }
+    if (isFetching.current) return;
+    if (!force && hasFetched.current && directoryVendors.length > 0) return;
 
     const { lat, lng } = currentLocation;
     isFetching.current = true;
     setIsLoading(true);
-    console.log('🔄 [CategoryShops] Fetching vendors for category:', categoryName, { lat, lng, radius });
 
     try {
       const params: any = {
         category: categoryName,
-        radius: radius,  // ✅ Pass the radius from state
+        radius: radius,
       };
       if (lat && lng) {
         params.lat = lat;
         params.lng = lng;
       }
-      console.log('📤 [CategoryShops] Dispatching searchDirectoryVendors with params:', params);
       await dispatch(searchDirectoryVendors(params));
 
       if (!allProducts || allProducts.length === 0) {
-        console.log('📤 [CategoryShops] Fetching products...');
         await dispatch(fetchAllVendorProducts());
       }
       hasFetched.current = true;
       setHasLoadedOnce(true);
-      console.log('✅ [CategoryShops] Fetch completed, vendors count:', directoryVendors.length);
     } catch (error) {
       console.error('❌ [CategoryShops] Error fetching vendors:', error);
     } finally {
       isFetching.current = false;
       setIsLoading(false);
-      console.log('🏁 [CategoryShops] Fetch finished, isLoading set to false');
     }
   }, [dispatch, currentLocation, categoryName, radius, allProducts, directoryVendors.length]);
 
   const debouncedFetch = useCallback((force = false) => {
-    console.log('🔷 [CategoryShops] debouncedFetch called', { force });
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     fetchTimeout.current = setTimeout(() => {
       fetchCategoryVendors(force);
@@ -223,45 +224,29 @@ const CategoryShopsScreen = () => {
   }, [fetchCategoryVendors]);
 
   const immediateFetch = useCallback((force = false) => {
-    console.log('🔷 [CategoryShops] immediateFetch called', { force });
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     fetchCategoryVendors(force);
   }, [fetchCategoryVendors]);
 
   useEffect(() => {
-    console.log('🔷 [CategoryShops] useEffect - checking location request', { 
-      token: !!token, 
-      initialLocationRequested: initialLocationRequested.current,
-      addressesLength: addresses.length,
-      hasLocation: !!userLocation?.latitude,
-      isLocationLoading 
-    });
-    
     if (token && !initialLocationRequested.current && addresses.length === 0 && !userLocation?.latitude && !isLocationLoading) {
-      console.log('🔷 [CategoryShops] Requesting location...');
       initialLocationRequested.current = true;
       handleRequestLocation();
     }
   }, [token, addresses.length, userLocation, isLocationLoading]);
 
   const handleRequestLocation = async () => {
-    console.log('🔷 [CategoryShops] handleRequestLocation called');
-    if (isFetchingLocation.current) {
-      console.log('⏭️ [CategoryShops] Location fetch already in progress');
-      return;
-    }
+    if (isFetchingLocation.current) return;
     isFetchingLocation.current = true;
     dispatch(fetchLocationStart());
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      console.log('📍 [CategoryShops] Location permission status:', status);
       if (status !== "granted") {
         dispatch(fetchLocationFailure("Permission denied."));
         isFetchingLocation.current = false;
         return;
       }
       let locationData = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      console.log('📍 [CategoryShops] Got location:', locationData.coords);
       dispatch(fetchLocationSuccess({ latitude: locationData.coords.latitude, longitude: locationData.coords.longitude }));
       immediateFetch(true);
     } catch (locError) {
@@ -273,7 +258,6 @@ const CategoryShopsScreen = () => {
   };
 
   const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
-    console.log('🔷 [CategoryShops] handleMapLocationSelect called', { lat, lng });
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     hasFetched.current = false;
     dispatch(fetchLocationSuccess({ latitude: lat, longitude: lng }));
@@ -313,7 +297,6 @@ const CategoryShopsScreen = () => {
   }, [dispatch, token, addresses.length, immediateFetch]);
 
   const handleMapPickerSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
-    console.log('🔷 [CategoryShops] handleMapPickerSelect called', { lat, lng });
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     hasFetched.current = false;
     dispatch(fetchLocationSuccess({ latitude: lat, longitude: lng }));
@@ -336,13 +319,11 @@ const CategoryShopsScreen = () => {
   }, [dispatch, token, addresses.length, immediateFetch]);
 
   const onRefresh = useCallback(async () => {
-    console.log('🔄 [CategoryShops] Pull-to-refresh triggered');
     setIsRefreshing(true);
     if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     hasFetched.current = false;
     try {
-      await Promise.all([ fetchCategoryVendors(true), dispatch(fetchAllVendorProducts()) ]);
-      console.log('✅ [CategoryShops] Refresh completed');
+      await Promise.all([fetchCategoryVendors(true), dispatch(fetchAllVendorProducts())]);
     } catch (error) {
       console.error('❌ [CategoryShops] Refresh error:', error);
     } finally {
@@ -351,7 +332,6 @@ const CategoryShopsScreen = () => {
   }, [fetchCategoryVendors, dispatch]);
 
   useEffect(() => {
-    console.log('🔷 [CategoryShops] Initial mount effect');
     if (isInitialMount.current) {
       isInitialMount.current = false;
       immediateFetch(true);
@@ -362,47 +342,36 @@ const CategoryShopsScreen = () => {
 
   useEffect(() => {
     if (isInitialMount.current) return;
-    console.log('📍 [CategoryShops] userLocation changed:', userLocation?.latitude, userLocation?.longitude);
-    if (userLocation?.latitude && userLocation?.longitude) { 
-      hasFetched.current = false; 
-      debouncedFetch(true); 
+    if (userLocation?.latitude && userLocation?.longitude) {
+      hasFetched.current = false;
+      debouncedFetch(true);
     }
   }, [userLocation?.latitude, userLocation?.longitude]);
 
   useEffect(() => {
     if (isInitialMount.current) return;
-    console.log('📍 [CategoryShops] selectedAddress changed:', selectedAddress?.latitude, selectedAddress?.longitude);
-    if (selectedAddress?.latitude && selectedAddress?.longitude) { 
-      hasFetched.current = false; 
-      debouncedFetch(true); 
+    if (selectedAddress?.latitude && selectedAddress?.longitude) {
+      hasFetched.current = false;
+      debouncedFetch(true);
     }
   }, [selectedAddress?.latitude, selectedAddress?.longitude]);
 
   useFocusEffect(
     useCallback(() => {
-      console.log('📱 [CategoryShops] Screen focused, directoryVendors length:', directoryVendors.length, 'hasLoadedOnce:', hasLoadedOnce);
-      if (directoryVendors.length === 0 && hasLoadedOnce) { 
-        console.log('🔄 [CategoryShops] Refetching due to empty vendors');
-        hasFetched.current = false; 
-        immediateFetch(true); 
+      if (directoryVendors.length === 0 && hasLoadedOnce) {
+        hasFetched.current = false;
+        immediateFetch(true);
       }
     }, [directoryVendors.length, hasLoadedOnce, immediateFetch])
   );
 
   const vendorsWithDetails = useMemo(() => {
-    console.log('🔷 [CategoryShops] Computing vendorsWithDetails', { 
-      directoryVendorsLength: directoryVendors?.length,
-      categoryName,
-      searchText,
-      allProductsLength: allProducts?.length
-    });
-    
     const vendors = directoryVendors || [];
     const userLat = userLocation?.latitude;
     const userLng = userLocation?.longitude;
 
     const result = vendors.map((vendor) => {
-      const vendorCopy = JSON.parse(JSON.stringify(vendor));
+      const vendorCopy = { ...vendor };
       const vendorProducts = allProducts.filter((p) => p.vendorId === vendor._id);
       const productImages = vendorProducts.map((p) => p.images && p.images[0]).filter(Boolean);
       let distance = vendor.distance;
@@ -432,16 +401,17 @@ const CategoryShopsScreen = () => {
       const categoryLower = categoryName.toLowerCase();
       filtered = filtered.filter((v) => {
         const vendorCategories = v.categories || [];
-        const matches = vendorCategories.some((c: string) => 
-          String(c).toLowerCase().includes(categoryLower) || 
+        const matches = vendorCategories.some((c: string) =>
+          String(c).toLowerCase().includes(categoryLower) ||
           categoryLower.includes(String(c).toLowerCase())
         );
         return matches;
       });
     }
 
-    if (searchText) {
-      const lower = searchText.toLowerCase();
+    // Debounced search filter
+    if (debouncedSearchText) {
+      const lower = debouncedSearchText.toLowerCase();
       filtered = filtered.filter((v) =>
         v.shopName?.toLowerCase().includes(lower) ||
         v.businessType?.toLowerCase().includes(lower) ||
@@ -457,57 +427,59 @@ const CategoryShopsScreen = () => {
       if (!a.isInRange && b.isInRange) return 1;
       return (a.distance || Infinity) - (b.distance || Infinity);
     });
-    
-    console.log('✅ [CategoryShops] Final vendors count:', sorted.length);
-    return sorted;
-  }, [directoryVendors, allProducts, userLocation, searchText, categoryName]);
 
-  const handleCardPress = (shop: any) => {
-    console.log('🔷 [CategoryShops] Navigating to ShopDetails:', shop.shopName);
+    return sorted;
+  }, [directoryVendors, allProducts, userLocation, debouncedSearchText, categoryName]);
+
+  const handleCardPress = useCallback((shop: any) => {
     navigation.navigate("ShopDetails", { vendor: shop });
-  };
-  
-  const handleOpenAddressModal = () => { 
-    console.log('🔷 [CategoryShops] Opening address modal');
-    if (token) dispatch(fetchUserAddresses(token)); 
-    setShowAddressModal(true); 
-  };
-  
-  const handleSelectAddress = (address: any) => {
-    console.log('🔷 [CategoryShops] Selecting address:', address.addressString);
-    if (selectedAddress?.id === address.id) { 
-      setShowAddressModal(false); 
-      return; 
+  }, [navigation]);
+
+  const handleOpenAddressModal = useCallback(() => {
+    if (token) dispatch(fetchUserAddresses(token));
+    setShowAddressModal(true);
+  }, [dispatch, token]);
+
+  const handleSelectAddress = useCallback((address: any) => {
+    if (selectedAddress?.id === address.id) {
+      setShowAddressModal(false);
+      return;
     }
     hasFetched.current = false;
     dispatch(setSelectedAddress(address));
     setShowAddressModal(false);
     immediateFetch(true);
-  };
+  }, [dispatch, selectedAddress, immediateFetch]);
 
-  const handleOpenAddAddress = () => {
-    console.log('🔷 [CategoryShops] Opening add address screen');
+  const handleOpenAddAddress = useCallback(() => {
     setShowAddressModal(false);
     setShowAddAddress(true);
-  };
+  }, []);
 
-  const handleCloseAddAddress = () => {
-    console.log('🔷 [CategoryShops] Closing add address screen');
+  const handleCloseAddAddress = useCallback(() => {
     setShowAddAddress(false);
-  };
+  }, []);
 
-  const handleOpenMapPicker = () => {
-    console.log('🔷 [CategoryShops] Opening map picker');
+  const handleOpenMapPicker = useCallback(() => {
     setShowAddressModal(false);
-    setMapPickerCoords(userLocation?.latitude ? { lat: userLocation.latitude, lng: userLocation.longitude } : 
-                       selectedAddress?.latitude ? { lat: selectedAddress.latitude, lng: selectedAddress.longitude } : null);
+    setMapPickerCoords(
+      userLocation?.latitude
+        ? { lat: userLocation.latitude, lng: userLocation.longitude }
+        : selectedAddress?.latitude
+        ? { lat: selectedAddress.latitude, lng: selectedAddress.longitude }
+        : null
+    );
     setShowMapPicker(true);
-  };
+  }, [userLocation, selectedAddress]);
 
-  const handleAddAddress = async () => {
-    console.log('🔷 [CategoryShops] Add address');
+  const handleAddAddress = useCallback(async () => {
     setShowAddressModal(false);
-  };
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchText("");
+    setDebouncedSearchText("");
+  }, []);
 
   const isLoadingState = isLoading || vendorsLoading || isLocationLoading || isAddressLoading;
 
@@ -516,49 +488,70 @@ const CategoryShopsScreen = () => {
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
 
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
-        
-        <View style={styles.headerBackground}>
-          <Image
-            source={{ uri: categoryData?.image || 'https://via.placeholder.com/800x400?text=Category' }}
-            style={styles.headerImage}
-            resizeMode="cover"
-          />
+        {/* ── Header image + gradient — slides fully off screen ── */}
+        <Animated.View
+          style={[
+            styles.headerBackground,
+            {
+              height: headerHeight,
+              transform: [{ translateY: headerTranslateY }],
+            },
+          ]}
+        >
+          {categoryData?.image ? (
+            <Image
+              source={{ uri: categoryData.image }}
+              style={styles.headerImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.headerImage, styles.headerImageFallback]}>
+              <Ionicons name="storefront" size={scale(64)} color="rgba(255,255,255,0.35)" />
+            </View>
+          )}
           <LinearGradient
             colors={['rgba(0,0,0,0.4)', 'rgba(0,0,0,0.1)', 'rgba(255,255,255,0.0)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0.7)', '#FFFFFF']}
             locations={[0, 0.2, 0.4, 0.6, 0.85, 1]}
             style={styles.headerGradient}
           />
-        </View>
+        </Animated.View>
 
-        <Animated.View style={[styles.stickyHeader, { backgroundColor: 'transparent' }]}>
+        {/* ── Sticky header — slides fully off screen on scroll ── */}
+        <Animated.View
+          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+          style={[
+            styles.stickyHeader,
+            { transform: [{ translateY: headerTranslateY }] },
+          ]}
+        >
           <View style={styles.topBar}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtnWrapper}>
-              <Animated.View style={[styles.iconBtn, { backgroundColor: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.1)' }]}>
+              <View style={styles.iconBtn}>
                 <Ionicons name="arrow-back" size={scale(22)} color="#FFFFFF" />
-              </Animated.View>
+              </View>
             </TouchableOpacity>
 
             <View style={styles.topBarRight}>
               <TouchableOpacity style={styles.iconBtnWrapper}>
-                <Animated.View style={[styles.iconBtn, { backgroundColor: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.1)' }]}>
+                <View style={styles.iconBtn}>
                   <Ionicons name="heart-outline" size={scale(22)} color="#FFFFFF" />
-                </Animated.View>
+                </View>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.iconBtnWrapper, { marginLeft: scale(8) }]}>
-                <Animated.View style={[styles.iconBtn, { backgroundColor: 'rgba(0,0,0,0.2)', borderColor: 'rgba(255,255,255,0.1)' }]}>
+                <View style={styles.iconBtn}>
                   <Ionicons name="notifications-outline" size={scale(22)} color="#FFFFFF" />
-                </Animated.View>
+                </View>
               </TouchableOpacity>
             </View>
           </View>
 
           <View style={styles.categoryTitleContainer}>
-            <Animated.Text style={[styles.categoryTitle, { color: '#FFFFFF' }]}>
+            <Text style={styles.categoryTitle}>
               {categoryData?.name || 'Category'}
-            </Animated.Text>
-            <Animated.Text style={[styles.categorySubtitle, { color: 'rgba(255,255,255,0.9)' }]}>
+            </Text>
+            <Text style={styles.categorySubtitle}>
               {vendorsWithDetails.length} {vendorsWithDetails.length === 1 ? 'shop' : 'shops'} available
-            </Animated.Text>
+            </Text>
           </View>
 
           <TouchableOpacity style={styles.locationBar} onPress={handleOpenAddressModal} activeOpacity={0.7}>
@@ -571,17 +564,49 @@ const CategoryShopsScreen = () => {
             <Ionicons name="chevron-down" size={scale(14)} color={Colors.textGray} />
           </TouchableOpacity>
 
+          {/* Header search bar — visible only at top */}
           <View style={styles.searchBarContainer}>
             <Ionicons name="search" size={scale(18)} color={Colors.textGray} />
             <TextInput
               style={styles.searchBarInput}
-              placeholder={`Search in ${categoryData?.name || 'Category'}...`}
-              placeholderTextColor={Colors.textGray}
               value={searchText}
               onChangeText={setSearchText}
+              returnKeyType="search"
+              autoCorrect={false}
+              autoCapitalize="none"
             />
             {searchText.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchText('')} style={styles.clearSearchBtn}>
+              <TouchableOpacity onPress={handleClearSearch} style={styles.clearSearchBtn}>
+                <Ionicons name="close-circle" size={scale(18)} color={Colors.textGray} />
+                
+              </TouchableOpacity>
+            )}
+          </View> 
+        </Animated.View>
+
+        {/* ── Floating sticky search bar (appears only on scroll) ── */}
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            styles.stickySearchWrapper,
+            {
+              opacity: stickySearchOpacity,
+              transform: [{ translateY: stickySearchTranslateY }],
+            },
+          ]}
+        >
+          <View style={styles.stickySearchBar}>
+            <Ionicons name="search" size={scale(18)} color={Colors.textGray} />
+            <TextInput
+              style={styles.stickySearchInput}
+              value={searchText}
+              onChangeText={setSearchText}
+              returnKeyType="search"
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {searchText.length > 0 && (
+              <TouchableOpacity onPress={handleClearSearch} style={styles.clearSearchBtn}>
                 <Ionicons name="close-circle" size={scale(18)} color={Colors.textGray} />
               </TouchableOpacity>
             )}
@@ -592,7 +617,7 @@ const CategoryShopsScreen = () => {
           style={styles.scrollView}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingTop: HEADER_HEIGHT + verticalScale(20) } 
+            { paddingTop: headerHeight + verticalScale(20) },
           ]}
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={16}
@@ -601,7 +626,12 @@ const CategoryShopsScreen = () => {
             { useNativeDriver: true }
           )}
           refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={Colors.accentGreen} colors={[Colors.accentGreen]} />
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.accentGreen}
+              colors={[Colors.accentGreen]}
+            />
           }
         >
           <View style={styles.whiteSection}>
@@ -635,7 +665,6 @@ const CategoryShopsScreen = () => {
             <View style={{ height: verticalScale(40) }} />
           </View>
         </Animated.ScrollView>
-
       </SafeAreaView>
 
       <AddressModal
@@ -689,12 +718,17 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: HEADER_HEIGHT,
     zIndex: 1,
+    overflow: 'hidden',
   },
   headerImage: {
     width: '100%',
     height: '100%',
+  },
+  headerImageFallback: {
+    backgroundColor: Colors.accentGreen,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerGradient: {
     position: 'absolute',
@@ -734,6 +768,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 0.5,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   categoryTitleContainer: {
     paddingHorizontal: scale(4),
@@ -744,6 +780,7 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(32),
     fontWeight: '800',
     letterSpacing: 0.5,
+    color: '#FFFFFF',
     textShadowColor: 'rgba(0,0,0,0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
@@ -752,6 +789,7 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(13),
     marginTop: verticalScale(2),
     fontWeight: '500',
+    color: 'rgba(255,255,255,0.9)',
   },
   locationBar: {
     flexDirection: 'row',
@@ -808,6 +846,40 @@ const styles = StyleSheet.create({
     color: Colors.textDark,
   },
   clearSearchBtn: { padding: scale(4) },
+
+  // ── Floating sticky search bar ─────────────────────────────────
+  stickySearchWrapper: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? verticalScale(48) : verticalScale(38),
+    left: 0,
+    right: 0,
+    zIndex: 60,
+    paddingHorizontal: scale(16),
+    alignItems: 'center',
+  },
+  stickySearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(14),
+    paddingHorizontal: scale(14),
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  stickySearchInput: {
+    flex: 1,
+    marginLeft: scale(8),
+    fontSize: moderateScale(14),
+    paddingVertical: verticalScale(10),
+    color: Colors.textDark,
+  },
+
   scrollView: {
     flex: 1,
     zIndex: 5,

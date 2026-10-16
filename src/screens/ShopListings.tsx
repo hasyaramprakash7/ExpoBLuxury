@@ -1,5 +1,12 @@
 // src/screens/ShopListings.tsx
-import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+  memo,
+} from "react";
 import {
   View,
   Text,
@@ -10,204 +17,909 @@ import {
   Dimensions,
   Alert,
   Image,
+  ImageSourcePropType,
   RefreshControl,
   BackHandler,
-  Animated,
+  Modal,
+  Platform,
+  ScrollView,
 } from "react-native";
-import { useDispatch, useSelector } from "react-redux";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useDispatch, useSelector, shallowEqual } from "react-redux";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
 import { searchDirectoryVendors } from "../features/vendor/vendorAuthSlice";
 import { RootState, AppDispatch } from "../app/store";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
+import {
+  useNavigation,
+  useRoute,
+  useFocusEffect,
+} from "@react-navigation/native";
 import * as Location from "expo-location";
 import {
-  fetchLocationStart,
-  fetchLocationSuccess,
-  fetchLocationFailure,
   fetchUserAddresses,
   setSelectedAddress,
   saveUserAddress,
   selectAllAddresses,
 } from "../features/locationSlice";
 import { fetchCategories } from "../features/categorySlice";
-import { LinearGradient } from "expo-linear-gradient";
-import { createSelector } from '@reduxjs/toolkit';
+import { createSelector } from "@reduxjs/toolkit";
+import Toast from "react-native-toast-message";
 
-import { Colors, getFullAddress, calculateDistance, scale, verticalScale, moderateScale } from "../constants/colors";
-import { AddressModal } from "../components/AddressModal";
+import {
+  Colors,
+  calculateDistance,
+  scale,
+  verticalScale,
+  moderateScale,
+} from "../constants/colors";
 import { ShopCard } from "../components/ShopCard";
 import AdCarousel from "../components/AdCarousel";
 import AddAddressScreen from "./AddAddressScreen";
+import { navigationRef } from "../userScreens/utils/navigationRef";
+
+// ─────────────────────────────────────────────────────────────
+// 🖼️ LOCAL IMAGES (asserts)
+// ─────────────────────────────────────────────────────────────
+// Place these files in your project's assets folder.
+// Update the paths below to match your project structure.
+const LOCAL_IMAGES = {
+  rental: require("../../assets/rental.jpg") as ImageSourcePropType,
+  property: require("../../assets/pro.jpg") as ImageSourcePropType,
+};
+
+// ─────────────────────────────────────────────────────────────
+// 🩺 DIAGNOSTICS (off)
+// ─────────────────────────────────────────────────────────────
+const DIAG = false;
+const dlog = (...args: any[]) => DIAG && console.log("🩺[ShopListings]", ...args);
+const dwarn = (...args: any[]) =>
+  DIAG && console.warn("⚠️[ShopListings]", ...args);
 
 const { width, height } = Dimensions.get("window");
 const CATEGORY_DISPLAY_LIMIT = 30;
 const FETCH_STALE_MS = 5 * 60 * 1000;
-const HEADER_HEIGHT = 160;
+const DEFAULT_RADIUS_KM = 2;
+const RADIUS_PRESETS = [2, 4, 5, 7, 9, 10, 20, 30, 50, 100];
+// If user has scrolled more than this, first back press scrolls to top.
+const SCROLL_TOP_THRESHOLD = 40;
 
-const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+// ─────────────────────────────────────────────────────────────
+// 🎨 PALETTE (Solid, non-glass)
+// ─────────────────────────────────────────────────────────────
+const Palette = {
+  primary: "#0B3D2E",
+  primaryDeep: "#052318",
+  primaryMid: "#0F4A38",
+  primarySoft: "#1A5C47",
+  primaryLight: "#2A7A5E",
+  accent: "#7FBFA4",
+  accentSoft: "#A8D5C2",
+  obsidian: "#0A0A0C",
+  charcoal: "#1A1A1E",
+  ivory: "#FFFFFF",
+  cream: "#FBF7EE",
+  creamDark: "#F5EDD9",
+  parchment: "#FDFBF5",
+  emerald: "#0E6B4F",
+  emeraldLight: "#14875F",
+  pureWhite: "#FFFFFF",
+  pureBlack: "#000000",
+  offWhite: "#F4F4F6",
+  softBlack: "#111111",
+  borderLight: "rgba(0,0,0,0.08)",
+  borderMedium: "rgba(0,0,0,0.15)",
+  borderDark: "rgba(0,0,0,0.22)",
+  shadow: "rgba(0,0,0,0.10)",
+  overlay: "rgba(10,10,12,0.45)",
+  cardBg: "#FFFFFF",
+  cardBorder: "#E5E5EA",
+  chipBg: "#F2F2F7",
+  chipBorder: "#D1D1D6",
+  chipActiveBg: "#000000",
+  chipActiveText: "#FFFFFF",
+  sectionLine: "#C7C7CC",
+};
 
+// ─────────────────────────────────────────────────────────────
+// Ad Carousel wrapper
+// ─────────────────────────────────────────────────────────────
+const selectGenericAds = createSelector(
+  (state: RootState) => state.ads?.activeAds || [],
+  (activeAds) => activeAds.filter((ad) => ad.isProductAd === false)
+);
+
+const AdCarouselWithNavigation = memo(
+  ({ limit = 105, title = "Sponsored" }: { limit?: number; title?: string }) => {
+    const navigation = useNavigation<any>();
+    const allGenericAds = useSelector(selectGenericAds);
+    const genericAds = useMemo(
+      () => allGenericAds.slice(0, limit),
+      [allGenericAds, limit]
+    );
+    const handleAdPress = useCallback(
+      (ad: any) => {
+        navigation.navigate("AdList", {
+          selectedAdTitle: ad.title || ad.name || "Sponsored",
+          selectedAdId: ad._id,
+        });
+      },
+      [navigation]
+    );
+    if (!genericAds || genericAds.length === 0) return null;
+    return (
+      <AdCarousel ads={genericAds} title={title} onAdPress={handleAdPress} />
+    );
+  }
+);
+AdCarouselWithNavigation.displayName = "AdCarouselWithNavigation";
+
+// ─────────────────────────────────────────────────────────────
+// Quick Navigation
+// ─────────────────────────────────────────────────────────────
+interface QuickNavItem {
+  key: string;
+  label: string;
+  subtitle: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  routeName: string;
+  image?: ImageSourcePropType;
+}
+
+const QUICK_NAV_ITEMS: QuickNavItem[] = [
+  {
+    key: "rental",
+    label: "RENTAL",
+    subtitle: "Rentals near you",
+    icon: "key",
+    routeName: "RentalList",
+    image: LOCAL_IMAGES.rental,
+  },
+  {
+    key: "property",
+    label: "PROPERTY",
+    subtitle: "Buy & sell property",
+    icon: "home",
+    routeName: "UserPropertyListScreen",
+    image: LOCAL_IMAGES.property,
+  },
+  // {
+  //   key: "shop",
+  //   label: "SHOP",
+  //   subtitle: "Browse boutiques",
+  //   icon: "storefront",
+  //   routeName: "Order",
+  // },
+];
+
+const QuickNavCard = memo(
+  ({
+    item,
+    onPress,
+  }: {
+    item: QuickNavItem;
+    onPress: (item: QuickNavItem) => void;
+  }) => {
+    const handlePress = useCallback(() => onPress(item), [onPress, item]);
+    return (
+      <TouchableOpacity
+        style={quickNavStyles.card}
+        onPress={handlePress}
+        activeOpacity={0.85}
+      >
+        {/* Full-bleed image block */}
+        <View style={quickNavStyles.imageBlock}>
+          {item.image ? (
+            <Image
+              source={item.image}
+              style={quickNavStyles.cardImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={quickNavStyles.iconFallback}>
+              <Ionicons
+                name={item.icon}
+                size={scale(22)}
+                color={Palette.pureBlack}
+              />
+            </View>
+          )}
+        </View>
+
+        {/* Text area below the image */}
+        <View style={quickNavStyles.textBlock}>
+          <Text style={quickNavStyles.cardLabel}>{item.label}</Text>
+          <Text style={quickNavStyles.cardSubtitle} numberOfLines={1}>
+            {item.subtitle}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+);
+QuickNavCard.displayName = "QuickNavCard";
+
+const QuickNavRow = memo(
+  ({ onPress }: { onPress: (item: QuickNavItem) => void }) => {
+    return (
+      <View style={quickNavStyles.row}>
+        {QUICK_NAV_ITEMS.map((item) => (
+          <QuickNavCard key={item.key} item={item} onPress={onPress} />
+        ))}
+      </View>
+    );
+  }
+);
+QuickNavRow.displayName = "QuickNavRow";
+
+// ─────────────────────────────────────────────────────────────
+// Category item + grid
+// ─────────────────────────────────────────────────────────────
+interface CategoryItem {
+  name: string;
+  count: number;
+  image?: string;
+  _id?: string;
+}
+
+const CategoryGridItem = memo(
+  ({
+    category,
+    onPress,
+  }: {
+    category: CategoryItem;
+    onPress: (c: CategoryItem) => void;
+  }) => {
+    const handlePress = useCallback(() => onPress(category), [onPress, category]);
+    const displayName =
+      typeof category.name === "string"
+        ? category.name
+        : String(category.name || "Category");
+
+    if (!category.image) {
+      return (
+        <TouchableOpacity
+          style={styles.categoryGridItem}
+          onPress={handlePress}
+          activeOpacity={0.85}
+        >
+          <View style={styles.categoryTextContainer}>
+            <Ionicons
+              name="diamond-outline"
+              size={scale(12)}
+              color={Palette.pureBlack}
+              style={{ marginBottom: verticalScale(4) }}
+            />
+            <Text style={styles.categoryGridName} numberOfLines={2}>
+              {displayName.toUpperCase()}
+            </Text>
+            <View style={styles.categoryMiniDivider} />
+            <Text style={styles.categoryGridCount}>
+              {category.count} {category.count === 1 ? "SHOP" : "SHOPS"}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        style={styles.categoryGridItem}
+        onPress={handlePress}
+        activeOpacity={0.85}
+      >
+        <View style={styles.categoryImageWrap}>
+          <Image
+            source={{ uri: category.image, cache: "force-cache" }}
+            style={styles.categoryGridImage}
+            resizeMode="cover"
+          />
+          <View style={styles.categoryBlackFrame} />
+        </View>
+        <View style={styles.categoryBottomContainer}>
+          <View style={styles.categoryTextContainer}>
+            <Text style={styles.categoryGridName} numberOfLines={1}>
+              {displayName.toUpperCase()}
+            </Text>
+            <View style={styles.categoryMiniDivider} />
+            <Text style={styles.categoryGridCount}>
+              {category.count} {category.count === 1 ? "SHOP" : "SHOPS"}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+);
+CategoryGridItem.displayName = "CategoryGridItem";
+
+const CategorySectionHeader = memo(
+  ({ title }: { title: string }) => (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionHeaderLine} />
+      <Text style={styles.sectionHeaderTitle}>{title.toUpperCase()}</Text>
+      <View style={styles.sectionHeaderLine} />
+    </View>
+  )
+);
+CategorySectionHeader.displayName = "CategorySectionHeader";
+
+const CategoryGrid = memo(
+  ({
+    categories,
+    onCategoryPress,
+    hasMore,
+    onShowMore,
+  }: {
+    categories: CategoryItem[];
+    onCategoryPress: (c: CategoryItem) => void;
+    hasMore: boolean;
+    onShowMore: () => void;
+  }) => {
+    const renderItem = useCallback(
+      ({ item }: { item: CategoryItem }) => (
+        <CategoryGridItem category={item} onPress={onCategoryPress} />
+      ),
+      [onCategoryPress]
+    );
+    const keyExtractor = useCallback((item: CategoryItem) => item.name, []);
+
+    if (categories.length === 0) return null;
+
+    return (
+      <>
+        <CategorySectionHeader title="Browse the Collection" />
+        <View style={styles.categoryGridContainer}>
+          <FlatList
+            data={categories}
+            keyExtractor={keyExtractor}
+            numColumns={3}
+            scrollEnabled={false}
+            contentContainerStyle={styles.categoryGridContent}
+            removeClippedSubviews={false}
+            renderItem={renderItem}
+          />
+        </View>
+        {hasMore && (
+          <TouchableOpacity
+            style={styles.showMoreButton}
+            onPress={onShowMore}
+            activeOpacity={0.7}
+          >
+            <View style={styles.showMoreInner}>
+              <Text style={styles.showMoreText}>VIEW ALL CATEGORIES</Text>
+              <Ionicons
+                name="arrow-forward"
+                size={scale(14)}
+                color={Palette.pureBlack}
+              />
+            </View>
+          </TouchableOpacity>
+        )}
+      </>
+    );
+  }
+);
+CategoryGrid.displayName = "CategoryGrid";
+
+// ─────────────────────────────────────────────────────────────
+// Address Modal
+// ─────────────────────────────────────────────────────────────
+interface AddressModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSelectAddress: (a: any) => void;
+  onAddAddress: () => void;
+  selectedAddress: any;
+  addresses: any[];
+  isLoading: boolean;
+  onOpenMap: () => void;
+}
+
+const AddressModal: React.FC<AddressModalProps> = ({
+  visible,
+  onClose,
+  onSelectAddress,
+  onAddAddress,
+  selectedAddress,
+  addresses,
+  isLoading,
+  onOpenMap,
+}) => {
+  const insets = useSafeAreaInsets();
+  const footerPaddingBottom = Math.max(insets.bottom, 12) + 12;
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={addressModalStyles.overlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFillObject}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <View style={addressModalStyles.bottomSheet}>
+          <View style={addressModalStyles.bottomSheetContent}>
+            <View style={addressModalStyles.bottomSheetHandle} />
+
+            <View style={addressModalStyles.sheetHeader}>
+              <View style={addressModalStyles.sheetTitleRow}>
+                <Ionicons name="diamond" size={14} color={Palette.pureBlack} />
+                <Text style={addressModalStyles.sheetTitle}>SELECT LOCATION</Text>
+              </View>
+              <TouchableOpacity onPress={onClose}>
+                <Ionicons name="close" size={22} color={Palette.pureBlack} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={addressModalStyles.addressList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 8 }}
+            >
+              <TouchableOpacity
+                style={addressModalStyles.currentLocationContainer}
+                onPress={onAddAddress}
+              >
+                <View style={addressModalStyles.currentLocationIcon}>
+                  <Ionicons name="locate" size={20} color={Palette.pureBlack} />
+                </View>
+                <View style={addressModalStyles.addressInfo}>
+                  <Text style={addressModalStyles.currentLocationTitle}>
+                    Use my current location
+                  </Text>
+                  <Text style={addressModalStyles.addressString} numberOfLines={1}>
+                    {selectedAddress
+                      ? selectedAddress.addressString
+                      : "Fetch GPS & find nearby boutiques"}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Palette.pureBlack} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  addressModalStyles.currentLocationContainer,
+                  { borderTopWidth: 0 },
+                ]}
+                onPress={onOpenMap}
+              >
+                <View style={addressModalStyles.currentLocationIcon}>
+                  <Ionicons name="map" size={20} color={Palette.pureBlack} />
+                </View>
+                <View style={addressModalStyles.addressInfo}>
+                  <Text style={addressModalStyles.currentLocationTitle}>
+                    Pick from Map
+                  </Text>
+                  <Text style={addressModalStyles.addressString} numberOfLines={1}>
+                    Search and select a location on map
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Palette.pureBlack} />
+              </TouchableOpacity>
+
+              <View style={addressModalStyles.sectionDivider} />
+
+              {addresses.length > 0 && (
+                <>
+                  <Text style={addressModalStyles.savedAddressesHeader}>
+                    SAVED ADDRESSES
+                  </Text>
+                  {addresses.map((addr) => {
+                    const isSelected = selectedAddress?.id === addr.id;
+                    let iconName = "location";
+                    if (addr.type === "Home") iconName = "home";
+                    if (addr.type === "Work") iconName = "briefcase";
+                    if (addr.type === "Current Location") iconName = "locate";
+                    return (
+                      <TouchableOpacity
+                        key={addr.id}
+                        style={[
+                          addressModalStyles.addressItem,
+                          isSelected && addressModalStyles.addressItemSelected,
+                        ]}
+                        onPress={() => onSelectAddress(addr)}
+                      >
+                        <View style={addressModalStyles.iconContainer}>
+                          <Ionicons
+                            name={iconName as any}
+                            size={20}
+                            color={Palette.pureBlack}
+                          />
+                        </View>
+                        <View style={addressModalStyles.addressInfo}>
+                          <View style={addressModalStyles.addressTypeRow}>
+                            <Text
+                              style={[
+                                addressModalStyles.addressType,
+                                isSelected && { color: Palette.pureBlack },
+                              ]}
+                            >
+                              {addr.type}
+                            </Text>
+                            {isSelected && (
+                              <View style={addressModalStyles.selectedBadge}>
+                                <Text
+                                  style={addressModalStyles.selectedBadgeText}
+                                >
+                                  SELECTED
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text
+                            style={addressModalStyles.addressString}
+                            numberOfLines={2}
+                          >
+                            {addr.addressString}
+                          </Text>
+                          {addr.landmark && (
+                            <Text style={addressModalStyles.landmarkText}>
+                              ◆ {addr.landmark}
+                            </Text>
+                          )}
+                        </View>
+                        {isSelected && (
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={22}
+                            color={Palette.pureBlack}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
+
+              {isLoading && (
+                <View style={addressModalStyles.loadingContainer}>
+                  <ActivityIndicator size="small" color={Palette.pureBlack} />
+                </View>
+              )}
+            </ScrollView>
+
+            <View
+              style={[
+                addressModalStyles.addAddressFooter,
+                { paddingBottom: footerPaddingBottom },
+              ]}
+            >
+              <TouchableOpacity
+                style={addressModalStyles.addAddressButton}
+                onPress={onAddAddress}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="add" size={18} color={Palette.ivory} />
+                <Text style={addressModalStyles.addAddressButtonText}>
+                  ADD NEW ADDRESS
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const addressModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: Palette.overlay,
+    justifyContent: "flex-end",
+  },
+  bottomSheet: {
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    overflow: "hidden",
+    maxHeight: height * 0.88,
+    backgroundColor: Palette.pureWhite,
+    borderTopWidth: 1,
+    borderTopColor: Palette.borderLight,
+  },
+  bottomSheetContent: {
+    paddingTop: 12,
+    backgroundColor: Palette.pureWhite,
+  },
+  bottomSheetHandle: {
+    width: 42,
+    height: 4,
+    backgroundColor: Palette.pureBlack,
+    borderRadius: 3,
+    alignSelf: "center",
+    marginBottom: 16,
+    opacity: 0.55,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Palette.borderLight,
+  },
+  sheetTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  sheetTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: Palette.pureBlack,
+    letterSpacing: 2,
+  },
+  addressList: {
+    flexGrow: 0,
+    maxHeight: height * 0.55,
+  },
+  currentLocationContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 18,
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Palette.borderLight,
+  },
+  currentLocationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Palette.offWhite,
+    borderWidth: 1,
+    borderColor: Palette.borderLight,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  currentLocationTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Palette.pureBlack,
+    marginBottom: 2,
+  },
+  addressInfo: { flex: 1, paddingRight: 10 },
+  addressString: {
+    fontSize: 12,
+    color: Palette.pureBlack,
+    lineHeight: 18,
+    opacity: 0.7,
+  },
+  landmarkText: {
+    fontSize: 11,
+    color: Palette.pureBlack,
+    marginTop: 3,
+    fontWeight: "700",
+    opacity: 0.7,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: Palette.borderLight,
+    width: "100%",
+  },
+  savedAddressesHeader: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: Palette.pureBlack,
+    opacity: 0.7,
+    letterSpacing: 2,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 8,
+  },
+  addressItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: Palette.borderLight,
+  },
+  addressItemSelected: {
+    backgroundColor: "rgba(0,0,0,0.04)",
+  },
+  iconContainer: { width: 30, alignItems: "flex-start" },
+  addressTypeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  addressType: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: Palette.pureBlack,
+  },
+  selectedBadge: {
+    marginLeft: 8,
+    backgroundColor: Palette.pureBlack,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  selectedBadgeText: {
+    color: Palette.pureWhite,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
+  addAddressFooter: {
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: Palette.borderLight,
+  },
+  addAddressButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Palette.pureBlack,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  addAddressButtonText: {
+    color: Palette.pureWhite,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1.8,
+    marginLeft: 8,
+  },
+  loadingContainer: { padding: 20, alignItems: "center" },
+});
+
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
 const parseArrayField = (field: any): string[] => {
   if (!field) return [];
   if (Array.isArray(field)) {
-    if (field.length === 1 && typeof field[0] === 'string' && field[0].startsWith('[')) {
+    if (
+      field.length === 1 &&
+      typeof field[0] === "string" &&
+      field[0].startsWith("[")
+    ) {
       try {
         const parsed = JSON.parse(field[0]);
-        if (Array.isArray(parsed)) {
-          return parsed.map(item => String(item).trim()).filter(Boolean);
-        }
+        if (Array.isArray(parsed))
+          return parsed.map((i) => String(i).trim()).filter(Boolean);
       } catch (_) {}
     }
-    return field.map(item => String(item).trim()).filter(Boolean);
+    return field.map((i) => String(i).trim()).filter(Boolean);
   }
-  if (typeof field === 'string') {
+  if (typeof field === "string") {
     try {
       const parsed = JSON.parse(field);
-      if (Array.isArray(parsed)) {
-        return parsed.map(item => String(item).trim()).filter(Boolean);
-      }
+      if (Array.isArray(parsed))
+        return parsed.map((i) => String(i).trim()).filter(Boolean);
       return [String(parsed).trim()].filter(Boolean);
     } catch (_) {
-      if (field.includes(',')) {
-        return field.split(',').map(s => s.trim()).filter(Boolean);
-      }
+      if (field.includes(","))
+        return field.split(",").map((s) => s.trim()).filter(Boolean);
       return [field.trim()].filter(Boolean);
     }
   }
   return [];
 };
 
-const selectGenericAds = createSelector(
-  (state: RootState) => state.ads?.activeAds || [],
-  (activeAds) => activeAds.filter(ad => ad.isProductAd === false)
-);
-
-const AdCarouselWithNavigation = ({ limit = 5, title = "Sponsored" }) => {
-  const navigation = useNavigation<any>();
-  const allGenericAds = useSelector(selectGenericAds);
-  const genericAds = useMemo(() => allGenericAds.slice(0, limit), [allGenericAds, limit]);
-
-  const handleAdPress = useCallback((ad: any) => {
-    navigation.navigate('AdList', {
-      selectedAdTitle: ad.title || ad.name || 'Sponsored',
-      selectedAdId: ad._id
-    });
-  }, [navigation]);
-
-  if (!genericAds || genericAds.length === 0) return null;
-
-  return <AdCarousel ads={genericAds} title={title} onAdPress={handleAdPress} />;
-};
-
-const CategoryGridItem = ({
-  category,
-  onPress,
-}: {
-  category: { name: string; count: number; image?: string; _id?: string };
-  onPress: () => void;
-}) => {
-  const displayName = typeof category.name === 'string' ? category.name : String(category.name || 'Category');
-  return (
-    <TouchableOpacity style={styles.categoryGridItem} onPress={onPress} activeOpacity={0.8}>
-      <Image
-        source={{ uri: category.image || 'https://via.placeholder.com/200x200?text=Category' }}
-        style={styles.categoryGridImage}
-        resizeMode="cover"
-      />
-      <LinearGradient
-        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
-        style={styles.categoryGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-      />
-      <View style={styles.categoryTextContainer}>
-        <Text style={styles.categoryGridName} numberOfLines={1}>{displayName}</Text>
-        <Text style={styles.categoryGridCount}>{category.count} shops</Text>
-      </View>
-    </TouchableOpacity>
-  );
-};
-
-const CategorySectionHeader = ({ title, count }: { title: string; count: number }) => (
-  <View style={styles.sectionHeader}>
-    <View style={styles.sectionHeaderLeft}>
-      <View style={styles.sectionHeaderLine} />
-      <Text style={styles.sectionHeaderTitle}>{title}</Text>
-    </View>
-    <Text style={styles.sectionHeaderCount}>{count} categories</Text>
-  </View>
-);
-
+// ─────────────────────────────────────────────────────────────
+// Main Screen
+// ─────────────────────────────────────────────────────────────
 const ShopListings = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const targetVendorId = route.params?.vendorId;
+  const insets = useSafeAreaInsets();
 
-  const { location: userLocation, selectedAddress, loading: isLocationLoading } = useSelector(
-    (state: RootState) => state.location,
-  );
+  const { location: userLocation, selectedAddress, loading: isLocationLoading } =
+    useSelector((state: RootState) => state.location);
   const addresses = useSelector(selectAllAddresses);
-  const { directoryVendors, loading: vendorsLoading } = useSelector(
-    (state: RootState) => state.vendorAuth,
+
+  const directoryVendors = useSelector(
+    (state: RootState) => state.vendorAuth.directoryVendors,
+    shallowEqual
   );
-  const { allProducts, loading: productsLoading } = useSelector(
-    (state: RootState) => state.vendorProducts,
+  const allProducts = useSelector(
+    (state: RootState) => state.vendorProducts.allProducts,
+    shallowEqual
   );
   const token = useSelector((state: RootState) => state.auth.user?.token);
+  const categories = useSelector(
+    (state: RootState) => state.categories?.categories || [],
+    shallowEqual
+  );
+  const categoriesLoading = useSelector(
+    (state: RootState) => state.categories?.loading || false
+  );
 
-  const categories = useSelector((state: RootState) => state.categories?.categories || []);
-  const categoriesLoading = useSelector((state: RootState) => state.categories?.loading || false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  const [showAddAddressModal, setShowAddAddressModal] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [manualRadius, setManualRadius] = useState(DEFAULT_RADIUS_KM);
+  const [appliedRadius, setAppliedRadius] = useState(DEFAULT_RADIUS_KM);
+  const [radiusExpanded, setRadiusExpanded] = useState(false);
+  const [isRadiusSwitching, setIsRadiusSwitching] = useState(false);
 
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [showAddressModal, setShowAddressModal] = useState<boolean>(false);
-  const [showAddAddress, setShowAddAddress] = useState<boolean>(false);
-  const [isAddressLoading, setIsAddressLoading] = useState<boolean>(false);
-  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
-
-  const [manualRadius, setManualRadius] = useState<number>(10);
-  const [appliedRadius, setAppliedRadius] = useState<number>(10);
-  const [radiusExpanded, setRadiusExpanded] = useState<boolean>(false);
-
-  const headerTranslateY = useRef(new Animated.Value(0)).current;
-  const lastScrollY = useRef(0);
-  const isHeaderHidden = useRef(false);
   const flatListRef = useRef<FlatList>(null);
   const savedScrollOffset = useRef(0);
-  const isRestoringScroll = useRef(false);
 
-  const initialLocationRequested = useRef(false);
-  const isFetchingLocation = useRef(false);
-  const isInitialMount = useRef(true);
-  const fetchTimeout = useRef<NodeJS.Timeout | null>(null);
-  const isFetching = useRef(false);
-  const lastFetchTime = useRef<number>(0);
-  const locationPickerShown = useRef(false);
+  const fetchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastFetchTime = useRef(0);
   const isNavigatingAway = useRef(false);
+  const hasFocusedOnce = useRef(false);
+  const hasLocationEffectRun = useRef(false);
 
-  // ✅ FIX 1: Single source of truth for "has location"
-  const hasLocation = !!(selectedAddress?.latitude || userLocation?.latitude);
+  const appliedRadiusRef = useRef(appliedRadius);
+  const allProductsRef = useRef(allProducts);
+  const categoriesRef = useRef(categories);
+  const categoriesLoadingRef = useRef(categoriesLoading);
+  const fetchDirectoryVendorsRef = useRef<(opts?: any) => void>(() => {});
+  const getCurrentLocationRef = useRef<() => { lat?: number; lng?: number }>(
+    () => ({})
+  );
 
   useEffect(() => {
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (showAddAddress) {
-        setShowAddAddress(false);
+    appliedRadiusRef.current = appliedRadius;
+  }, [appliedRadius]);
+  useEffect(() => {
+    allProductsRef.current = allProducts;
+  }, [allProducts]);
+  useEffect(() => {
+    categoriesRef.current = categories;
+  }, [categories]);
+  useEffect(() => {
+    categoriesLoadingRef.current = categoriesLoading;
+  }, [categoriesLoading]);
+
+  const hasLocation = !!(selectedAddress?.latitude || userLocation?.latitude);
+
+  // ── Scroll to top helper ──
+  const scrollListToTop = useCallback(() => {
+    if (flatListRef.current && savedScrollOffset.current > 0) {
+      flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      savedScrollOffset.current = 0;
+      return true;
+    }
+    return false;
+  }, []);
+
+  // ── Hardware back: first scroll to top, then navigate back ──
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      // 1. Close modals first
+      if (showAddAddressModal) {
+        setShowAddAddressModal(false);
         return true;
       }
       if (showAddressModal) {
         setShowAddressModal(false);
         return true;
       }
+      // 2. If scrolled down, first scroll to top
+      if (savedScrollOffset.current > SCROLL_TOP_THRESHOLD) {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+        savedScrollOffset.current = 0;
+        return true; // consume — don't navigate yet
+      }
+      // 3. Otherwise allow default back navigation
       return false;
     });
-    return () => backHandler.remove();
-  }, [showAddAddress, showAddressModal]);
+    return () => sub.remove();
+  }, [showAddAddressModal, showAddressModal]);
 
   useEffect(() => {
-    if (categories.length === 0 && !categoriesLoading) {
-      dispatch(fetchCategories());
-    }
+    if (categories.length === 0 && !categoriesLoading) dispatch(fetchCategories());
   }, [dispatch, categories.length, categoriesLoading]);
 
   const getCurrentLocation = useCallback(() => {
@@ -220,276 +932,320 @@ const ShopListings = () => {
     return { lat, lng };
   }, [userLocation, selectedAddress]);
 
-  const fetchDirectoryVendors = useCallback(async (options?: {
-    force?: boolean;
-    category?: string;
-    radius?: number;
-    expanded?: boolean;
-    latOverride?: number;
-    lngOverride?: number;
-  }) => {
-    if (isFetching.current) return;
-
-    const { lat: stateLat, lng: stateLng } = getCurrentLocation();
-    const lat = options?.latOverride ?? stateLat;
-    const lng = options?.lngOverride ?? stateLng;
-
-    // ✅ FIX 2: No location → never fetch (previously returned ALL vendors)
-    if (!lat || !lng) {
-      setIsInitialLoading(false);
-      return;
-    }
-
-    isFetching.current = true;
-    try {
-      const params: any = { lat, lng };
-      if (options?.category) params.category = options.category;
-
-      const radiusToUse = options?.radius !== undefined ? options.radius : appliedRadius;
-      if (radiusToUse) params.radius = radiusToUse;
-
-      const result = await dispatch(searchDirectoryVendors(params));
-      const vendors = result?.payload || result?.data || [];
-
-      setAppliedRadius(radiusToUse);
-      setRadiusExpanded(options?.expanded ?? radiusToUse > 10);
-
-      if (!allProducts || allProducts.length === 0) {
-        await dispatch(fetchAllVendorProducts());
-      }
-      if (categories.length === 0 && !categoriesLoading) {
-        await dispatch(fetchCategories());
-      }
-      lastFetchTime.current = Date.now();
-    } catch (error) {
-      console.error('❌ [ShopListings] Error fetching vendors:', error);
-    } finally {
-      isFetching.current = false;
-      setIsInitialLoading(false);
-    }
-  }, [dispatch, getCurrentLocation, allProducts, categories.length, categoriesLoading, appliedRadius]);
-
-  // Auto-expand when no shops found (only if we have location)
   useEffect(() => {
-    if (isInitialLoading || isFetching.current) return;
-    if (!hasLocation) return;
-    if (!radiusExpanded && directoryVendors && directoryVendors.length === 0 && appliedRadius <= 10) {
-      fetchDirectoryVendors({ radius: 20, expanded: true });
-    }
-  }, [directoryVendors, isInitialLoading, radiusExpanded, appliedRadius, fetchDirectoryVendors, hasLocation]);
+    getCurrentLocationRef.current = getCurrentLocation;
+  }, [getCurrentLocation]);
 
-  const immediateFetch = useCallback(() => {
-    if (fetchTimeout.current) {
-      clearTimeout(fetchTimeout.current);
-      fetchTimeout.current = null;
-    }
-    const now = Date.now();
-    const shouldFetch =
-      (!directoryVendors || directoryVendors.length === 0) ||
-      (now - lastFetchTime.current > FETCH_STALE_MS);
-    if (shouldFetch) {
-      fetchDirectoryVendors({ radius: appliedRadius });
-    }
-  }, [fetchDirectoryVendors, directoryVendors, appliedRadius]);
+  const fetchDirectoryVendors = useCallback(
+    async (options?: {
+      force?: boolean;
+      category?: string;
+      radius?: number;
+      expanded?: boolean;
+      latOverride?: number;
+      lngOverride?: number;
+    }) => {
+      const { lat: stateLat, lng: stateLng } = getCurrentLocation();
+      const lat = options?.latOverride ?? stateLat;
+      const lng = options?.lngOverride ?? stateLng;
+
+      if (!lat || !lng) {
+        setHasLoadedOnce(true);
+        return;
+      }
+
+      const radiusToUse =
+        options?.radius !== undefined ? options.radius : appliedRadiusRef.current;
+
+      try {
+        const params: any = { lat, lng };
+        if (options?.category) params.category = options.category;
+        if (radiusToUse) params.radius = radiusToUse;
+
+        await dispatch(searchDirectoryVendors(params)).unwrap();
+
+        if (radiusToUse !== appliedRadiusRef.current) {
+          setAppliedRadius(radiusToUse);
+          appliedRadiusRef.current = radiusToUse;
+        }
+        setRadiusExpanded(options?.expanded ?? radiusToUse > 10);
+
+        if (!allProductsRef.current || allProductsRef.current.length === 0) {
+          await dispatch(fetchAllVendorProducts());
+        }
+        if (
+          categoriesRef.current.length === 0 &&
+          !categoriesLoadingRef.current
+        ) {
+          await dispatch(fetchCategories());
+        }
+        lastFetchTime.current = Date.now();
+      } catch (error) {
+        dwarn("fetchDirectoryVendors error:", error);
+      } finally {
+        setHasLoadedOnce(true);
+      }
+    },
+    [dispatch, getCurrentLocation]
+  );
+
+  useEffect(() => {
+    fetchDirectoryVendorsRef.current = fetchDirectoryVendors;
+  }, [fetchDirectoryVendors]);
+
+  const handleRadiusChange = useCallback(
+    async (val: number, lat: number, lng: number) => {
+      setIsRadiusSwitching(true);
+      try {
+        await fetchDirectoryVendors({
+          radius: val,
+          expanded: val > 10,
+          latOverride: lat,
+          lngOverride: lng,
+          force: true,
+        });
+      } finally {
+        setIsRadiusSwitching(false);
+      }
+    },
+    [fetchDirectoryVendors]
+  );
 
   const debouncedFetch = useCallback(() => {
-    if (fetchTimeout.current) {
-      clearTimeout(fetchTimeout.current);
-      fetchTimeout.current = null;
-    }
+    if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     fetchTimeout.current = setTimeout(() => {
       const now = Date.now();
-      const shouldFetch =
-        (!directoryVendors || directoryVendors.length === 0) ||
-        (now - lastFetchTime.current > FETCH_STALE_MS);
-      if (shouldFetch) {
-        fetchDirectoryVendors({ radius: appliedRadius });
+      if (now - lastFetchTime.current > FETCH_STALE_MS) {
+        fetchDirectoryVendorsRef.current({
+          radius: appliedRadiusRef.current,
+        });
       }
       fetchTimeout.current = null;
     }, 300);
-  }, [fetchDirectoryVendors, directoryVendors, appliedRadius]);
+  }, []);
 
-  const handleRequestLocation = async () => {
-    if (isFetchingLocation.current) return;
-    isFetchingLocation.current = true;
-    dispatch(fetchLocationStart());
+  const handleAddCurrentLocation = useCallback(async () => {
+    if (!token) {
+      Toast.show({
+        type: "error",
+        text1: "Authentication Required",
+        text2: "Please login to save address",
+      });
+      return;
+    }
+    setIsLocating(true);
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        dispatch(fetchLocationFailure("Permission to access location was denied."));
-        isFetchingLocation.current = false;
+        Toast.show({
+          type: "error",
+          text1: "Permission Denied",
+          text2: "Location permission required.",
+        });
+        setIsLocating(false);
         return;
       }
-      let locationData = await Location.getCurrentPositionAsync({
+      const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      const lat = locationData.coords.latitude;
-      const lng = locationData.coords.longitude;
-      dispatch(fetchLocationSuccess({ latitude: lat, longitude: lng }));
-      // Fetch immediately with the new coords
-      fetchDirectoryVendors({ radius: appliedRadius, latOverride: lat, lngOverride: lng });
-    } catch (locError) {
-      dispatch(fetchLocationFailure("Could not get your location."));
+      const { latitude, longitude } = location.coords;
+      const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (geocode.length > 0) {
+        const { city, region, district, postalCode, street, name } = geocode[0];
+        const detectedCity = city || district || region || "";
+        const detectedLocality = street || name || district || "";
+        const detectedState = region || "";
+        const detectedPincode = postalCode || "";
+        const addressString = [
+          detectedLocality,
+          detectedCity,
+          detectedState,
+          detectedPincode,
+        ]
+          .filter(Boolean)
+          .join(", ");
+        const addressData = {
+          type: "Current Location" as const,
+          addressString: addressString || "Current Location",
+          landmark: "",
+          city: detectedCity,
+          pincode: detectedPincode,
+          latitude,
+          longitude,
+          isDefault: addresses.length === 0,
+          state: detectedState,
+          locality: detectedLocality,
+        };
+        dispatch(saveUserAddress({ token, addressData }))
+          .unwrap()
+          .then((savedAddress: any) => {
+            dispatch(setSelectedAddress(savedAddress));
+            setShowAddressModal(false);
+            Toast.show({
+              type: "success",
+              text1: "Location Detected",
+              text2: `📍 ${detectedLocality}, ${detectedCity}`,
+            });
+            fetchDirectoryVendorsRef.current({
+              radius: appliedRadiusRef.current,
+              latOverride: latitude,
+              lngOverride: longitude,
+              force: true,
+            });
+          })
+          .catch(() => {
+            Toast.show({
+              type: "error",
+              text1: "Error",
+              text2: "Failed to save location",
+            });
+          });
+      }
+    } catch {
+      Toast.show({
+        type: "error",
+        text1: "Location Error",
+        text2: "Could not detect location.",
+      });
     } finally {
-      isFetchingLocation.current = false;
+      setIsLocating(false);
     }
-  };
+  }, [dispatch, token, addresses.length]);
 
-  useEffect(() => {
-    if (
-      token &&
-      !initialLocationRequested.current &&
-      addresses.length === 0 &&
-      !userLocation?.latitude &&
-      !isLocationLoading
-    ) {
-      initialLocationRequested.current = true;
-      handleRequestLocation();
-    }
-  }, [token, addresses.length, userLocation, isLocationLoading]);
+  const handleOpenMapPicker = useCallback(() => {
+    setShowAddressModal(false);
+    setShowAddAddressModal(true);
+  }, []);
 
-  // ✅ FIX 3: Force the address picker to open whenever there's no location
-  useEffect(() => {
-    if (isLocationLoading) return;
-    if (hasLocation) {
-      locationPickerShown.current = false;
-      return;
-    }
-    if (showAddAddress) return;
-    if (showAddressModal) return;
-    if (isNavigatingAway.current) return;
-
-    setShowAddAddress(true);
-  }, [hasLocation, isLocationLoading, showAddAddress, showAddressModal]);
-
-  const handleMapLocationSelect = useCallback((lat: number, lng: number, addressDetails: any) => {
-    if (fetchTimeout.current) {
-      clearTimeout(fetchTimeout.current);
-      fetchTimeout.current = null;
-    }
-    dispatch(fetchLocationSuccess({ latitude: lat, longitude: lng }));
-
-    const addressString = [
-      addressDetails.street,
-      addressDetails.colony,
-      addressDetails.city,
-      addressDetails.district,
-      addressDetails.state,
-      addressDetails.pincode,
-      addressDetails.country,
-    ].filter(Boolean).join(", ");
-
-    const addressData = {
-      type: "Home" as const,
-      addressString: addressString || "Selected location",
-      landmark: "",
-      city: addressDetails.city || "",
-      pincode: addressDetails.pincode || "",
-      latitude: lat,
-      longitude: lng,
-      isDefault: addresses.length === 0,
-    };
-
-    if (token) {
-      dispatch(saveUserAddress({ token, addressData }))
-        .unwrap()
-        .then(() => { if (token) dispatch(fetchUserAddresses(token)); })
-        .catch(console.error);
-    }
-    dispatch(setSelectedAddress(addressData));
-    setShowAddAddress(false);
-
-    // ✅ Fetch immediately with the picked coords
-    fetchDirectoryVendors({ radius: appliedRadius, latOverride: lat, lngOverride: lng });
-  }, [dispatch, token, addresses.length, appliedRadius, fetchDirectoryVendors]);
-
-  const handleOpenAddressModal = () => {
+  const handleOpenAddressModal = useCallback(() => {
     if (token) dispatch(fetchUserAddresses(token));
     setShowAddressModal(true);
-  };
+  }, [dispatch, token]);
 
-  const handleSelectAddress = (address: any) => {
-    const isSame =
-      selectedAddress?.id === address.id ||
-      selectedAddress?.addressString === address.addressString;
+  const handleCloseAddressModal = useCallback(() => setShowAddressModal(false), []);
 
-    setShowAddressModal(false);
-    if (isSame) return;
-
-    if (fetchTimeout.current) {
-      clearTimeout(fetchTimeout.current);
-      fetchTimeout.current = null;
-    }
-    dispatch(setSelectedAddress(address));
-
-    const lat = address?.latitude;
-    const lng = address?.longitude;
-    if (lat && lng) {
-      fetchDirectoryVendors({ radius: appliedRadius, latOverride: lat, lngOverride: lng });
-    }
-  };
-
-  const handleOpenAddAddress = () => {
-    setShowAddressModal(false);
-    setShowAddAddress(true);
-  };
-
-  const handleCloseAddAddress = () => {
-    setShowAddAddress(false);
-  };
-
-  const handleAddAddress = async () => {
-    if (!token) {
-      Alert.alert("Authentication Required", "Please login to add an address.");
-      return;
-    }
-    setIsAddressLoading(true);
-    try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission Required", "We need location access to fetch your address.");
-        setIsAddressLoading(false);
-        return;
+  const handleSelectAddress = useCallback(
+    (address: any) => {
+      const isSame =
+        selectedAddress?.id === address?.id ||
+        selectedAddress?.addressString === address?.addressString;
+      dispatch(setSelectedAddress(address));
+      setShowAddressModal(false);
+      if (isSame) return;
+      const lat = address?.latitude;
+      const lng = address?.longitude;
+      if (lat && lng) {
+        fetchDirectoryVendorsRef.current({
+          radius: appliedRadiusRef.current,
+          latOverride: lat,
+          lngOverride: lng,
+          force: true,
+        });
       }
-      let locationData = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Highest,
-      });
-      const exactLat = parseFloat(locationData.coords.latitude.toFixed(8));
-      const exactLng = parseFloat(locationData.coords.longitude.toFixed(8));
+    },
+    [dispatch, selectedAddress]
+  );
 
-      let geocode = await Location.reverseGeocodeAsync({ latitude: exactLat, longitude: exactLng });
-      let generatedAddressString = "";
-      let generatedCity = "";
-      let generatedPincode = "";
-      if (geocode.length > 0) {
-        const g = geocode[0];
-        generatedCity = g.city || g.district || "";
-        generatedPincode = g.postalCode || "";
-        generatedAddressString = [g.name, g.street, generatedCity, g.region, generatedPincode]
-          .filter(Boolean).join(", ");
-      }
+  const handleLocationFromAddAddress = useCallback(
+    (lat: number, lng: number, addressDetails: any) => {
+      const cityVal = addressDetails.city || addressDetails.district || "";
+      const localityVal =
+        addressDetails.colony ||
+        addressDetails.suburb ||
+        addressDetails.neighbourhood ||
+        addressDetails.street ||
+        addressDetails.district ||
+        "";
+      const stateVal = addressDetails.state || "";
+      const pincodeVal = addressDetails.pincode || "";
+      const country = addressDetails.country || "India";
+      const street = addressDetails.street || "";
+      const fullAddress =
+        addressDetails.addressString || addressDetails.fullAddress || "";
+      const addressParts = [
+        street,
+        addressDetails.colony,
+        addressDetails.suburb,
+        addressDetails.neighbourhood,
+        localityVal,
+        cityVal,
+        addressDetails.district,
+        stateVal,
+        pincodeVal,
+        country,
+      ].filter(Boolean);
+      const displayAddress = addressParts.join(", ") || fullAddress;
+
       const addressData = {
         type: "Home" as const,
-        addressString: generatedAddressString,
+        addressString: displayAddress || "Selected location",
         landmark: "",
-        city: generatedCity,
-        pincode: generatedPincode,
-        latitude: exactLat,
-        longitude: exactLng,
+        city: cityVal || "",
+        pincode: pincodeVal || "",
+        latitude: lat,
+        longitude: lng,
         isDefault: addresses.length === 0,
+        state: stateVal || "",
+        locality: localityVal || "",
       };
-      await dispatch(saveUserAddress({ token, addressData })).unwrap();
-      if (token) dispatch(fetchUserAddresses(token));
-      setShowAddressModal(false);
-      Alert.alert("Success", "Address added successfully!");
-      fetchDirectoryVendors({ radius: appliedRadius, latOverride: exactLat, lngOverride: exactLng });
-    } catch (error) {
-      Alert.alert("Error", "Could not save address. Please try again.");
-      console.error(error);
-    } finally {
-      setIsAddressLoading(false);
-    }
-  };
+
+      if (token) {
+        dispatch(saveUserAddress({ token, addressData }))
+          .unwrap()
+          .then((savedAddress: any) => {
+            dispatch(setSelectedAddress(savedAddress));
+            setShowAddAddressModal(false);
+            Toast.show({
+              type: "success",
+              text1: "Location Saved",
+              text2: `📍 ${displayAddress}`,
+            });
+            fetchDirectoryVendorsRef.current({
+              radius: appliedRadiusRef.current,
+              latOverride: lat,
+              lngOverride: lng,
+              force: true,
+            });
+          })
+          .catch(() => {
+            Toast.show({
+              type: "error",
+              text1: "Error",
+              text2: "Failed to save location",
+            });
+          });
+      } else {
+        dispatch(setSelectedAddress(addressData));
+        setShowAddAddressModal(false);
+        Toast.show({
+          type: "info",
+          text1: "Location Updated",
+          text2: displayAddress,
+        });
+        fetchDirectoryVendorsRef.current({
+          radius: appliedRadiusRef.current,
+          latOverride: lat,
+          lngOverride: lng,
+          force: true,
+        });
+      }
+    },
+    [dispatch, token, addresses.length]
+  );
+
+  const handleCloseAddAddress = useCallback(
+    () => setShowAddAddressModal(false),
+    []
+  );
+
+  useEffect(() => {
+    if (isLocationLoading) return;
+    if (hasLocation) return;
+    if (showAddAddressModal) return;
+    if (showAddressModal) return;
+    if (isNavigatingAway.current) return;
+    setShowAddAddressModal(true);
+  }, [hasLocation, isLocationLoading, showAddAddressModal, showAddressModal]);
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -498,169 +1254,146 @@ const ShopListings = () => {
       fetchTimeout.current = null;
     }
     try {
-      const { lat, lng } = getCurrentLocation();
+      const { lat, lng } = getCurrentLocationRef.current();
       await Promise.all([
-        fetchDirectoryVendors({ radius: appliedRadius, latOverride: lat, lngOverride: lng }),
+        fetchDirectoryVendorsRef.current({
+          radius: appliedRadiusRef.current,
+          latOverride: lat,
+          lngOverride: lng,
+          force: true,
+        }),
         dispatch(fetchAllVendorProducts()),
         dispatch(fetchCategories()),
       ]);
-    } catch (error) {
+    } catch {
       Alert.alert("Refresh Failed", "Could not refresh data.");
     } finally {
       setIsRefreshing(false);
     }
-  }, [fetchDirectoryVendors, dispatch, appliedRadius, getCurrentLocation]);
+  }, [dispatch]);
 
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      const loadInitialData = async () => {
-        // Only fetch vendors if we actually have a location
-        const { lat, lng } = getCurrentLocation();
-        if (lat && lng) {
-          await fetchDirectoryVendors({ radius: appliedRadius });
-        } else {
-          setIsInitialLoading(false);
-        }
-        if (!allProducts || allProducts.length === 0) {
-          await dispatch(fetchAllVendorProducts());
-        }
-        if (token) dispatch(fetchUserAddresses(token));
-        if (categories.length === 0 && !categoriesLoading) {
-          await dispatch(fetchCategories());
-        }
-      };
-      loadInitialData();
-    }
+    const load = async () => {
+      const { lat, lng } = getCurrentLocationRef.current();
+      if (lat && lng) {
+        await fetchDirectoryVendorsRef.current({ radius: DEFAULT_RADIUS_KM });
+      } else {
+        setHasLoadedOnce(true);
+      }
+      if (!allProductsRef.current || allProductsRef.current.length === 0) {
+        await dispatch(fetchAllVendorProducts());
+      }
+      if (token) dispatch(fetchUserAddresses(token));
+      if (
+        categoriesRef.current.length === 0 &&
+        !categoriesLoadingRef.current
+      ) {
+        await dispatch(fetchCategories());
+      }
+    };
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!hasLocationEffectRun.current) {
+      hasLocationEffectRun.current = true;
+      return;
+    }
+    const lat = selectedAddress?.latitude || userLocation?.latitude;
+    const lng = selectedAddress?.longitude || userLocation?.longitude;
+    if (lat && lng) debouncedFetch();
+  }, [
+    userLocation?.latitude,
+    userLocation?.longitude,
+    selectedAddress?.latitude,
+    selectedAddress?.longitude,
+    debouncedFetch,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
+      const isFirstFocus = !hasFocusedOnce.current;
+      hasFocusedOnce.current = true;
+
       if (isNavigatingAway.current) {
         isNavigatingAway.current = false;
-        const { lat, lng } = getCurrentLocation();
+        const { lat, lng } = getCurrentLocationRef.current();
         if (lat && lng) {
-          fetchDirectoryVendors({ radius: appliedRadius, latOverride: lat, lngOverride: lng });
+          fetchDirectoryVendorsRef.current({
+            radius: appliedRadiusRef.current,
+            latOverride: lat,
+            lngOverride: lng,
+          });
         }
       }
 
-      const now = Date.now();
-      const shouldFetch =
-        (!directoryVendors || directoryVendors.length === 0) ||
-        (now - lastFetchTime.current > FETCH_STALE_MS);
-
-      if (shouldFetch && !isInitialMount.current && hasLocation) {
-        fetchDirectoryVendors({ radius: appliedRadius });
+      if (!isFirstFocus) {
+        const now = Date.now();
+        if (now - lastFetchTime.current > FETCH_STALE_MS && hasLocation) {
+          fetchDirectoryVendorsRef.current({
+            radius: appliedRadiusRef.current,
+          });
+        }
       }
 
-      if (categories.length === 0 && !categoriesLoading) {
+      if (
+        categoriesRef.current.length === 0 &&
+        !categoriesLoadingRef.current
+      ) {
         dispatch(fetchCategories());
       }
 
-      if (savedScrollOffset.current > 0 && !isRestoringScroll.current) {
-        isRestoringScroll.current = true;
-        setTimeout(() => {
-          if (flatListRef.current) {
-            flatListRef.current.scrollToOffset({
-              offset: savedScrollOffset.current,
-              animated: false,
-            });
-          }
-          if (savedScrollOffset.current > 20) {
-            isHeaderHidden.current = true;
-            headerTranslateY.setValue(-HEADER_HEIGHT);
-          } else {
-            isHeaderHidden.current = false;
-            headerTranslateY.setValue(0);
-          }
-          setTimeout(() => { isRestoringScroll.current = false; }, 100);
-        }, 150);
-      }
-
       return () => {
-        if (flatListRef.current) {
-          savedScrollOffset.current = lastScrollY.current;
-        }
         isNavigatingAway.current = true;
       };
-    }, [fetchDirectoryVendors, directoryVendors, categories.length, categoriesLoading, dispatch, appliedRadius, getCurrentLocation, hasLocation])
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dispatch, hasLocation])
   );
 
   useEffect(() => {
-    if (!isRestoringScroll.current && savedScrollOffset.current > 0) {
-      isRestoringScroll.current = true;
-      setTimeout(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToOffset({
-            offset: savedScrollOffset.current,
-            animated: false,
-          });
-        }
-        setTimeout(() => { isRestoringScroll.current = false; }, 100);
-      }, 150);
-    }
-  }, [directoryVendors]);
-
-  useEffect(() => {
-    if (isInitialMount.current) return;
-    const lat = userLocation?.latitude;
-    const lng = userLocation?.longitude;
-    if (lat && lng) debouncedFetch();
-  }, [userLocation?.latitude, userLocation?.longitude]);
-
-  useEffect(() => {
-    if (isInitialMount.current) return;
-    const lat = selectedAddress?.latitude;
-    const lng = selectedAddress?.longitude;
-    if (lat && lng) debouncedFetch();
-  }, [selectedAddress?.latitude, selectedAddress?.longitude]);
-
-  useEffect(() => {
     return () => {
-      if (fetchTimeout.current) {
-        clearTimeout(fetchTimeout.current);
-        fetchTimeout.current = null;
-      }
+      if (fetchTimeout.current) clearTimeout(fetchTimeout.current);
     };
   }, []);
 
   const { displayCategories, hasMoreCategories } = useMemo(() => {
-    if (!categories || categories.length === 0) {
+    if (!categories || categories.length === 0)
       return { displayCategories: [], hasMoreCategories: false };
-    }
+
     const shopCountMap = new Map<string, number>();
     const categoryNameMap = new Map<string, string>();
 
     (directoryVendors || []).forEach((vendor) => {
-      if (vendor) {
-        const vendorCategories = parseArrayField(vendor.categories);
-        vendorCategories.forEach((cat: string) => {
-          if (cat) {
-            const normalized = cat.toLowerCase();
-            shopCountMap.set(normalized, (shopCountMap.get(normalized) || 0) + 1);
-            if (!categoryNameMap.has(normalized)) {
-              categoryNameMap.set(normalized, cat);
-            }
-          }
-        });
-      }
+      if (!vendor) return;
+      const vendorCategories = parseArrayField(vendor.categories);
+      vendorCategories.forEach((cat: string) => {
+        if (!cat) return;
+        const normalized = cat.toLowerCase();
+        shopCountMap.set(normalized, (shopCountMap.get(normalized) || 0) + 1);
+        if (!categoryNameMap.has(normalized))
+          categoryNameMap.set(normalized, cat);
+      });
     });
 
-    const fullList = categories.map((category) => {
-      const categoryName = typeof category.name === 'string' ? category.name : String(category.name || '');
-      const normalizedName = categoryName.toLowerCase();
-      const count = shopCountMap.get(normalizedName) || 0;
-      const displayName = categoryNameMap.get(normalizedName) || categoryName;
-      return {
-        name: displayName,
-        count,
-        image: category.image || category.icon,
-        _id: category._id,
-      };
-    }).sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      return a.name.localeCompare(b.name);
-    });
+    const fullList = categories
+      .map((category) => {
+        const categoryName =
+          typeof category.name === "string"
+            ? category.name
+            : String(category.name || "");
+        const normalized = categoryName.toLowerCase();
+        return {
+          name: categoryNameMap.get(normalized) || categoryName,
+          count: shopCountMap.get(normalized) || 0,
+          image: category.image || category.icon,
+          _id: category._id,
+        };
+      })
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.name.localeCompare(b.name);
+      });
 
     return {
       displayCategories: fullList.slice(0, CATEGORY_DISPLAY_LIMIT),
@@ -668,39 +1401,54 @@ const ShopListings = () => {
     };
   }, [categories, directoryVendors]);
 
-  const filteredVendors = useMemo(() => {
-    return (directoryVendors || []).filter(v => v && v._id);
-  }, [directoryVendors]);
+  const productsByVendorId = useMemo(() => {
+    const map = new Map<string, any[]>();
+    (allProducts || []).forEach((p) => {
+      if (!p || !p.vendorId) return;
+      const arr = map.get(p.vendorId);
+      if (arr) arr.push(p);
+      else map.set(p.vendorId, [p]);
+    });
+    return map;
+  }, [allProducts]);
+
+  const userLat = selectedAddress?.latitude || userLocation?.latitude;
+  const userLng = selectedAddress?.longitude || userLocation?.longitude;
 
   const vendorsWithDetails = useMemo(() => {
-    const vendors = filteredVendors;
-    const userLat = userLocation?.latitude;
-    const userLng = userLocation?.longitude;
+    const vendors = (directoryVendors || []).filter((v) => v && v._id);
 
     const result = vendors.map((vendor) => {
-      const vendorProducts = (allProducts || []).filter((p) => p.vendorId === vendor._id);
-      const productImages = vendorProducts.map((p) => p.images && p.images[0]).filter(Boolean);
+      const vendorProducts = productsByVendorId.get(vendor._id) || [];
+      const productImages = vendorProducts
+        .map((p) => p.images && p.images[0])
+        .filter(Boolean);
       const vendorCategories = parseArrayField(vendor.categories);
 
       let distance = vendor.distance;
       let isInRange = true;
-      if (userLat && userLng && vendor.address?.latitude && vendor.address?.longitude) {
-        const calculatedDistance = calculateDistance(
-          userLat, userLng,
-          vendor.address.latitude, vendor.address.longitude
+      if (
+        userLat &&
+        userLng &&
+        vendor.address?.latitude &&
+        vendor.address?.longitude
+      ) {
+        distance = calculateDistance(
+          userLat,
+          userLng,
+          vendor.address.latitude,
+          vendor.address.longitude
         );
-        distance = calculatedDistance;
         const deliveryRange = vendor.deliveryRange || 10;
-        isInRange = calculatedDistance <= deliveryRange;
+        isInRange = distance <= deliveryRange;
       }
-      if (!vendor.deliveryRange || vendor.deliveryRange === 0) {
-        isInRange = true;
-      }
+      if (!vendor.deliveryRange || vendor.deliveryRange === 0) isInRange = true;
 
       return {
         ...vendor,
         categories: vendorCategories,
-        shopImage: vendor.shopImage || vendor.profileImage || vendor.coverImage,
+        shopImage:
+          vendor.shopImage || vendor.profileImage || vendor.coverImage,
         productsCount: vendorProducts.length,
         productImages,
         distance,
@@ -708,67 +1456,293 @@ const ShopListings = () => {
       };
     });
 
-    // ✅ Client-side radius filter — hides shops beyond the selected km even if backend returns them
     const withinRadius = result.filter((v) => {
-      const d = typeof v.distance === 'number' ? v.distance : Number(v.distance);
+      const d = typeof v.distance === "number" ? v.distance : Number(v.distance);
       if (!Number.isFinite(d)) return true;
       return d <= appliedRadius;
     });
 
     return withinRadius.sort((a, b) => {
-      if (a.isInRange && b.isInRange) return (a.distance || Infinity) - (b.distance || Infinity);
+      if (a.isInRange && b.isInRange)
+        return (a.distance || Infinity) - (b.distance || Infinity);
       if (a.isInRange && !b.isInRange) return -1;
       if (!a.isInRange && b.isInRange) return 1;
       return (a.distance || Infinity) - (b.distance || Infinity);
     });
-  }, [filteredVendors, allProducts, userLocation, appliedRadius]);
+  }, [directoryVendors, productsByVendorId, userLat, userLng, appliedRadius]);
 
-  const handleCardPress = (shop: any) => {
-    navigation.navigate("ShopDetails", { vendor: shop });
-  };
+  const handleCardPress = useCallback(
+    (shop: any) => {
+      navigation.navigate("ShopDetails", { vendor: shop });
+    },
+    [navigation]
+  );
 
-  const handleScroll = (event: any) => {
-    const currentScrollY = event.nativeEvent.contentOffset.y;
-    const diff = currentScrollY - lastScrollY.current;
-    savedScrollOffset.current = currentScrollY;
+  const handleCategoryPress = useCallback(
+    (category: CategoryItem) => {
+      if (!category?.name) return;
+      navigation.navigate("CategoryShopsScreen", {
+        categoryName: category.name,
+        categoryImage: category.image,
+        radius: appliedRadiusRef.current,
+      });
+    },
+    [navigation]
+  );
 
-    if (currentScrollY > 20) {
-      if (diff > 5 && !isHeaderHidden.current) {
-        isHeaderHidden.current = true;
-        Animated.timing(headerTranslateY, { toValue: -HEADER_HEIGHT, duration: 200, useNativeDriver: true }).start();
-      } else if (diff < -5 && isHeaderHidden.current) {
-        isHeaderHidden.current = false;
-        Animated.timing(headerTranslateY, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+  const handleShowMoreCategories = useCallback(() => {
+    navigation.navigate("AllCategoriesScreen");
+  }, [navigation]);
+
+  const handleOpenAllCategories = useCallback(() => {
+    navigation.navigate("AllCategoriesScreen");
+  }, [navigation]);
+
+  const handleQuickNavPress = useCallback(
+    (item: QuickNavItem) => {
+      if (item.routeName === "Order") {
+        try {
+          navigation.navigate(item.routeName);
+          return;
+        } catch (e) {
+          // fall through
+        }
       }
-    } else if (isHeaderHidden.current) {
-      isHeaderHidden.current = false;
-      Animated.timing(headerTranslateY, { toValue: 0, duration: 200, useNativeDriver: true }).start();
-    }
-    lastScrollY.current = currentScrollY;
-  };
+
+      let parent: any = navigation.getParent?.();
+      let found = false;
+      let depth = 0;
+      while (parent && depth < 6) {
+        const state = parent.getState?.();
+        const routeNames: string[] =
+          state?.routeNames ||
+          state?.routes?.map((r: any) => r.name) ||
+          [];
+        if (routeNames.includes(item.routeName)) {
+          parent.navigate(item.routeName);
+          found = true;
+          break;
+        }
+        parent = parent.getParent?.();
+        depth += 1;
+      }
+
+      if (!found) {
+        try {
+          navigationRef.current?.navigate(item.routeName as any);
+        } catch (e) {
+          console.warn(
+            `[ShopListings] Could not navigate to "${item.routeName}" from any navigator`
+          );
+        }
+      }
+    },
+    [navigation]
+  );
 
   const isLoading =
-    (isInitialLoading && (!directoryVendors || directoryVendors.length === 0)) ||
+    (!hasLoadedOnce &&
+      !isRefreshing &&
+      (!directoryVendors || directoryVendors.length === 0)) ||
     isLocationLoading ||
-    isAddressLoading;
+    isLocating;
 
   const shopCount = vendorsWithDetails.length;
 
+  const renderShopItem = useCallback(
+    ({ item }: { item: any }) => (
+      <ShopCard shop={item} onPress={handleCardPress} />
+    ),
+    [handleCardPress]
+  );
+
+  const keyExtractor = useCallback((item: any) => String(item._id), []);
+
+  const listHeader = useMemo(() => {
+    if (targetVendorId) return null;
+    return (
+      <CategoryGrid
+        categories={displayCategories}
+        onCategoryPress={handleCategoryPress}
+        hasMore={hasMoreCategories}
+        onShowMore={handleShowMoreCategories}
+      />
+    );
+  }, [
+    targetVendorId,
+    displayCategories,
+    hasMoreCategories,
+    handleCategoryPress,
+    handleShowMoreCategories,
+  ]);
+
+  const listEmpty = useMemo(
+    () => (
+      <View style={styles.emptyContainer}>
+        <View style={styles.emptyIconCircle}>
+          <Ionicons name="diamond-outline" size={scale(28)} color={Palette.pureBlack} />
+        </View>
+        <Text style={styles.emptyTitle}>
+          No shops within {appliedRadius} km
+        </Text>
+        <View style={styles.emptyDivider} />
+        <Text style={styles.emptySubText}>
+          Expand your search radius or change your location to discover more
+          exclusive boutiques.
+        </Text>
+        <TouchableOpacity
+          onPress={handleOpenAddressModal}
+          style={styles.retryButton}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.retryButtonText}>CHANGE LOCATION</Text>
+        </TouchableOpacity>
+      </View>
+    ),
+    [appliedRadius, handleOpenAddressModal]
+  );
+
+  // ── Header content (now part of the scrollable list) ──
+  const renderTopHeader = useCallback(() => {
+    return (
+      <View
+        style={[
+          styles.headerScrollContent,
+          { paddingTop: insets.top + 8 },
+        ]}
+      >
+        {/* 1. Location bar */}
+        <TouchableOpacity
+          style={styles.glassPill}
+          onPress={handleOpenAddressModal}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="location" size={scale(18)} color={Palette.pureBlack} />
+          <Text style={styles.locationBarText} numberOfLines={1}>
+            {selectedAddress?.addressString ||
+              (userLocation ? "Using GPS location" : "Select a location")}
+          </Text>
+          <Ionicons name="chevron-down" size={scale(16)} color={Palette.pureBlack} />
+        </TouchableOpacity>
+
+        {/* 2. Search bar */}
+        {!targetVendorId && (
+          <TouchableOpacity
+            style={[styles.glassPill, styles.searchBarExtraMargin]}
+            onPress={handleOpenAllCategories}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="search" size={scale(18)} color={Palette.pureBlack} />
+            <Text style={styles.searchBarPlaceholder}>
+              Search the royal collection...
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={scale(16)}
+              color={Palette.pureBlack}
+            />
+          </TouchableOpacity>
+        )}
+
+        {/* 3. Radius label row */}
+        <View style={styles.radiusInfoRow}>
+          <Ionicons name="radio-outline" size={16} color={Palette.pureBlack} />
+          <Text style={styles.radiusLabel}>Within {manualRadius} km</Text>
+          {shopCount > 0 && (
+            <Text style={styles.shopCountText}>
+              {shopCount} {shopCount === 1 ? "boutique" : "boutiques"}
+            </Text>
+          )}
+        </View>
+
+        {/* 4. Km preset chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.presetScrollContent}
+          style={styles.presetScrollView}
+        >
+          {RADIUS_PRESETS.map((val) => {
+            const isActive = manualRadius === val;
+            const isChipLoading = isRadiusSwitching && isActive;
+            return (
+              <TouchableOpacity
+                key={val}
+                style={[
+                  styles.presetChipWrapper,
+                  isActive && styles.presetChipWrapperActive,
+                ]}
+                disabled={isRadiusSwitching}
+                onPress={() => {
+                  if (manualRadius === val) return;
+                  setManualRadius(val);
+                  const { lat, lng } = getCurrentLocationRef.current();
+                  if (lat && lng) {
+                    handleRadiusChange(val, lat, lng);
+                  } else {
+                    Toast.show({
+                      type: "info",
+                      text1: "Location Required",
+                      text2: "Please select an address first.",
+                    });
+                    setShowAddAddressModal(true);
+                  }
+                }}
+              >
+                {isActive ? (
+                  <View style={styles.presetChipActive}>
+                    {isChipLoading ? (
+                      <ActivityIndicator size="small" color={Palette.pureWhite} />
+                    ) : (
+                      <Text style={styles.presetChipTextActive}>{val} km</Text>
+                    )}
+                  </View>
+                ) : (
+                  <View style={styles.presetChipGlass}>
+                    <Text style={styles.presetChipText}>{val} km</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* 5. Quick nav row */}
+        {!targetVendorId && <QuickNavRow onPress={handleQuickNavPress} />}
+      </View>
+    );
+  }, [
+    insets.top,
+    selectedAddress,
+    userLocation,
+    targetVendorId,
+    manualRadius,
+    isRadiusSwitching,
+    shopCount,
+    handleOpenAddressModal,
+    handleOpenAllCategories,
+    handleRadiusChange,
+    handleQuickNavPress,
+  ]);
+
   const renderContent = () => {
-    // ✅ FIX 4: "Location required" is the HIGHEST priority — no spinner, no shops.
     if (!hasLocation && !targetVendorId) {
       return (
         <View style={styles.messageContainer}>
-          <Ionicons name="location-outline" size={scale(60)} color={Colors.textLightGray} />
-          <Text style={styles.messageTitle}>Select Your Address</Text>
+          <View style={styles.emptyIconCircle}>
+            <Ionicons name="location" size={scale(28)} color={Palette.pureBlack} />
+          </View>
+          <Text style={styles.messageTitle}>CHOOSE YOUR DESTINATION</Text>
+          <View style={styles.emptyDivider} />
           <Text style={styles.messageText}>
-            Choose an address to see shops near you.
+            Select an address to discover royal boutiques near you.
           </Text>
           <TouchableOpacity
-            onPress={() => setShowAddAddress(true)}
+            onPress={() => setShowAddAddressModal(true)}
             style={styles.retryButton}
+            activeOpacity={0.85}
           >
-            <Text style={styles.retryButtonText}>Select Address</Text>
+            <Text style={styles.retryButtonText}>SELECT ADDRESS</Text>
           </TouchableOpacity>
         </View>
       );
@@ -777,425 +1751,409 @@ const ShopListings = () => {
     if (isLoading && !isRefreshing) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.accentGreen} />
-          <Text style={styles.loadingText}>Finding nearby shops...</Text>
+          <ActivityIndicator size="large" color={Palette.pureBlack} />
+          <Text style={styles.loadingText}>Curating boutiques near you…</Text>
+          <View style={styles.loadingDivider} />
         </View>
       );
     }
 
     return (
-      <AnimatedFlatList
-        ref={flatListRef}
-        data={vendorsWithDetails}
-        extraData={displayCategories}
-        keyExtractor={(item) => item._id}
-        renderItem={({ item }) => (
-          <ShopCard shop={item} onPress={() => handleCardPress(item)} />
-        )}
-        contentContainerStyle={styles.flatlistContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={onRefresh}
-            tintColor={Colors.accentGreen}
-            colors={[Colors.accentGreen]}
-          />
-        }
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        ListHeaderComponent={
-          <>
-            <View style={{ height: HEADER_HEIGHT + 10 }} />
-            {!targetVendorId && <AdCarouselWithNavigation limit={25} title="Sponsored" />}
-            {!targetVendorId && displayCategories.length > 0 ? (
-              <>
-                <CategorySectionHeader
-                  title="Browse Categories"
-                  count={displayCategories.length + (hasMoreCategories ? '+' : '')}
-                />
-                <View style={styles.categoryGridContainer}>
-                  <FlatList
-                    data={displayCategories}
-                    keyExtractor={(item) => item.name}
-                    numColumns={3}
-                    scrollEnabled={false}
-                    contentContainerStyle={styles.categoryGridContent}
-                    renderItem={({ item }) => (
-                      <CategoryGridItem
-                        category={item}
-                        onPress={() => {
-                          if (item.name) {
-                            navigation.navigate('CategoryShopsScreen', {
-                              categoryName: item.name,
-                              categoryImage: item.image,
-                              radius: appliedRadius,
-                            });
-                          }
-                        }}
-                      />
-                    )}
-                  />
-                </View>
-                {hasMoreCategories && (
-                  <TouchableOpacity
-                    style={styles.showMoreButton}
-                    onPress={() => navigation.navigate('AllCategoriesScreen')}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.showMoreText}>Show More Categories</Text>
-                    <Ionicons name="arrow-forward" size={scale(16)} color={Colors.accentGreen} />
-                  </TouchableOpacity>
-                )}
-              </>
-            ) : null}
-          </>
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="storefront-outline" size={scale(60)} color={Colors.textLightGray} />
-            <Text style={styles.emptyText}>
-              {radiusExpanded ? `No shops found within ${appliedRadius} km` : `No shops within ${appliedRadius} km`}
+      <>
+        {isRadiusSwitching && (
+          <View style={styles.inlineLoadingBanner}>
+            <ActivityIndicator size="small" color={Palette.pureBlack} />
+            <Text style={styles.inlineLoadingText}>
+              Refining results to {manualRadius} km…
             </Text>
-            <Text style={styles.emptySubText}>
-              Try increasing the radius or changing your location.
-            </Text>
-            <TouchableOpacity
-              onPress={handleOpenAddressModal}
-              style={[styles.retryButton, { marginTop: verticalScale(10) }]}
-            >
-              <Text style={styles.retryButtonText}>Change Location</Text>
-            </TouchableOpacity>
           </View>
-        }
-      />
+        )}
+        <FlatList
+          ref={flatListRef}
+          data={vendorsWithDetails}
+          keyExtractor={keyExtractor}
+          renderItem={renderShopItem}
+          contentContainerStyle={styles.flatlistContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              tintColor={Palette.pureBlack}
+              colors={[Palette.pureBlack]}
+            />
+          }
+          onScroll={(e) => {
+            savedScrollOffset.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+          removeClippedSubviews={Platform.OS === "android"}
+          initialNumToRender={6}
+          maxToRenderPerBatch={6}
+          windowSize={7}
+          updateCellsBatchingPeriod={50}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          ListHeaderComponent={
+            <>
+              {renderTopHeader()}
+              {listHeader}
+            </>
+          }
+          ListEmptyComponent={listEmpty}
+        />
+      </>
     );
   };
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-        <Animated.View
-          style={[styles.headerContainer, { transform: [{ translateY: headerTranslateY }] }]}
+      {renderContent()}
+
+      {showAddressModal && (
+        <AddressModal
+          visible={showAddressModal}
+          onClose={handleCloseAddressModal}
+          onSelectAddress={handleSelectAddress}
+          onAddAddress={handleAddCurrentLocation}
+          selectedAddress={selectedAddress}
+          addresses={addresses}
+          isLoading={isLocating || isLocationLoading}
+          onOpenMap={handleOpenMapPicker}
+        />
+      )}
+
+      {showAddAddressModal && (
+        <Modal
+          visible={showAddAddressModal}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={handleCloseAddAddress}
+          statusBarTranslucent
         >
-          <TouchableOpacity
-            style={styles.locationBar}
-            onPress={handleOpenAddressModal}
-            activeOpacity={0.7}
+          <SafeAreaView
+            style={{ flex: 1, backgroundColor: Palette.ivory }}
+            edges={["top", "bottom", "left", "right"]}
           >
-            <Ionicons name="location-sharp" size={scale(20)} color={Colors.accentGreen} />
-            <Text style={styles.locationBarText} numberOfLines={1}>
-              {selectedAddress?.addressString ||
-                (userLocation ? "Using GPS location" : "Select a location")}
-            </Text>
-            <Ionicons name="chevron-down" size={scale(16)} color={Colors.textGray} />
-          </TouchableOpacity>
-
-          {!targetVendorId && (
-            <TouchableOpacity
-              style={styles.searchBarContainer}
-              onPress={() => navigation.navigate('AllCategoriesScreen')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="search" size={scale(20)} color={Colors.textGray} />
-              <Text style={styles.searchBarPlaceholder}>Browse categories & shops...</Text>
-              <Ionicons name="chevron-forward" size={scale(16)} color={Colors.textGray} />
-            </TouchableOpacity>
-          )}
-
-          <View style={styles.radiusInfoRow}>
-            <Ionicons name="radio-outline" size={18} color={Colors.accentGreen} />
-            <Text style={styles.radiusLabel}>Radius: {manualRadius} km</Text>
-            {shopCount > 0 && (
-              <Text style={styles.shopCountText}>
-                {shopCount} shop{shopCount > 1 ? "s" : ""}
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.presetContainer}>
-            {[10, 20, 30, 50, 100].map((val) => (
-              <TouchableOpacity
-                key={val}
-                style={[styles.presetChip, manualRadius === val && styles.presetChipActive]}
-                onPress={() => {
-                  setManualRadius(val);
-                  savedScrollOffset.current = lastScrollY.current;
-                  const { lat, lng } = getCurrentLocation();
-                  if (lat && lng) {
-                    fetchDirectoryVendors({ radius: val, expanded: val > 10, latOverride: lat, lngOverride: lng });
-                  } else {
-                    Alert.alert("Location Required", "Please select an address first.");
-                  }
-                }}
-              >
-                <Text style={[styles.presetChipText, manualRadius === val && styles.presetChipTextActive]}>
-                  {val} km
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Animated.View>
-
-        {renderContent()}
-      </SafeAreaView>
-
-      <AddressModal
-        visible={showAddressModal}
-        onClose={() => setShowAddressModal(false)}
-        onSelectAddress={handleSelectAddress}
-        onAddAddress={handleAddAddress}
-        selectedAddress={selectedAddress}
-        addresses={addresses}
-        isLoading={isAddressLoading}
-        onOpenMap={handleOpenAddAddress}
-      />
-
-      {showAddAddress && (
-        <View style={styles.modalOverlay}>
-          <AddAddressScreen
-            onClose={handleCloseAddAddress}
-            onLocationSelect={handleMapLocationSelect}
-            onSave={() => { setShowAddAddress(false); }}
-          />
-        </View>
+            <AddAddressScreen
+              onClose={handleCloseAddAddress}
+              onLocationSelect={handleLocationFromAddAddress}
+            />
+          </SafeAreaView>
+        </Modal>
       )}
     </View>
   );
 };
 
+// ─────────────────────────────────────────────────────────────
+// Styles
+// ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFFFFF" },
-  safeArea: { flex: 1, backgroundColor: "#FFFFFF" },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#FFFFFF',
-    zIndex: 1000,
+  container: { flex: 1, backgroundColor: Palette.offWhite },
+
+  // Header content is now inside the scroll view (no absolute positioning)
+  headerScrollContent: {
+    backgroundColor: Palette.pureWhite,
+    paddingBottom: verticalScale(6),
+    borderBottomWidth: 1,
+    borderBottomColor: Palette.borderLight,
   },
-  headerContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#FFFFFF',
-    zIndex: 10,
-    paddingTop: 28,
-    paddingBottom: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  locationBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-    paddingHorizontal: scale(16),
-    paddingVertical: verticalScale(12),
+
+  glassPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: scale(14),
+    paddingVertical: verticalScale(11),
     marginHorizontal: scale(16),
-    borderRadius: moderateScale(10),
+    borderRadius: moderateScale(14),
     borderWidth: 1,
-    borderColor: '#E5E5E5',
+    borderColor: Palette.borderLight,
+    backgroundColor: Palette.offWhite,
     marginTop: verticalScale(4),
+    shadowColor: Palette.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  searchBarExtraMargin: {
+    marginTop: verticalScale(8),
+    marginBottom: verticalScale(4),
   },
   locationBarText: {
     flex: 1,
-    color: Colors.textDark,
-    fontSize: moderateScale(14),
+    color: Palette.pureBlack,
+    fontSize: moderateScale(13),
     marginLeft: scale(8),
     marginRight: scale(8),
-    fontWeight: '500',
-  },
-  searchBarContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F5F5F5",
-    borderRadius: moderateScale(12),
-    paddingHorizontal: scale(15),
-    marginHorizontal: scale(16),
-    marginVertical: verticalScale(8),
-    borderWidth: 1,
-    borderColor: "#E5E5E5",
-    paddingVertical: verticalScale(12),
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
   searchBarPlaceholder: {
     flex: 1,
     marginLeft: scale(10),
-    fontSize: moderateScale(15),
-    color: Colors.textGray,
+    fontSize: moderateScale(14),
+    color: Palette.pureBlack,
+    opacity: 0.55,
+    fontWeight: "500",
   },
+
   radiusInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginHorizontal: scale(16),
     marginVertical: verticalScale(4),
     paddingVertical: verticalScale(4),
   },
   radiusLabel: {
-    fontSize: moderateScale(13),
-    fontWeight: '600',
-    color: Colors.textDark,
-    marginLeft: scale(4),
-    marginRight: scale(4),
+    fontSize: moderateScale(12),
+    fontWeight: "800",
+    color: Palette.pureBlack,
+    marginLeft: scale(6),
+    marginRight: scale(6),
     flex: 1,
+    letterSpacing: 0.5,
   },
   shopCountText: {
-    fontSize: moderateScale(13),
-    fontWeight: '600',
-    color: Colors.accentGreen,
-    marginLeft: scale(6),
+    fontSize: moderateScale(11),
+    fontWeight: "900",
+    color: Palette.pureBlack,
+    letterSpacing: 1.2,
   },
-  presetContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: scale(16),
+
+  presetScrollView: {
+    flexGrow: 0,
     marginBottom: verticalScale(6),
     marginTop: verticalScale(2),
   },
-  presetChip: {
-    paddingVertical: verticalScale(4),
-    paddingHorizontal: scale(12),
-    borderRadius: moderateScale(16),
-    backgroundColor: '#F0F0F0',
+  presetScrollContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: scale(16),
+    columnGap: scale(8),
+  },
+  presetChipWrapper: {
+    borderRadius: moderateScale(18),
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: Palette.chipBorder,
+    backgroundColor: Palette.chipBg,
+  },
+  presetChipWrapperActive: {
+    borderColor: Palette.pureBlack,
+    backgroundColor: Palette.chipActiveBg,
+  },
+  presetChipGlass: {
+    paddingVertical: verticalScale(6),
+    paddingHorizontal: scale(14),
+    minWidth: scale(56),
+    alignItems: "center",
+    justifyContent: "center",
   },
   presetChipActive: {
-    backgroundColor: Colors.accentGreen,
-    borderColor: Colors.accentGreen,
+    paddingVertical: verticalScale(6),
+    paddingHorizontal: scale(14),
+    minWidth: scale(56),
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Palette.chipActiveBg,
   },
   presetChipText: {
-    fontSize: moderateScale(12),
-    color: Colors.textGray,
-    fontWeight: '500',
+    fontSize: moderateScale(11),
+    color: Palette.pureBlack,
+    fontWeight: "800",
+    letterSpacing: 0.6,
   },
   presetChipTextActive: {
-    color: '#FFFFFF',
+    color: Palette.chipActiveText,
+    fontWeight: "900",
+    fontSize: moderateScale(11),
+    letterSpacing: 0.6,
   },
+
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: scale(16),
-    paddingVertical: verticalScale(8),
-    marginTop: verticalScale(4),
-  },
-  sectionHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    paddingVertical: verticalScale(12),
+    marginTop: verticalScale(6),
   },
   sectionHeaderLine: {
-    width: scale(4),
-    height: scale(20),
-    backgroundColor: Colors.accentGreen,
-    borderRadius: moderateScale(2),
-    marginRight: scale(8),
+    flex: 1,
+    height: 1,
+    backgroundColor: Palette.sectionLine,
   },
   sectionHeaderTitle: {
-    fontSize: moderateScale(18),
-    fontWeight: '700',
-    color: Colors.textDark,
-  },
-  sectionHeaderCount: {
     fontSize: moderateScale(12),
-    color: Colors.textLightGray,
+    fontWeight: "900",
+    color: Palette.pureBlack,
+    letterSpacing: 2.5,
+    marginHorizontal: scale(12),
   },
+
   categoryGridContainer: {
     paddingHorizontal: scale(8),
     paddingVertical: verticalScale(4),
   },
-  categoryGridContent: {
-    paddingBottom: verticalScale(4),
-  },
+  categoryGridContent: { paddingBottom: verticalScale(4) },
   categoryGridItem: {
     flex: 1,
-    aspectRatio: 1,
+    aspectRatio: 0.9,
     margin: scale(4),
-    borderRadius: moderateScale(12),
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: '#1A1A1A',
+    borderRadius: moderateScale(14),
+    overflow: "hidden",
+    backgroundColor: Palette.pureWhite,
+    borderWidth: 1,
+    borderColor: Palette.borderLight,
+    shadowColor: Palette.shadow,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  categoryImageWrap: {
+    width: "100%",
+    height: "62%",
+    position: "relative",
+    backgroundColor: Palette.offWhite,
   },
   categoryGridImage: {
-    width: '100%',
-    height: '100%',
-    position: 'absolute',
-    top: 0,
-    left: 0,
+    width: "100%",
+    height: "100%",
   },
-  categoryGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '60%',
+  categoryBlackFrame: {
+    position: "absolute",
+    top: 4,
+    left: 4,
+    right: 4,
+    bottom: 4,
+    borderRadius: moderateScale(8),
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.35)",
+  },
+  categoryWhiteFrame: {
+    position: "absolute",
+    top: 4,
+    left: 4,
+    right: 4,
+    bottom: 4,
+    borderRadius: moderateScale(10),
+    borderWidth: 1,
+    borderColor: Palette.borderLight,
+  },
+  categoryBottomContainer: {
+    flex: 1,
+    backgroundColor: Palette.pureWhite,
   },
   categoryTextContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: scale(10),
-    alignItems: 'center',
+    flex: 1,
+    paddingHorizontal: scale(6),
+    paddingVertical: verticalScale(6),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  categoryMiniDivider: {
+    width: scale(20),
+    height: 1.5,
+    backgroundColor: Palette.pureBlack,
+    marginVertical: verticalScale(3),
+    opacity: 0.55,
   },
   categoryGridName: {
-    fontSize: moderateScale(13),
-    fontWeight: '700',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: verticalScale(2),
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    fontSize: moderateScale(10.5),
+    fontWeight: "900",
+    color: Palette.pureBlack,
+    textAlign: "center",
+    letterSpacing: 0.6,
   },
   categoryGridCount: {
-    fontSize: moderateScale(10),
-    color: 'rgba(255,255,255,0.85)',
-    textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    fontSize: moderateScale(9),
+    color: Palette.pureBlack,
+    opacity: 0.6,
+    textAlign: "center",
+    letterSpacing: 1,
+    fontWeight: "800",
   },
+
   showMoreButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: verticalScale(12),
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: verticalScale(14),
     marginHorizontal: scale(16),
-    borderTopWidth: 1,
-    borderTopColor: '#E5E5E5',
-    marginTop: verticalScale(4),
+    marginTop: verticalScale(6),
+  },
+  showMoreInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: verticalScale(9),
+    paddingHorizontal: scale(20),
+    borderRadius: moderateScale(20),
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Palette.borderLight,
+    backgroundColor: Palette.offWhite,
   },
   showMoreText: {
-    fontSize: moderateScale(14),
-    color: Colors.accentGreen,
-    fontWeight: '600',
+    fontSize: moderateScale(11),
+    color: Palette.pureBlack,
+    fontWeight: "900",
+    letterSpacing: 2,
     marginRight: scale(6),
   },
-  flatlistContainer: { paddingBottom: verticalScale(30), paddingTop: verticalScale(4) },
+
+  flatlistContainer: {
+    paddingBottom: verticalScale(40),
+  },
+
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loadingText: { marginTop: verticalScale(10), fontSize: moderateScale(16), color: Colors.textGray },
+  loadingText: {
+    marginTop: verticalScale(14),
+    fontSize: moderateScale(13),
+    color: Palette.pureBlack,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
+  loadingDivider: {
+    width: scale(48),
+    height: 1.5,
+    backgroundColor: Palette.pureBlack,
+    marginTop: verticalScale(12),
+    opacity: 0.4,
+  },
   messageContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: scale(20),
+    padding: scale(24),
+  },
+  emptyIconCircle: {
+    width: scale(72),
+    height: scale(72),
+    borderRadius: scale(36),
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Palette.borderLight,
+    marginBottom: verticalScale(18),
+    backgroundColor: Palette.offWhite,
   },
   messageTitle: {
-    fontSize: moderateScale(20),
-    fontWeight: "bold",
+    fontSize: moderateScale(15),
+    fontWeight: "900",
     marginBottom: verticalScale(10),
-    color: Colors.textDark,
+    color: Palette.pureBlack,
+    letterSpacing: 2.5,
+    textAlign: "center",
   },
   messageText: {
-    fontSize: moderateScale(16),
-    color: Colors.textGray,
+    fontSize: moderateScale(13),
+    color: Palette.pureBlack,
     textAlign: "center",
-    marginBottom: verticalScale(5),
+    marginBottom: verticalScale(20),
+    opacity: 0.65,
+    lineHeight: moderateScale(20),
+    paddingHorizontal: scale(20),
   },
   emptyContainer: {
     flex: 1,
@@ -1204,27 +2162,128 @@ const styles = StyleSheet.create({
     marginTop: verticalScale(50),
     paddingHorizontal: scale(20),
   },
-  emptyText: {
-    fontSize: moderateScale(18),
-    color: Colors.textGray,
-    textAlign: 'center',
-    marginTop: verticalScale(12),
-    fontWeight: '600',
+  emptyTitle: {
+    fontSize: moderateScale(16),
+    color: Palette.pureBlack,
+    textAlign: "center",
+    marginTop: verticalScale(4),
+    fontWeight: "900",
+    letterSpacing: 1.5,
+  },
+  emptyDivider: {
+    width: scale(36),
+    height: 1.5,
+    backgroundColor: Palette.pureBlack,
+    marginVertical: verticalScale(10),
+    opacity: 0.55,
   },
   emptySubText: {
-    fontSize: moderateScale(14),
-    color: Colors.textGray,
-    textAlign: 'center',
-    marginTop: verticalScale(6),
+    fontSize: moderateScale(12),
+    color: Palette.pureBlack,
+    textAlign: "center",
+    marginTop: verticalScale(4),
+    opacity: 0.6,
+    paddingHorizontal: scale(16),
+    lineHeight: moderateScale(18),
   },
   retryButton: {
-    marginTop: verticalScale(20),
-    backgroundColor: Colors.accentGreen,
+    marginTop: verticalScale(22),
     paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(25),
-    borderRadius: moderateScale(8),
+    paddingHorizontal: scale(28),
+    borderRadius: moderateScale(24),
+    backgroundColor: Palette.pureBlack,
+    borderWidth: 1,
+    borderColor: Palette.pureBlack,
   },
-  retryButtonText: { color: Colors.cardWhite, fontWeight: "bold" },
+  retryButtonText: {
+    color: Palette.pureWhite,
+    fontWeight: "900",
+    letterSpacing: 2,
+    fontSize: moderateScale(11),
+  },
+  inlineLoadingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: verticalScale(8),
+    backgroundColor: Palette.offWhite,
+    borderBottomWidth: 1,
+    borderBottomColor: Palette.borderLight,
+  },
+  inlineLoadingText: {
+    marginLeft: scale(8),
+    fontSize: moderateScale(11),
+    color: Palette.pureBlack,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+});
+
+// ─────────────────────────────────────────────────────────────
+// Quick nav styles
+// ─────────────────────────────────────────────────────────────
+const quickNavStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    paddingHorizontal: scale(16),
+    paddingTop: verticalScale(6),
+    paddingBottom: verticalScale(6),
+    columnGap: scale(8),
+  },
+  card: {
+    flex: 1,
+    borderRadius: moderateScale(14),
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Palette.borderLight,
+    backgroundColor: Palette.pureWhite,
+    shadowColor: Palette.shadow,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 3,
+    minHeight: verticalScale(120),
+  },
+  imageBlock: {
+    width: "100%",
+    height: verticalScale(78),
+    backgroundColor: Palette.offWhite,
+    overflow: "hidden",
+  },
+  cardImage: {
+    width: "100%",
+    height: "100%",
+  },
+  iconFallback: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Palette.offWhite,
+  },
+  textBlock: {
+    flex: 1,
+    paddingVertical: verticalScale(6),
+    paddingHorizontal: scale(6),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardLabel: {
+    fontSize: moderateScale(10.5),
+    fontWeight: "900",
+    color: Palette.pureBlack,
+    letterSpacing: 1.3,
+    textAlign: "center",
+  },
+  cardSubtitle: {
+    fontSize: moderateScale(8.5),
+    color: Palette.pureBlack,
+    opacity: 0.55,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: verticalScale(1),
+    letterSpacing: 0.3,
+  },
 });
 
 export default ShopListings;

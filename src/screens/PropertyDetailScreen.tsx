@@ -32,20 +32,51 @@ const { width } = Dimensions.get("window");
 const PLAY_STORE_LINK = 'https://play.google.com/store/apps/details?id=com.ram1234567890.BLuxury';
 const APP_STORE_LINK = 'https://apps.apple.com/app/bluxury/id123456789';
 
+// ─────────────────────────────────────────────────────────────
+// 🎨 UNIFIED PALETTE — ShopListings feel (white bg + black accents)
+// ─────────────────────────────────────────────────────────────
+const Royal = {
+  gold: '#D4AF37',
+  goldSoft: '#E8CC7A',
+  goldBright: '#F4DC90',
+  goldDim: 'rgba(212,175,55,0.35)',
+  goldFaint: 'rgba(212,175,55,0.10)',
+  royalGreen: '#0A3D2B',
+  royalGreenDeep: '#062318',
+  obsidian: '#0B0B0F',
+  ivory: '#FFFFFF',
+  cream: '#FBF7EE',
+  maroon: '#5C1A2B',
+  // White surfaces (ShopListings feel)
+  whiteBg: '#FFFFFF',
+  offWhite: '#F4F4F6',
+  softWhite: '#F2F2F7',
+  borderLight: 'rgba(0,0,0,0.08)',
+  borderMedium: 'rgba(0,0,0,0.15)',
+  shadow: 'rgba(0,0,0,0.10)',
+  // Text (dark on white)
+  textPrimary: '#0B0B0F',
+  textSecondary: 'rgba(11,11,15,0.65)',
+  textTertiary: 'rgba(11,11,15,0.45)',
+  // Accents
+  pureBlack: '#000000',
+  pureWhite: '#FFFFFF',
+};
+
 const Colors = {
-  royalNavy: "#0B1021",
-  champagneGold: "#D4AF37",
-  offWhite: "#F8F9FA",
-  pureWhite: "#FFFFFF",
-  charcoal: "#2D3748",
-  slate: "#64748B",
-  lightBorder: "#EAEAEA",
-  whatsapp: "#25D366",
-  gradientStart: "#0B1021",
-  gradientEnd: "#1A1F3A",
-  success: "#10B981",
-  warning: "#F59E0B",
-  info: "#3B82F6",
+  royalNavy: Royal.pureBlack,
+  champagneGold: Royal.gold,
+  offWhite: Royal.offWhite,
+  pureWhite: Royal.pureWhite,
+  charcoal: Royal.textPrimary,
+  slate: Royal.textSecondary,
+  lightBorder: Royal.borderLight,
+  whatsapp: Royal.pureBlack,
+  gradientStart: Royal.royalGreenDeep,
+  gradientEnd: Royal.royalGreen,
+  success: '#10B981',
+  warning: '#F59E0B',
+  info: '#3B82F6',
 };
 
 interface RouteParams {
@@ -146,7 +177,7 @@ const PropertyDetailScreen: React.FC = () => {
     }
   }, [currentProperty, user, dispatch]);
 
-  // Download image to local cache for sharing - using legacy API
+  // Download image to local cache for sharing
   const downloadImageToLocal = async (imageUrl: string): Promise<string | null> => {
     try {
       const timestamp = Date.now();
@@ -205,7 +236,7 @@ const PropertyDetailScreen: React.FC = () => {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`;
   };
 
-  // Build share message with ALL property details + Google Maps link + App link
+  // Build share message
   const buildShareMessage = () => {
     if (!currentProperty) return "BLuxury Property";
     const displayPrice = getDisplayPrice();
@@ -236,7 +267,7 @@ const PropertyDetailScreen: React.FC = () => {
     );
   };
 
-  // Share to WhatsApp with image and full details
+  // Share to WhatsApp
   const handleShareWhatsApp = async () => {
     if (!currentProperty || isSharing) return;
 
@@ -271,7 +302,6 @@ const PropertyDetailScreen: React.FC = () => {
         }
       }
 
-      // Fallback: Share text only via WhatsApp URL
       const phone = displayPhone || "";
       const waUrl = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
 
@@ -294,7 +324,7 @@ const PropertyDetailScreen: React.FC = () => {
     }
   };
 
-  // General share function with debounce
+  // General share function
   const handleShare = async () => {
     if (!currentProperty || isSharing) return;
 
@@ -333,7 +363,6 @@ const PropertyDetailScreen: React.FC = () => {
         }
       }
 
-      // Fallback: share text only
       await RNShare.share({
         message: message,
         title: "BLuxury Property",
@@ -355,8 +384,9 @@ const PropertyDetailScreen: React.FC = () => {
   if (propertyLoading || !currentProperty) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.champagneGold} />
+        <ActivityIndicator size="large" color={Royal.pureBlack} />
         <Text style={styles.loadingText}>Retrieving Estate Details...</Text>
+        <View style={styles.loadingDivider} />
       </View>
     );
   }
@@ -446,8 +476,8 @@ const PropertyDetailScreen: React.FC = () => {
       try {
         await WebBrowser.openBrowserAsync(url, {
           presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
-          toolbarColor: Colors.royalNavy,
-          controlsColor: Colors.champagneGold,
+          toolbarColor: Royal.pureBlack,
+          controlsColor: Royal.pureWhite,
         });
       } catch (err) {
         console.error("Couldn't open link", err);
@@ -494,19 +524,19 @@ const PropertyDetailScreen: React.FC = () => {
           />
 
           <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-            <Ionicons name="chevron-back" size={26} color={Colors.pureWhite} />
+            <Ionicons name="chevron-back" size={26} color={Royal.pureWhite} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.shareBtn} onPress={handleShare} disabled={isSharing}>
             {isSharing ? (
-              <ActivityIndicator size="small" color={Colors.pureWhite} />
+              <ActivityIndicator size="small" color={Royal.pureWhite} />
             ) : (
-              <Ionicons name="share-outline" size={22} color={Colors.pureWhite} />
+              <Ionicons name="share-outline" size={22} color={Royal.pureWhite} />
             )}
           </TouchableOpacity>
 
           <View style={styles.imageIndicatorContainer}>
-            <Ionicons name="camera-outline" size={14} color={Colors.pureWhite} style={{ marginRight: 6 }} />
+            <Ionicons name="camera-outline" size={14} color={Royal.pureWhite} style={{ marginRight: 6 }} />
             <Text style={styles.imageIndicatorText}>{currentProperty.images?.length || 0} Photos</Text>
           </View>
         </View>
@@ -531,9 +561,8 @@ const PropertyDetailScreen: React.FC = () => {
               </View>
             </View>
             <Text style={styles.title}>{currentProperty.title}</Text>
-            {/* Full address in header */}
             <Text style={styles.locationSubText}>
-              <Ionicons name="location-sharp" size={16} color={Colors.champagneGold} /> {fullPropertyAddress}
+              <Ionicons name="location-sharp" size={16} color={Royal.pureBlack} /> {fullPropertyAddress}
             </Text>
           </View>
 
@@ -552,7 +581,7 @@ const PropertyDetailScreen: React.FC = () => {
 
           {/* Estate Overview */}
           <Text style={styles.sectionHeader}>
-            <Ionicons name="apps-outline" size={22} color={Colors.champagneGold} /> Estate Overview
+            <Ionicons name="apps-outline" size={22} color={Royal.pureBlack} /> Estate Overview
           </Text>
           <View style={styles.detailsGrid}>
             <DetailBox icon="bed-outline" label={config?.bhk || "N/A"} subtitle="Configuration" />
@@ -584,12 +613,12 @@ const PropertyDetailScreen: React.FC = () => {
             <>
               <View style={styles.divider} />
               <Text style={styles.sectionHeader}>
-                <Ionicons name="pricetags-outline" size={22} color={Colors.champagneGold} /> Tags
+                <Ionicons name="pricetags-outline" size={22} color={Royal.pureBlack} /> Tags
               </Text>
               <View style={styles.tagsContainer}>
                 {tags.map((tag, index) => (
                   <View key={index} style={styles.tagPill}>
-                    <Ionicons name="pricetag-outline" size={12} color={Colors.champagneGold} />
+                    <Ionicons name="pricetag-outline" size={12} color={Royal.pureBlack} />
                     <Text style={styles.tagText}>{tag}</Text>
                   </View>
                 ))}
@@ -602,12 +631,12 @@ const PropertyDetailScreen: React.FC = () => {
             <>
               <View style={styles.divider} />
               <Text style={styles.sectionHeader}>
-                <Ionicons name="grid-outline" size={22} color={Colors.champagneGold} /> Premium Amenities
+                <Ionicons name="grid-outline" size={22} color={Royal.pureBlack} /> Premium Amenities
               </Text>
               <View style={styles.amenitiesGrid}>
                 {amenities.map((amenity, index) => (
                   <View key={`am_${index}`} style={styles.amenityItem}>
-                    <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
+                    <Ionicons name="checkmark-circle" size={18} color={Royal.pureBlack} />
                     <Text style={styles.amenityText}>{amenity}</Text>
                   </View>
                 ))}
@@ -620,12 +649,12 @@ const PropertyDetailScreen: React.FC = () => {
             <>
               <View style={styles.divider} />
               <Text style={styles.sectionHeader}>
-                <Ionicons name="star-outline" size={22} color={Colors.champagneGold} /> Project Highlights
+                <Ionicons name="star-outline" size={22} color={Royal.pureBlack} /> Project Highlights
               </Text>
               <View style={styles.highlightsContainer}>
                 {projectHighlights.map((highlight, index) => (
                   <View key={`hl_${index}`} style={styles.highlightItem}>
-                    <View style={styles.goldDot} />
+                    <View style={styles.blackDot} />
                     <Text style={styles.highlightText}>{highlight}</Text>
                   </View>
                 ))}
@@ -636,15 +665,15 @@ const PropertyDetailScreen: React.FC = () => {
           {/* Location */}
           <View style={styles.divider} />
           <Text style={styles.sectionHeader}>
-            <Ionicons name="location-outline" size={22} color={Colors.champagneGold} /> Location & Map
+            <Ionicons name="location-outline" size={22} color={Royal.pureBlack} /> Location & Map
           </Text>
           <View style={styles.locationBox}>
             <View style={styles.locationTextContainer}>
-              <Ionicons name="location" size={24} color={Colors.champagneGold} style={{ marginTop: 2 }} />
+              <Ionicons name="location" size={24} color={Royal.pureBlack} style={{ marginTop: 2 }} />
               <Text style={styles.fullAddressText}>{fullPropertyAddress}</Text>
             </View>
             <TouchableOpacity style={styles.mapButton} onPress={handleOpenMap}>
-              <Ionicons name="map-outline" size={18} color={Colors.pureWhite} />
+              <Ionicons name="map-outline" size={18} color={Royal.pureWhite} />
               <Text style={styles.mapButtonText}>View on Map</Text>
             </TouchableOpacity>
           </View>
@@ -652,7 +681,7 @@ const PropertyDetailScreen: React.FC = () => {
           {/* Legal & Financials */}
           <View style={styles.divider} />
           <Text style={styles.sectionHeader}>
-            <Ionicons name="document-text-outline" size={22} color={Colors.champagneGold} /> Legal & Financials
+            <Ionicons name="document-text-outline" size={22} color={Royal.pureBlack} /> Legal & Financials
           </Text>
           <View style={styles.legalBox}>
             <View style={styles.legalRow}>
@@ -672,18 +701,18 @@ const PropertyDetailScreen: React.FC = () => {
             <>
               <View style={styles.divider} />
               <Text style={styles.sectionHeader}>
-                <Ionicons name="link-outline" size={22} color={Colors.champagneGold} /> Media & Links
+                <Ionicons name="link-outline" size={22} color={Royal.pureBlack} /> Media & Links
               </Text>
               <View style={styles.linksContainer}>
                 {currentProperty.virtualTourUrl && (
                   <TouchableOpacity style={styles.linkButton} onPress={() => openUrl(currentProperty.virtualTourUrl)}>
-                    <Ionicons name="videocam-outline" size={20} color={Colors.royalNavy} />
+                    <Ionicons name="videocam-outline" size={20} color={Royal.pureBlack} />
                     <Text style={styles.linkButtonText}>3D Virtual Tour</Text>
                   </TouchableOpacity>
                 )}
                 {currentProperty.websiteUrl && (
                   <TouchableOpacity style={styles.linkButton} onPress={() => openUrl(currentProperty.websiteUrl)}>
-                    <Ionicons name="globe-outline" size={20} color={Colors.royalNavy} />
+                    <Ionicons name="globe-outline" size={20} color={Royal.pureBlack} />
                     <Text style={styles.linkButtonText}>Project Website</Text>
                   </TouchableOpacity>
                 )}
@@ -694,7 +723,7 @@ const PropertyDetailScreen: React.FC = () => {
           {/* Seller Section */}
           <View style={styles.divider} />
           <Text style={styles.sectionHeader}>
-            <Ionicons name="person-outline" size={22} color={Colors.champagneGold} /> Exclusive Seller
+            <Ionicons name="person-outline" size={22} color={Royal.pureBlack} /> Exclusive Seller
           </Text>
           <View style={styles.sellerCard}>
             <View style={styles.sellerHeaderRow}>
@@ -707,27 +736,27 @@ const PropertyDetailScreen: React.FC = () => {
               </View>
               {fullVendorDetails?.isApproved || currentProperty.vendor?.isApproved ? (
                 <View style={styles.verifiedBadge}>
-                  <Ionicons name="checkmark-circle" size={24} color={Colors.champagneGold} />
+                  <Ionicons name="checkmark-circle" size={24} color={Royal.pureBlack} />
                 </View>
               ) : null}
             </View>
 
             <View style={styles.sellerInfoRow}>
-              <Ionicons name="call-outline" size={18} color={Colors.slate} />
+              <Ionicons name="call-outline" size={18} color={Royal.textSecondary} />
               <Text style={styles.sellerInfoText}>{displayPhone || "N/A"}</Text>
             </View>
             <View style={[styles.sellerInfoRow, { alignItems: "flex-start" }]}>
-              <Ionicons name="map-outline" size={18} color={Colors.slate} style={{ marginTop: 2 }} />
+              <Ionicons name="map-outline" size={18} color={Royal.textSecondary} style={{ marginTop: 2 }} />
               <Text style={styles.sellerInfoText}>{displayAddress}</Text>
             </View>
 
             <View style={styles.sellerActions}>
               <TouchableOpacity style={[styles.actionBtn, styles.callBtn]} onPress={handleCall}>
-                <Ionicons name="call" size={18} color={Colors.pureWhite} />
+                <Ionicons name="call" size={18} color={Royal.pureWhite} />
                 <Text style={styles.actionBtnText}>Call</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionBtn, styles.waBtn]} onPress={handleWhatsAppContact}>
-                <Ionicons name="logo-whatsapp" size={18} color={Colors.pureWhite} />
+                <Ionicons name="logo-whatsapp" size={18} color={Royal.pureWhite} />
                 <Text style={styles.actionBtnText}>WhatsApp</Text>
               </TouchableOpacity>
             </View>
@@ -736,11 +765,11 @@ const PropertyDetailScreen: React.FC = () => {
           {/* Share buttons row */}
           <View style={styles.shareRow}>
             <TouchableOpacity style={[styles.shareActionBtn, styles.shareBtnStyle]} onPress={handleShare} disabled={isSharing}>
-              <Ionicons name="share-social-outline" size={20} color={Colors.pureWhite} />
+              <Ionicons name="share-social-outline" size={20} color={Royal.pureWhite} />
               <Text style={styles.shareActionText}>Share</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.shareActionBtn, styles.whatsappShareBtn]} onPress={handleShareWhatsApp} disabled={isSharing}>
-              <Ionicons name="logo-whatsapp" size={20} color={Colors.pureWhite} />
+              <Ionicons name="logo-whatsapp" size={20} color={Royal.pureWhite} />
               <Text style={styles.shareActionText}>WhatsApp</Text>
             </TouchableOpacity>
           </View>
@@ -768,7 +797,7 @@ const PropertyDetailScreen: React.FC = () => {
 const DetailBox = ({ icon, label, subtitle }: { icon: any; label: string; subtitle: string }) => (
   <View style={detailStyles.box}>
     <View style={detailStyles.iconContainer}>
-      <Ionicons name={icon} size={22} color={Colors.champagneGold} />
+      <Ionicons name={icon} size={22} color={Royal.pureBlack} />
     </View>
     <View style={{ flex: 1 }}>
       <Text style={detailStyles.label} numberOfLines={1}>
@@ -787,14 +816,14 @@ const detailStyles = StyleSheet.create({
     flexDirection: "row",
     paddingVertical: 14,
     paddingHorizontal: 12,
-    backgroundColor: Colors.pureWhite,
+    backgroundColor: Royal.whiteBg,
     borderRadius: 12,
     marginBottom: 12,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: Colors.lightBorder,
-    shadowColor: Colors.royalNavy,
-    shadowOpacity: 0.04,
+    borderColor: Royal.borderLight,
+    shadowColor: Royal.shadow,
+    shadowOpacity: 1,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
     elevation: 2,
@@ -803,7 +832,7 @@ const detailStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: `${Colors.champagneGold}15`,
+    backgroundColor: Royal.offWhite,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -811,11 +840,11 @@ const detailStyles = StyleSheet.create({
   label: {
     fontSize: 15,
     fontWeight: "700",
-    color: Colors.royalNavy,
+    color: Royal.pureBlack,
   },
   subtitle: {
     fontSize: 10,
-    color: Colors.slate,
+    color: Royal.textSecondary,
     marginTop: 2,
     textTransform: "uppercase",
     letterSpacing: 0.5,
@@ -823,19 +852,27 @@ const detailStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  mainWrapper: { flex: 1, backgroundColor: Colors.pureWhite },
-  container: { flex: 1, backgroundColor: Colors.pureWhite },
+  mainWrapper: { flex: 1, backgroundColor: Royal.whiteBg },
+  container: { flex: 1, backgroundColor: Royal.whiteBg },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: Colors.offWhite,
+    backgroundColor: Royal.offWhite,
   },
   loadingText: {
-    marginTop: 16,
-    color: Colors.royalNavy,
-    fontWeight: "600",
+    marginTop: 14,
+    color: Royal.pureBlack,
+    fontWeight: "700",
     letterSpacing: 1,
+    fontSize: 13,
+  },
+  loadingDivider: {
+    width: 48,
+    height: 1.5,
+    backgroundColor: Royal.pureBlack,
+    marginTop: 12,
+    opacity: 0.4,
   },
   errorText: {
     color: "#E53E3E",
@@ -847,7 +884,7 @@ const styles = StyleSheet.create({
     position: "relative",
     width: "100%",
     height: 380,
-    backgroundColor: Colors.royalNavy,
+    backgroundColor: Royal.obsidian,
   },
   carouselImage: { width: width, height: 380, resizeMode: "cover" },
   imageGradient: {
@@ -861,7 +898,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 50 : 30,
     left: 20,
-    backgroundColor: "rgba(11, 16, 33, 0.5)",
+    backgroundColor: "rgba(11, 11, 15, 0.5)",
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -874,7 +911,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: Platform.OS === "ios" ? 50 : 30,
     right: 20,
-    backgroundColor: "rgba(11, 16, 33, 0.5)",
+    backgroundColor: "rgba(11, 11, 15, 0.5)",
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -887,7 +924,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 20,
     right: 20,
-    backgroundColor: "rgba(11, 16, 33, 0.7)",
+    backgroundColor: "rgba(11, 11, 15, 0.7)",
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
@@ -897,7 +934,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.1)",
   },
   imageIndicatorText: {
-    color: Colors.pureWhite,
+    color: Royal.pureWhite,
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 1,
@@ -905,7 +942,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 24,
     marginTop: -20,
-    backgroundColor: Colors.pureWhite,
+    backgroundColor: Royal.whiteBg,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
   },
@@ -917,15 +954,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   propertyTypeBadge: {
-    backgroundColor: `${Colors.champagneGold}15`,
+    backgroundColor: Royal.offWhite,
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: Colors.champagneGold,
+    borderColor: Royal.borderLight,
   },
   propertyTypeTag: {
-    color: Colors.champagneGold,
+    color: Royal.pureBlack,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 1,
@@ -937,53 +974,45 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   statusReady: {
-    backgroundColor: `${Colors.success}15`,
-    borderWidth: 1,
-    borderColor: Colors.success,
+    backgroundColor: Royal.pureBlack,
   },
   statusConstruction: {
-    backgroundColor: `${Colors.warning}15`,
-    borderWidth: 1,
-    borderColor: Colors.warning,
+    backgroundColor: Royal.pureBlack,
   },
   statusNew: {
-    backgroundColor: `${Colors.info}15`,
-    borderWidth: 1,
-    borderColor: Colors.info,
+    backgroundColor: Royal.pureBlack,
   },
   statusResale: {
-    backgroundColor: `${Colors.slate}15`,
-    borderWidth: 1,
-    borderColor: Colors.slate,
+    backgroundColor: Royal.pureBlack,
   },
   statusTagText: {
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 1,
     textTransform: "uppercase",
-    color: Colors.royalNavy,
+    color: Royal.pureWhite,
   },
   title: {
     fontSize: 26,
     fontWeight: "700",
-    color: Colors.royalNavy,
+    color: Royal.pureBlack,
     lineHeight: 34,
     letterSpacing: 0.5,
   },
   locationSubText: {
     fontSize: 15,
-    color: Colors.charcoal,
+    color: Royal.textSecondary,
     marginTop: 8,
     fontWeight: "400",
     lineHeight: 22,
   },
   priceSection: {
     marginBottom: 20,
-    backgroundColor: `${Colors.champagneGold}08`,
+    backgroundColor: Royal.offWhite,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: `${Colors.champagneGold}30`,
+    borderColor: Royal.borderLight,
   },
   priceRow: {
     flexDirection: "row",
@@ -993,35 +1022,35 @@ const styles = StyleSheet.create({
   priceTag: {
     fontSize: 28,
     fontWeight: "700",
-    color: Colors.royalNavy,
+    color: Royal.pureBlack,
   },
   rateText: {
     fontSize: 14,
-    color: Colors.slate,
+    color: Royal.textSecondary,
     fontWeight: "600",
   },
   areaTag: {
     marginTop: 8,
     alignSelf: "flex-start",
-    backgroundColor: `${Colors.champagneGold}10`,
+    backgroundColor: Royal.pureBlack,
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 6,
   },
   areaTagText: {
     fontSize: 12,
-    color: Colors.champagneGold,
+    color: Royal.pureWhite,
     fontWeight: "600",
   },
   divider: {
     height: 1,
-    backgroundColor: Colors.lightBorder,
+    backgroundColor: Royal.borderLight,
     marginVertical: 24,
   },
   sectionHeader: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.royalNavy,
+    color: Royal.pureBlack,
     marginBottom: 20,
     letterSpacing: 0.5,
   },
@@ -1031,11 +1060,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   locationBox: {
-    backgroundColor: Colors.offWhite,
+    backgroundColor: Royal.offWhite,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: Colors.lightBorder,
+    borderColor: Royal.borderLight,
     marginBottom: 16,
   },
   locationTextContainer: {
@@ -1045,41 +1074,41 @@ const styles = StyleSheet.create({
   },
   fullAddressText: {
     fontSize: 15,
-    color: Colors.charcoal,
+    color: Royal.textPrimary,
     marginLeft: 10,
     flex: 1,
     lineHeight: 22,
   },
   mapButton: {
     flexDirection: "row",
-    backgroundColor: Colors.royalNavy,
+    backgroundColor: Royal.pureBlack,
     paddingVertical: 12,
     borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
   },
   mapButtonText: {
-    color: Colors.pureWhite,
+    color: Royal.pureWhite,
     fontSize: 15,
     fontWeight: "600",
     marginLeft: 8,
   },
   legalBox: {
-    backgroundColor: Colors.offWhite,
+    backgroundColor: Royal.offWhite,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: Colors.lightBorder,
+    borderColor: Royal.borderLight,
   },
   legalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.lightBorder,
+    borderBottomColor: Royal.borderLight,
   },
-  legalLabel: { fontSize: 14, color: Colors.slate, fontWeight: "500" },
-  legalValue: { fontSize: 14, color: Colors.royalNavy, fontWeight: "600" },
+  legalLabel: { fontSize: 14, color: Royal.textSecondary, fontWeight: "500" },
+  legalValue: { fontSize: 14, color: Royal.pureBlack, fontWeight: "600" },
   linksContainer: {
     flexDirection: "row",
     gap: 12,
@@ -1092,15 +1121,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: Colors.offWhite,
+    backgroundColor: Royal.offWhite,
     borderWidth: 1,
-    borderColor: Colors.lightBorder,
+    borderColor: Royal.borderLight,
     minWidth: "45%",
   },
   linkButtonText: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.royalNavy,
+    color: Royal.pureBlack,
     marginLeft: 8,
   },
   tagsContainer: {
@@ -1111,16 +1140,16 @@ const styles = StyleSheet.create({
   tagPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: `${Colors.champagneGold}10`,
+    backgroundColor: Royal.offWhite,
     borderWidth: 1,
-    borderColor: `${Colors.champagneGold}30`,
+    borderColor: Royal.borderLight,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
     gap: 6,
   },
   tagText: {
-    color: Colors.royalNavy,
+    color: Royal.pureBlack,
     fontSize: 13,
     fontWeight: "500",
   },
@@ -1132,18 +1161,18 @@ const styles = StyleSheet.create({
   amenityItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: Colors.offWhite,
+    backgroundColor: Royal.offWhite,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.lightBorder,
+    borderColor: Royal.borderLight,
     gap: 8,
     minWidth: "45%",
   },
   amenityText: {
     fontSize: 14,
-    color: Colors.charcoal,
+    color: Royal.textPrimary,
     fontWeight: "500",
   },
   highlightsContainer: {
@@ -1155,30 +1184,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: `${Colors.champagneGold}05`,
+    backgroundColor: Royal.offWhite,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: `${Colors.champagneGold}15`,
+    borderColor: Royal.borderLight,
   },
-  goldDot: {
+  blackDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: Colors.champagneGold,
+    backgroundColor: Royal.pureBlack,
     marginRight: 14,
   },
   highlightText: {
     fontSize: 15,
-    color: Colors.charcoal,
+    color: Royal.textPrimary,
     fontWeight: "500",
     flex: 1,
   },
   sellerCard: {
-    backgroundColor: Colors.offWhite,
+    backgroundColor: Royal.offWhite,
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: Colors.lightBorder,
+    borderColor: Royal.borderLight,
   },
   sellerHeaderRow: {
     flexDirection: "row",
@@ -1190,17 +1219,17 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 2,
-    borderColor: Colors.champagneGold,
+    borderColor: Royal.pureBlack,
     marginRight: 16,
   },
   sellerNameContainer: { flex: 1 },
   sellerShopName: {
     fontSize: 18,
     fontWeight: "700",
-    color: Colors.royalNavy,
+    color: Royal.pureBlack,
     marginBottom: 4,
   },
-  sellerPersonName: { fontSize: 14, color: Colors.slate, fontWeight: "500" },
+  sellerPersonName: { fontSize: 14, color: Royal.textSecondary, fontWeight: "500" },
   verifiedBadge: {
     marginLeft: 8,
   },
@@ -1211,7 +1240,7 @@ const styles = StyleSheet.create({
   },
   sellerInfoText: {
     fontSize: 14,
-    color: Colors.charcoal,
+    color: Royal.textPrimary,
     marginLeft: 10,
     flex: 1,
     lineHeight: 20,
@@ -1230,23 +1259,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   callBtn: {
-    backgroundColor: Colors.royalNavy,
-    shadowColor: Colors.royalNavy,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: Royal.pureBlack,
   },
   waBtn: {
-    backgroundColor: Colors.whatsapp,
-    shadowColor: Colors.whatsapp,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: Royal.pureBlack,
   },
   actionBtnText: {
-    color: Colors.pureWhite,
+    color: Royal.pureWhite,
     fontWeight: "600",
     fontSize: 15,
     marginLeft: 8,
@@ -1266,13 +1285,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   shareBtnStyle: {
-    backgroundColor: Colors.royalNavy,
+    backgroundColor: Royal.pureBlack,
   },
   whatsappShareBtn: {
-    backgroundColor: Colors.whatsapp,
+    backgroundColor: Royal.pureBlack,
   },
   shareActionText: {
-    color: Colors.pureWhite,
+    color: Royal.pureWhite,
     fontWeight: "600",
     fontSize: 15,
   },
@@ -1281,19 +1300,19 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: Colors.royalNavy,
+    backgroundColor: Royal.whiteBg,
     padding: 16,
     paddingBottom: Platform.OS === "ios" ? 34 : 36,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.1)",
+    borderTopColor: Royal.borderLight,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.08,
     shadowRadius: 20,
-    elevation: 20,
+    elevation: 10,
   },
   vendorProfileSmall: {
     flexDirection: "row",
@@ -1307,11 +1326,11 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     marginRight: 12,
     borderWidth: 2,
-    borderColor: Colors.champagneGold,
+    borderColor: Royal.pureBlack,
   },
   bottomVendorSub: {
     fontSize: 9,
-    color: Colors.champagneGold,
+    color: Royal.textSecondary,
     fontWeight: "700",
     letterSpacing: 1,
     marginBottom: 2,
@@ -1319,22 +1338,17 @@ const styles = StyleSheet.create({
   bottomVendorName: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.pureWhite,
+    color: Royal.pureBlack,
   },
   contactButton: {
-    backgroundColor: Colors.champagneGold,
+    backgroundColor: Royal.pureBlack,
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 30,
     alignItems: "center",
-    shadowColor: Colors.champagneGold,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
   },
   contactButtonText: {
-    color: Colors.royalNavy,
+    color: Royal.pureWhite,
     fontWeight: "700",
     fontSize: 14,
     letterSpacing: 0.5,

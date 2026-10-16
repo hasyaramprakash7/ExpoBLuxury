@@ -1,76 +1,81 @@
-// FILE: src/navigation/navigationRef.ts
-import { createNavigationContainerRef, NavigatorScreenParams } from "@react-navigation/native";
+// src/userScreens/utils/navigationRef.ts
+import { createNavigationContainerRef } from '@react-navigation/native';
 
-interface Product {
-  _id: string;
-  name: string;
-  price: number;
-  discountedPrice?: number;
-}
-
-interface Order {
-  _id: string;
-  status: string;
-  items: Array<any>;
-  user: { name?: string };
-  address: any;
-  paymentMethod: string;
-  createdAt: string;
-  updatedAt: string;
-  deliveryBoy?: any;
-}
-
-interface Vendor {
-  _id: string;
-  shopName: string;
-  address?: any;
-}
-
-export type BottomTabParamList = {
-  Home: undefined;
-  Gift: undefined;
-  Order: undefined;
-  Pay: undefined;
-  Search: undefined;
-};
+export const navigationRef = createNavigationContainerRef<any>();
 
 export type RootStackParamList = {
+  // Chooser + auth
+  ProfileChooser: undefined;
   Login: undefined;
   Signup: undefined;
   VendorLogin: undefined;
   SignupVendor: undefined;
-  VendorDashboard: undefined;
-  VendorProductCRUD: undefined;
-  VendorChatScreen: { sharedData?: any } | undefined;
-  VendorOrderList: undefined;
-  ActiveDeliveryBoys: { orderId: string };
-  UserTabs: NavigatorScreenParams<BottomTabParamList>;
-  Profile: undefined;
-  ProductDetails: { product: Product };
-  OrderScreen: undefined;
-  UserOrderScreen: undefined;
-  CartScreen: undefined;
   DeliveryBoyLogin: undefined;
   DeliveryBoySignup: undefined;
-  DeliveryBoyDashboard: undefined;
-  DeliveryBoyOrders: { id: string };
-  DeliveryBoyPickups: { id: string };
-  DeliveryBoyHistory: { id: string };
-  VendorGenerateInvoice: { orderData: Order; vendorData: Vendor };
-  ShopListings: undefined;
-  ShopDetails: { vendorId: string; vendorName: string };
-  CategoryProducts: { categoryName: string };
-  ShopProducts: { vendorId: string; vendorName: string };
-  BrandProducts: { brandName: string };
-  InsuranceProductCRUD: undefined;
-  VendorAppointmentsList: undefined;
-  InsuranceProductsAndDetails: undefined;
-  ProductDetailScreen: { productId: string };
-  PropertyCRUDScreen: undefined;
-  PropertyDetailScreen: { propertyId: string };
-  ChatScreen: { sharedData?: any } | undefined;
-  UserPropertyListScreen: undefined;
-  AddressScreen: { isForceSelect?: boolean } | undefined; 
-};
 
-export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+  // Role roots
+  UserTabs: undefined;
+  VendorTabs: undefined;
+  DeliveryBoyDashboard: undefined;
+  DeliveryBoyOrders: undefined;
+  VendorDashboard: undefined;
+
+  // User stacks
+  AddressScreen: undefined;
+  Profile: undefined;
+  CartScreen: undefined;
+  OrderScreen: undefined;
+  ProductDetails: { productId: string };
+  UserOrderScreen: undefined;
+  ShopListings: undefined;
+  ShopDetails: { vendorId: string };
+  ShopReviews: undefined;
+  CategoryShopsScreen: undefined;
+  CategoryProducts: undefined;
+  ShopProducts: undefined;
+  BrandProducts: undefined;
+  ProductSearchScreen: undefined;
+  MyCategoriesScreen: undefined;
+  InsuranceProductsAndDetails: undefined;
+  ProductDetailScreen: undefined;
+  ProductDetailScreen10: undefined;
+  PropertyDetailScreen: { propertyId: string };
+  UserPropertyListScreen: undefined;
+  RentalList: undefined;
+  RentalDetail: { rentalId: string };
+  AdListScreen: undefined;
+  AdGroupDetail: undefined;
+  WebViewScreen: { url: string };
+  AllCategoriesScreen: undefined;
+  AddAddressScreen: undefined;
+
+  // Vendor extras
+  VendorProductViews: undefined;
+  VendorChatScreen: undefined;
+  VendorProductCRUD: undefined;
+  VendorOrderList: undefined;
+  ActiveDeliveryBoys: { orderId: string };
+  VendorGenerateInvoice: undefined;
+  InsuranceProductCRUD: undefined;
+  PropertyCRUDScreen: undefined;
+  VendorAppointmentsList: undefined;
+  VendorLeads: undefined;
+  RentalCRUD: undefined;
+  SubscriptionChoice: undefined;
+  SubscriptionManagement: undefined;
+  SubscriptionPending: undefined;
+  AdManagement: undefined;
+
+  // Social
+  Messages: undefined | { conversationId?: string };
+  Notifications: undefined;
+  EditProfile: undefined;
+  StoryViewer: { storyId: string };
+  HashtagPosts: { tag: string };
+  SearchScreen: undefined;
+
+  // Misc
+  ChatScreen: undefined;
+  HomeScreen: undefined;
+  Search: undefined;
+};

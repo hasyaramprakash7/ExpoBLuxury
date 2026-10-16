@@ -1,5 +1,5 @@
 // AddAddressScreen.tsx
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -12,28 +12,40 @@ import {
   Platform,
   Keyboard,
   FlatList,
-} from 'react-native';
-import { WebView } from 'react-native-webview';
-import * as Location from 'expo-location';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNavigation } from '@react-navigation/native';
-import { useDispatch, useSelector } from 'react-redux';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+} from "react-native";
+import { WebView } from "react-native-webview";
+import * as Location from "expo-location";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useNavigation } from "@react-navigation/native";
+import { useDispatch, useSelector } from "react-redux";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 
-import { AppDispatch, RootState } from '../app/store';
-import { saveUserAddress, setSelectedAddress, NewAddressPayload } from '../features/locationSlice';
+import { AppDispatch, RootState } from "../app/store";
+import {
+  saveUserAddress,
+  setSelectedAddress,
+  NewAddressPayload,
+} from "../features/locationSlice";
 
-const Colors = {
-  white: '#FFFFFF',
-  darkText: '#1C1C1E',
-  grayText: '#6B7280',
-  lightGray: '#F0F0F0',
-  darkGreen: '#1B8C40',
-  borderGray: '#E5E5EA',
-  successGreen: '#34C759',
+// ─────────────────────────────────────────────────────────────
+// 👑 ROYAL PALETTE
+// ─────────────────────────────────────────────────────────────
+const Royal = {
+  gold: "#D4AF37",
+  goldSoft: "#E8CC7A",
+  goldBright: "#F4DC90",
+  goldDim: "rgba(212,175,55,0.35)",
+  goldFaint: "rgba(212,175,55,0.10)",
+  royalGreen: "#0A3D2B",
+  royalGreenDeep: "#062318",
+  obsidian: "#0B0B0F",
+  ivory: "#FBF7EE",
+  cream: "#FAF3E0",
+  maroon: "#5C1A2B",
 };
 
-type AddressType = 'Home' | 'Work' | 'Other';
+type AddressType = "Home" | "Work" | "Other";
 
 interface Region {
   latitude: number;
@@ -55,45 +67,46 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
 }) => {
   const navigation = useNavigation();
   const dispatch = useDispatch<AppDispatch>();
-  const insets = useSafeAreaInsets(); // <-- for top/bottom safe areas
+  const insets = useSafeAreaInsets();
 
   const webViewRef = useRef<WebView>(null);
   const searchTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const { token } = useSelector((state: RootState) => state.auth);
-  const { addressActionLoading } = useSelector((state: RootState) => state.location);
+  const { addressActionLoading } = useSelector(
+    (state: RootState) => state.location
+  );
 
-  const [initialCoords, setInitialCoords] = useState<{lat: number, lng: number} | null>(null);
+  const [initialCoords, setInitialCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
-  const [fetchedAddress, setFetchedAddress] = useState<string>('Locating...');
-  const [detailedAddress, setDetailedAddress] = useState<string>('');
-  const [selectedType, setSelectedType] = useState<AddressType>('Home');
+  const [fetchedAddress, setFetchedAddress] = useState<string>("Locating...");
+  const [detailedAddress, setDetailedAddress] = useState<string>("");
+  const [selectedType, setSelectedType] = useState<AddressType>("Home");
   const [isMapMoving, setIsMapMoving] = useState<boolean>(false);
   const [isLocating, setIsLocating] = useState<boolean>(true);
 
-  // Search states
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [showSearchResults, setShowSearchResults] = useState<boolean>(false);
 
   const [addressDetails, setAddressDetails] = useState({
-    city: '',
-    state: '',
-    pincode: '',
-    locality: '',
-    street: '',
-    country: 'India',
-    colony: '',
-    suburb: '',
-    neighbourhood: '',
-    district: '',
+    city: "",
+    state: "",
+    pincode: "",
+    locality: "",
+    street: "",
+    country: "India",
+    colony: "",
+    suburb: "",
+    neighbourhood: "",
+    district: "",
   });
 
-  const defaultLocation = {
-    latitude: 17.6868,
-    longitude: 83.2185,
-  };
+  const defaultLocation = { latitude: 17.6868, longitude: 83.2185 };
 
   useEffect(() => {
     getCurrentLocation();
@@ -101,28 +114,29 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
 
   const getCurrentLocation = async () => {
     setIsLocating(true);
-    setFetchedAddress('Locating your exact position...');
+    setFetchedAddress("Locating your exact position...");
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'We need location access to pin your address.');
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Denied",
+          "We need location access to pin your address."
+        );
         handleLocationFound(defaultLocation.latitude, defaultLocation.longitude);
         return;
       }
-
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-
-      if (location && location.coords) {
+      if (location?.coords) {
         handleLocationFound(location.coords.latitude, location.coords.longitude);
       } else {
         handleLocationFound(defaultLocation.latitude, defaultLocation.longitude);
       }
     } catch (error) {
-      console.warn('Error getting live location:', error);
+      console.warn("Error getting live location:", error);
       handleLocationFound(defaultLocation.latitude, defaultLocation.longitude);
-      setFetchedAddress('Could not determine current location');
+      setFetchedAddress("Could not determine current location");
     }
   };
 
@@ -130,9 +144,10 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
     if (!initialCoords) {
       setInitialCoords({ lat, lng });
     } else {
-      webViewRef.current?.injectJavaScript(`window.updateMapCenter(${lat}, ${lng}); true;`);
+      webViewRef.current?.injectJavaScript(
+        `window.updateMapCenter(${lat}, ${lng}); true;`
+      );
     }
-    
     setRegion({ latitude: lat, longitude: lng });
     fetchAddressFromCoords(lat, lng);
     setIsLocating(false);
@@ -153,73 +168,95 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
           place.postalCode,
           place.country,
         ]
-          .filter((part) => part && part !== 'Unnamed Road')
-          .join(', ');
+          .filter((part) => part && part !== "Unnamed Road")
+          .join(", ");
 
-        setFetchedAddress(addressParts || 'Unknown Location');
+        setFetchedAddress(addressParts || "Unknown Location");
         setAddressDetails({
-          city: place.city || place.district || '',
-          state: place.region || '',
-          pincode: place.postalCode || '',
-          locality: place.subregion || place.district || '',
-          street: place.street || place.name || '',
-          country: place.country || 'India',
-          colony: place.neighborhood || place.suburb || '',
-          suburb: place.suburb || '',
-          neighbourhood: place.neighbourhood || '',
-          district: place.district || '',
+          city: place.city || place.district || "",
+          state: place.region || "",
+          pincode: place.postalCode || "",
+          locality: place.subregion || place.district || "",
+          street: place.street || place.name || "",
+          country: place.country || "India",
+          colony: place.neighborhood || place.suburb || "",
+          suburb: place.suburb || "",
+          neighbourhood: place.neighbourhood || "",
+          district: place.district || "",
         });
       } else {
-        setFetchedAddress('Unknown Location');
+        setFetchedAddress("Unknown Location");
         setAddressDetails({
-          city: '', state: '', pincode: '', locality: '', street: '',
-          country: 'India', colony: '', suburb: '', neighbourhood: '', district: '',
+          city: "",
+          state: "",
+          pincode: "",
+          locality: "",
+          street: "",
+          country: "India",
+          colony: "",
+          suburb: "",
+          neighbourhood: "",
+          district: "",
         });
       }
     } catch (error) {
-      console.error('Geocoding error:', error);
-      setFetchedAddress('Could not fetch address details');
+      console.error("Geocoding error:", error);
+      setFetchedAddress("Could not fetch address details");
     }
   };
 
-  // ========== SEARCH FUNCTIONALITY ==========
   const searchLocations = useCallback((query: string) => {
     setSearchQuery(query);
     setShowSearchResults(query.length > 0);
-    
+
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    
+
     if (!query || query.length < 2) {
       setSearchResults([]);
       setIsSearching(false);
       return;
     }
-    
+
     setIsSearching(true);
     searchTimeout.current = setTimeout(async () => {
       try {
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=15&countrycodes=in`,
-          {
-            headers: { 'User-Agent': 'BLuxuryApp/1.0' },
-          }
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+            query
+          )}&format=json&addressdetails=1&limit=15&countrycodes=in`,
+          { headers: { "User-Agent": "BLuxuryApp/1.0" } }
         );
         const data = await response.json();
-        
         const results = data.sort((a: any, b: any) => {
           const getPriority = (item: any) => {
-            const cls = item.class || '';
-            const type = item.type || '';
-            if (['neighbourhood', 'suburb', 'city', 'town', 'village', 'district', 'county', 'state'].includes(type)) return 1;
-            if (['highway', 'road', 'street', 'amenity', 'place', 'boundary'].includes(cls)) return 2;
+            const cls = item.class || "";
+            const type = item.type || "";
+            if (
+              [
+                "neighbourhood",
+                "suburb",
+                "city",
+                "town",
+                "village",
+                "district",
+                "county",
+                "state",
+              ].includes(type)
+            )
+              return 1;
+            if (
+              ["highway", "road", "street", "amenity", "place", "boundary"].includes(
+                cls
+              )
+            )
+              return 2;
             return 3;
           };
           return getPriority(a) - getPriority(b);
         });
-        
         setSearchResults(results);
       } catch (error) {
-        console.error('Search error:', error);
+        console.error("Search error:", error);
         setSearchResults([]);
       } finally {
         setIsSearching(false);
@@ -230,11 +267,9 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
   const selectSearchResult = useCallback((item: any) => {
     const lat = parseFloat(item.lat);
     const lon = parseFloat(item.lon);
-    
     Keyboard.dismiss();
     handleLocationFound(lat, lon);
-    
-    setSearchQuery('');
+    setSearchQuery("");
     setSearchResults([]);
     setShowSearchResults(false);
     setIsSearching(false);
@@ -243,13 +278,12 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
   const handleMapMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'movestart') {
+      if (data.type === "movestart") {
         setIsMapMoving(true);
         Keyboard.dismiss();
-      } else if (data.type === 'moveend') {
+      } else if (data.type === "moveend") {
         const lat = parseFloat(data.lat);
         const lng = parseFloat(data.lng);
-
         if (
           !isNaN(lat) &&
           !isNaN(lng) &&
@@ -261,10 +295,9 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
           setIsMapMoving(false);
           setRegion({ latitude: lat, longitude: lng });
           fetchAddressFromCoords(lat, lng);
-          
           setSearchResults([]);
           setShowSearchResults(false);
-          setSearchQuery('');
+          setSearchQuery("");
         }
       }
     } catch (error) {
@@ -274,7 +307,7 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
 
   const handleSaveAddress = () => {
     if (!token && !onLocationSelect) {
-      Alert.alert('Error', 'You must be logged in to save an address.');
+      Alert.alert("Error", "You must be logged in to save an address.");
       return;
     }
     if (!region) return;
@@ -312,7 +345,7 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
         onClose();
       })
       .catch((err) => {
-        Alert.alert('Failed to save address', err);
+        Alert.alert("Failed to save address", err);
       });
   };
 
@@ -322,7 +355,7 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
   };
 
   const generateMapHtml = useMemo(() => {
-    if (!initialCoords) return '';
+    if (!initialCoords) return "";
     return `
       <!DOCTYPE html>
       <html>
@@ -331,7 +364,7 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <style>
-          body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: ${Colors.lightGray}; }
+          body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: ${Royal.ivory}; }
           #map { width: 100%; height: 100%; }
           .leaflet-control-attribution { display: none; }
         </style>
@@ -339,28 +372,18 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
       <body>
         <div id="map"></div>
         <script>
-          var map = L.map('map', { 
-            zoomControl: false,
-            attributionControl: false 
-          }).setView([${initialCoords.lat}, ${initialCoords.lng}], 17);
-          
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19
-          }).addTo(map);
-
+          var map = L.map('map', { zoomControl: false, attributionControl: false })
+            .setView([${initialCoords.lat}, ${initialCoords.lng}], 17);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
           map.on('movestart', function() {
             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'movestart' }));
           });
-
           map.on('moveend', function() {
             var center = map.getCenter();
-            window.ReactNativeWebView.postMessage(JSON.stringify({ 
-              type: 'moveend', 
-              lat: center.lat, 
-              lng: center.lng 
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'moveend', lat: center.lat, lng: center.lng
             }));
           });
-
           window.updateMapCenter = function(lat, lng) {
             map.setView([lat, lng], 17, { animate: true });
           };
@@ -373,9 +396,10 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.container}>
+        {/* ─── Map area ─── */}
         <View style={styles.mapContainer}>
           {initialCoords ? (
             <WebView
@@ -390,12 +414,15 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
             />
           ) : (
             <View style={styles.mapLoading}>
-              <ActivityIndicator size="large" color={Colors.darkGreen} />
-              <Text style={styles.mapLoadingText}>Finding your current location...</Text>
+              <ActivityIndicator size="large" color={Royal.gold} />
+              <Text style={styles.mapLoadingText}>
+                Finding your current location…
+              </Text>
+              <View style={styles.goldHairline} />
             </View>
           )}
 
-          {/* Fixed Center Marker overlay */}
+          {/* Center marker */}
           <View style={styles.centerMarkerContainer} pointerEvents="none">
             <View
               style={[
@@ -403,51 +430,62 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
                 isMapMoving && styles.markerBubbleMoving,
               ]}
             >
+              <View style={styles.markerBubbleCrown}>
+                <Ionicons name="diamond" size={8} color={Royal.gold} />
+              </View>
               <Text style={styles.markerText}>
-                {isMapMoving ? 'Move map to adjust' : 'Location selected here'}
+                {isMapMoving ? "Move map to adjust" : "Location selected here"}
               </Text>
             </View>
-            <Ionicons
-              name="location"
-              size={42}
-              color={Colors.darkText}
-              style={[styles.markerIcon, isMapMoving && styles.markerIconMoving]}
-            />
+            <View style={styles.markerPinWrap}>
+              <LinearGradient
+                colors={[Royal.goldBright, Royal.gold, Royal.goldSoft]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.markerPinGold}
+              >
+                <Ionicons
+                  name="location"
+                  size={22}
+                  color={Royal.obsidian}
+                  style={[isMapMoving && styles.markerIconMoving]}
+                />
+              </LinearGradient>
+            </View>
             <View style={styles.markerShadow} />
           </View>
 
-          {/* Search Bar Overlay – with safe‑area top */}
+          {/* Search bar */}
           <View style={[styles.searchContainer, { top: Math.max(insets.top, 20) }]}>
             <View style={styles.searchBar}>
-              <Ionicons name="search" size={20} color={Colors.grayText} />
+              <Ionicons name="search" size={18} color={Royal.gold} />
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search locality, city, pincode..."
-                placeholderTextColor={Colors.grayText}
+                placeholderTextColor={Royal.royalGreen}
                 value={searchQuery}
                 onChangeText={searchLocations}
                 onFocus={() => {
-                  if (searchQuery.length > 0) {
-                    setShowSearchResults(true);
-                  }
+                  if (searchQuery.length > 0) setShowSearchResults(true);
                 }}
               />
-              {isSearching && <ActivityIndicator size="small" color={Colors.darkGreen} />}
+              {isSearching && (
+                <ActivityIndicator size="small" color={Royal.gold} />
+              )}
               {searchQuery.length > 0 && (
                 <TouchableOpacity
                   onPress={() => {
-                    setSearchQuery('');
+                    setSearchQuery("");
                     setSearchResults([]);
                     setShowSearchResults(false);
                     Keyboard.dismiss();
                   }}
                 >
-                  <Ionicons name="close-circle" size={20} color={Colors.grayText} />
+                  <Ionicons name="close-circle" size={20} color={Royal.gold} />
                 </TouchableOpacity>
               )}
             </View>
 
-            {/* Search Results Dropdown */}
             {showSearchResults && searchResults.length > 0 && (
               <View style={styles.searchResultsContainer}>
                 <FlatList
@@ -458,16 +496,27 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
                       style={styles.searchResultItem}
                       onPress={() => selectSearchResult(item)}
                     >
-                      <Ionicons name="location-outline" size={18} color={Colors.darkGreen} />
+                      <Ionicons
+                        name="location-outline"
+                        size={18}
+                        color={Royal.gold}
+                      />
                       <View style={styles.searchResultTextContainer}>
-                        <Text style={styles.searchResultText} numberOfLines={2}>
+                        <Text
+                          style={styles.searchResultText}
+                          numberOfLines={2}
+                        >
                           {item.display_name}
                         </Text>
                         <Text style={styles.searchResultType}>
-                          {item.type || item.class || 'Location'}
+                          {(item.type || item.class || "Location").toUpperCase()}
                         </Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={16} color={Colors.grayText} />
+                      <Ionicons
+                        name="chevron-forward"
+                        size={16}
+                        color={Royal.gold}
+                      />
                     </TouchableOpacity>
                   )}
                   keyboardShouldPersistTaps="always"
@@ -477,67 +526,118 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
             )}
           </View>
 
-          {/* Close Button – safe‑area top */}
+          {/* Close button */}
           <TouchableOpacity
             style={[styles.closeButton, { top: Math.max(insets.top, 20) }]}
             onPress={handleClose}
           >
-            <Ionicons name={onClose ? 'close' : 'arrow-back'} size={24} color={Colors.darkText} />
+            <Ionicons
+              name={onClose ? "close" : "arrow-back"}
+              size={22}
+              color={Royal.gold}
+            />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.myLocationButton} onPress={getCurrentLocation}>
-            <Ionicons name="locate" size={24} color={Colors.darkGreen} />
+          {/* My location button */}
+          <TouchableOpacity
+            style={styles.myLocationButton}
+            onPress={getCurrentLocation}
+          >
+            <Ionicons name="locate" size={22} color={Royal.gold} />
           </TouchableOpacity>
         </View>
 
-        {/* Bottom Sheet – safe‑area bottom */}
+        {/* ─── Bottom sheet ─── */}
         <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + 20 }]}>
+          <LinearGradient
+            colors={["rgba(212,175,55,0)", Royal.gold, "rgba(212,175,55,0)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.sheetTopHairline}
+            pointerEvents="none"
+          />
+          <View style={styles.sheetHandle} />
+
           <View style={styles.locationHeader}>
-            <View style={styles.locationIconContainer}>
-              <Ionicons name="location" size={24} color={Colors.darkGreen} />
+            <View style={styles.locationIconRing}>
+              <LinearGradient
+                colors={[Royal.goldBright, Royal.gold, Royal.goldSoft]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.locationIconContainer}
+              >
+                <Ionicons name="location" size={20} color={Royal.obsidian} />
+              </LinearGradient>
             </View>
             <View style={styles.locationTextContainer}>
-              <Text style={styles.locationTitle}>Delivery Location</Text>
+              <Text style={styles.locationTitle}>DELIVERY LOCATION</Text>
               <Text style={styles.locationSubtitle} numberOfLines={2}>
-                {isLocating ? 'Fetching address...' : fetchedAddress}
+                {isLocating ? "Fetching address…" : fetchedAddress}
               </Text>
             </View>
           </View>
 
-          <View style={styles.divider} />
+          <View style={styles.goldDivider}>
+            <View style={styles.goldDividerLine} />
+            <Ionicons
+              name="diamond-outline"
+              size={10}
+              color={Royal.gold}
+              style={{ marginHorizontal: 8 }}
+            />
+            <View style={styles.goldDividerLine} />
+          </View>
 
           <TextInput
             style={styles.input}
             placeholder="House / Flat / Block No."
-            placeholderTextColor={Colors.grayText}
+            placeholderTextColor={Royal.royalGreen}
             value={detailedAddress}
             onChangeText={setDetailedAddress}
           />
 
-          <Text style={styles.saveAsLabel}>Save as</Text>
+          <Text style={styles.saveAsLabel}>SAVE AS</Text>
           <View style={styles.typeContainer}>
-            {(['Home', 'Work', 'Other'] as AddressType[]).map((type) => {
+            {(["Home", "Work", "Other"] as AddressType[]).map((type) => {
               const isSelected = selectedType === type;
-              let iconName = 'location-outline';
-              if (type === 'Home') iconName = 'home-outline';
-              if (type === 'Work') iconName = 'briefcase-outline';
-
+              let iconName = "location-outline";
+              if (type === "Home") iconName = "home-outline";
+              if (type === "Work") iconName = "briefcase-outline";
               return (
                 <TouchableOpacity
                   key={type}
-                  style={[styles.typeChip, isSelected && styles.typeChipSelected]}
+                  style={styles.typeChipWrapper}
                   onPress={() => setSelectedType(type)}
+                  activeOpacity={0.85}
                 >
-                  <Ionicons
-                    name={iconName as any}
-                    size={16}
-                    color={isSelected ? Colors.darkGreen : Colors.darkText}
-                  />
-                  <Text
-                    style={[styles.typeChipText, isSelected && styles.typeChipTextSelected]}
-                  >
-                    {type}
-                  </Text>
+                  {isSelected ? (
+                    <LinearGradient
+                      colors={[Royal.goldBright, Royal.gold, Royal.goldSoft]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.typeChip}
+                    >
+                      <Ionicons
+                        name={iconName as any}
+                        size={14}
+                        color={Royal.obsidian}
+                      />
+                      <Text style={[styles.typeChipText, styles.typeChipTextSelected]}>
+                        {type.toUpperCase()}
+                      </Text>
+                    </LinearGradient>
+                  ) : (
+                    <View style={styles.typeChip}>
+                      <Ionicons
+                        name={iconName as any}
+                        size={14}
+                        color={Royal.gold}
+                      />
+                      <Text style={styles.typeChipText}>
+                        {type.toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -547,11 +647,32 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
             style={styles.saveButton}
             onPress={handleSaveAddress}
             disabled={addressActionLoading}
+            activeOpacity={0.9}
           >
+            <LinearGradient
+              colors={[Royal.goldBright, Royal.gold, Royal.goldSoft]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={["rgba(255,255,255,0.55)", "rgba(255,255,255,0)"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.saveButtonShimmer}
+              pointerEvents="none"
+            />
             {addressActionLoading ? (
-              <ActivityIndicator color={Colors.white} />
+              <ActivityIndicator color={Royal.obsidian} />
             ) : (
-              <Text style={styles.saveButtonText}>Save Address and Proceed</Text>
+              <View style={styles.saveButtonInner}>
+                <Text style={styles.saveButtonText}>SAVE ADDRESS & PROCEED</Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={16}
+                  color={Royal.obsidian}
+                />
+              </View>
             )}
           </TouchableOpacity>
         </View>
@@ -560,101 +681,151 @@ const AddAddressScreen: React.FC<AddAddressScreenProps> = ({
   );
 };
 
+// ─────────────────────────────────────────────────────────────
+// 👑 Royal Styles
+// ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.white },
-  mapContainer: { flex: 1, position: 'relative' },
+  container: { flex: 1, backgroundColor: Royal.ivory },
+  mapContainer: { flex: 1, position: "relative" },
   map: { ...StyleSheet.absoluteFillObject },
   mapLoading: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: Colors.lightGray,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: Royal.ivory,
   },
-  mapLoadingText: { marginTop: 12, color: Colors.darkText, fontWeight: '600' },
+  mapLoadingText: {
+    marginTop: 14,
+    color: Royal.royalGreenDeep,
+    fontWeight: "700",
+    letterSpacing: 1,
+    fontSize: 13,
+  },
+  goldHairline: {
+    width: 48,
+    height: 1,
+    backgroundColor: Royal.gold,
+    marginTop: 12,
+    opacity: 0.6,
+  },
+
+  // ─── Marker ───
   centerMarkerContainer: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
+    position: "absolute",
+    top: "50%",
+    left: "50%",
     marginLeft: -100,
-    marginTop: -85,
+    marginTop: -100,
     width: 200,
-    alignItems: 'center',
+    alignItems: "center",
     zIndex: 2,
   },
   markerBubble: {
-    backgroundColor: Colors.darkText,
-    paddingHorizontal: 12,
+    backgroundColor: Royal.obsidian,
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 8,
-    marginBottom: 5,
+    borderRadius: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Royal.gold,
+    alignItems: "center",
   },
-  markerBubbleMoving: { opacity: 0.5 },
-  markerText: { color: Colors.white, fontSize: 12, fontWeight: '600' },
-  markerIcon: { transform: [{ translateY: 0 }] },
-  markerIconMoving: { transform: [{ translateY: -12 }] },
-  markerShadow: {
-    width: 8,
-    height: 4,
-    backgroundColor: 'rgba(0,0,0,0.2)',
+  markerBubbleMoving: { opacity: 0.6 },
+  markerBubbleCrown: {
+    position: "absolute",
+    top: -6,
+    backgroundColor: Royal.obsidian,
+    paddingHorizontal: 4,
     borderRadius: 4,
-    marginTop: -6,
-    transform: [{ scaleX: 2.5 }],
   },
-  
-  // Search styles
+  markerText: {
+    color: Royal.ivory,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+  },
+  markerPinWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: Royal.ivory,
+    shadowColor: Royal.obsidian,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  markerPinGold: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  markerIconMoving: { transform: [{ translateY: -4 }] },
+  markerShadow: {
+    width: 14,
+    height: 5,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    borderRadius: 4,
+    marginTop: 3,
+    transform: [{ scaleX: 2 }],
+  },
+
+  // ─── Search ───
   searchContainer: {
-    position: 'absolute',
+    position: "absolute",
     left: 16,
     right: 16,
     zIndex: 10,
   },
   searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Royal.ivory,
+    borderRadius: 14,
+    paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: Colors.borderGray,
-    height: 50,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderColor: Royal.goldDim,
+    height: 52,
+    shadowColor: Royal.obsidian,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+    elevation: 5,
   },
   searchInput: {
     flex: 1,
-    color: Colors.darkText,
-    fontSize: 15,
+    color: Royal.royalGreenDeep,
+    fontSize: 14,
     paddingVertical: 0,
     marginLeft: 10,
     marginRight: 8,
+    fontWeight: "500",
   },
   searchResultsContainer: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    marginTop: 4,
-    maxHeight: 250,
+    backgroundColor: Royal.ivory,
+    borderRadius: 14,
+    marginTop: 8,
+    maxHeight: 260,
     borderWidth: 1,
-    borderColor: Colors.borderGray,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    overflow: 'hidden',
+    borderColor: Royal.goldDim,
+    shadowColor: Royal.obsidian,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 6,
+    overflow: "hidden",
   },
-  searchResultsList: {
-    maxHeight: 250,
-  },
+  searchResultsList: { maxHeight: 260 },
   searchResultItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.borderGray,
+    borderBottomColor: Royal.goldFaint,
   },
   searchResultTextContainer: {
     flex: 1,
@@ -662,117 +833,214 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   searchResultText: {
-    color: Colors.darkText,
-    fontSize: 14,
-    fontWeight: '500',
+    color: Royal.royalGreenDeep,
+    fontSize: 13,
+    fontWeight: "600",
   },
   searchResultType: {
-    color: Colors.grayText,
-    fontSize: 12,
-    marginTop: 2,
-    textTransform: 'capitalize',
+    color: Royal.gold,
+    fontSize: 10,
+    marginTop: 3,
+    letterSpacing: 1.2,
+    fontWeight: "800",
   },
-  
+
+  // ─── Floating controls ───
   closeButton: {
-    position: 'absolute',
+    position: "absolute",
     left: 16,
-    backgroundColor: Colors.white,
+    backgroundColor: Royal.ivory,
     width: 44,
     height: 44,
     borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Royal.goldDim,
     elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    shadowColor: Royal.obsidian,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
   },
   myLocationButton: {
-    position: 'absolute',
+    position: "absolute",
     right: 16,
     bottom: 24,
-    backgroundColor: Colors.white,
+    backgroundColor: Royal.ivory,
     width: 48,
     height: 48,
     borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Royal.goldDim,
+    elevation: 5,
+    shadowColor: Royal.obsidian,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
   },
+
+  // ─── Bottom sheet ───
   bottomSheet: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    backgroundColor: Royal.ivory,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     paddingHorizontal: 20,
-    paddingTop: 20,
-    // paddingBottom is now set dynamically to account for safe area bottom
-    elevation: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    marginTop: -20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Royal.goldDim,
+    elevation: 18,
+    shadowColor: Royal.obsidian,
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    marginTop: -24,
     zIndex: 5,
+    overflow: "hidden",
   },
-  locationHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  sheetTopHairline: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1.5,
+  },
+  sheetHandle: {
+    width: 44,
+    height: 4,
+    borderRadius: 3,
+    backgroundColor: Royal.gold,
+    opacity: 0.55,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+
+  locationHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  locationIconRing: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1.5,
+    borderColor: Royal.gold,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 14,
+    backgroundColor: Royal.goldFaint,
+  },
   locationIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(27, 140, 64, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
   },
   locationTextContainer: { flex: 1 },
-  locationTitle: { fontSize: 16, fontWeight: '700', color: Colors.darkText, marginBottom: 4 },
-  locationSubtitle: { fontSize: 13, color: Colors.grayText, lineHeight: 18 },
-  divider: { height: 1, backgroundColor: Colors.borderGray, marginBottom: 16 },
+  locationTitle: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: Royal.gold,
+    letterSpacing: 2.5,
+    marginBottom: 4,
+  },
+  locationSubtitle: {
+    fontSize: 13,
+    color: Royal.royalGreenDeep,
+    lineHeight: 18,
+    fontWeight: "500",
+  },
+
+  goldDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  goldDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Royal.goldDim,
+  },
+
   input: {
     borderWidth: 1,
-    borderColor: Colors.borderGray,
+    borderColor: Royal.goldDim,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    fontSize: 15,
-    color: Colors.darkText,
-    backgroundColor: '#F9F9F9',
+    fontSize: 14,
+    color: Royal.royalGreenDeep,
+    backgroundColor: Royal.cream,
     marginBottom: 20,
+    fontWeight: "500",
   },
-  saveAsLabel: { fontSize: 14, fontWeight: '600', color: Colors.grayText, marginBottom: 12 },
-  typeContainer: { flexDirection: 'row', marginBottom: 24 },
-  typeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.borderGray,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+
+  saveAsLabel: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: Royal.gold,
+    marginBottom: 10,
+    letterSpacing: 2.5,
+  },
+  typeContainer: { flexDirection: "row", marginBottom: 24 },
+  typeChipWrapper: {
     marginRight: 10,
-    backgroundColor: Colors.white,
   },
-  typeChipSelected: { borderColor: Colors.darkGreen, backgroundColor: 'rgba(27, 140, 64, 0.05)' },
-  typeChipText: { fontSize: 14, fontWeight: '600', color: Colors.darkText, marginLeft: 6 },
-  typeChipTextSelected: { color: Colors.darkGreen },
+  typeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Royal.goldDim,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 22,
+    backgroundColor: Royal.ivory,
+  },
+  typeChipText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: Royal.royalGreenDeep,
+    marginLeft: 6,
+    letterSpacing: 1.2,
+  },
+  typeChipTextSelected: { color: Royal.obsidian },
+
   saveButton: {
-    backgroundColor: Colors.darkGreen,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 2,
-    shadowColor: Colors.darkGreen,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    borderRadius: 14,
+    paddingVertical: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Royal.goldSoft,
+    elevation: 4,
+    shadowColor: Royal.gold,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
   },
-  saveButtonText: { color: Colors.white, fontSize: 16, fontWeight: 'bold', letterSpacing: 0.5 },
+  saveButtonShimmer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "45%",
+  },
+  saveButtonInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  saveButtonText: {
+    color: Royal.obsidian,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 2.2,
+  },
 });
 
 export default AddAddressScreen;

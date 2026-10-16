@@ -22,9 +22,7 @@
         "NSCameraUsageDescription": "BLuxury needs camera for photos.",
         "NSContactsUsageDescription": "BLuxury needs contacts to find friends.",
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": [
-          "audio"
-        ]
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
@@ -40,13 +38,15 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA",
         "android.permission.READ_CONTACTS",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.WRITE_CONTACTS",
         "android.permission.WAKE_LOCK",
-        "android.permission.USE_FULL_SCREEN_INTENT"
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/Gemini_Generated_Image_z8uyflz8uyflz8uy.png",
@@ -69,7 +69,14 @@
           "android": {
             "enableMinifyInReleaseBuilds": false,
             "enableShrinkResourcesInReleaseBuilds": false,
-            "newArchEnabled": false
+            "newArchEnabled": false,
+            "buildArchs": ["arm64-v8a"],
+            "extraProperties": {
+              "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1024m",
+              "org.gradle.daemon": "false",
+              "org.gradle.parallel": "false",
+              "org.gradle.workers.max": "2"
+            }
           }
         }
       ],
@@ -90,16 +97,11 @@
       "expo-asset",
       "expo-web-browser",
       "expo-speech-recognition",
-      [
-        "llama.rn",
-        {
-          "enableEntitlements": true
-        }
-      ],
       "@react-native-community/datetimepicker",
       "expo-share-intent",
       "expo-image",
-      "expo-sharing"
+      "expo-sharing",
+      "./plugins/withSimAndOtpModules"
     ],
     "extra": {
       "eas": {

@@ -1,3 +1,4 @@
+// src/userScreens/UserProfileScreen.tsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -20,12 +21,15 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useSelector, useDispatch } from "react-redux";
 import * as ImagePicker from "expo-image-picker";
 import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { logoutUser, updateUserProfile } from "../features/user/authSlice";
 import { resetChatState } from "../features/chat/chatSlice";
 import socket from "./utils/socket";
-import config from "../config/config"; // Fixed path
+import config from "../config/config";
 import { RootState } from "../app/store";
+import { unregisterPushToken } from "./utils/NotificationHelper";
+import { clearActiveRole } from "../features/session/sessionSlice";
 
 const { width, height } = Dimensions.get("window");
 
@@ -33,8 +37,8 @@ const PROFILE_IMAGE_ASSET = require("../../assets/Gemini_Generated_Image_z8uyflz
 
 // 🔥 ROYAL THEME COLORS 🔥
 const Colors = {
-  background: "#050505", // Deep Royal Black
-  card: "#151515", // Elevated dark gray for cards
+  background: "#050505",
+  card: "#151515",
   textPrimary: "#FFFFFF",
   textSecondary: "#A0A0A0",
   royalGreen: "#00A651",
@@ -45,7 +49,7 @@ const Colors = {
 };
 
 export default function UserProfileScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const dispatch = useDispatch<any>();
   const { user, loading } = useSelector((state: RootState) => state.auth);
 
@@ -147,7 +151,7 @@ export default function UserProfileScreen() {
     } else {
       Alert.alert(
         "Error",
-        (resultAction.payload as string) || "Failed to update.",
+        (resultAction.payload as string) || "Failed to update."
       );
     }
   };
@@ -170,7 +174,7 @@ export default function UserProfileScreen() {
           oldPassword: passwordData.oldPassword,
           newPassword: passwordData.newPassword,
         },
-        { headers: { Authorization: `Bearer ${user?.token}` } },
+        { headers: { Authorization: `Bearer ${user?.token}` } }
       );
       if (response.data.success) {
         Alert.alert("Success", "Password changed successfully!");
@@ -182,12 +186,26 @@ export default function UserProfileScreen() {
         });
       }
     } catch (error: any) {
-      Alert.alert("Error", error.response?.data?.message || "Update failed.");
+      Alert.alert(
+        "Error",
+        error.response?.data?.message || "Update failed."
+      );
     } finally {
       setIsChangingPassword(false);
     }
   };
 
+  // ─────────────────────────────────────────────────
+  // SWITCH ACCOUNT — returns to chooser, both sessions stay alive
+  // ─────────────────────────────────────────────────
+  const handleSwitchAccount = () => {
+    dispatch(clearActiveRole());
+  };
+
+  // ─────────────────────────────────────────────────
+  // LOGOUT — unregisters ONLY the user push mapping.
+  // Device-level expoPushToken is preserved for the vendor session.
+  // ─────────────────────────────────────────────────
   const handleLogout = () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
@@ -196,9 +214,26 @@ export default function UserProfileScreen() {
         style: "destructive",
         onPress: async () => {
           const currentUserId = user?._id || user?.id;
+
           if (currentUserId) socket.emit("leave", currentUserId);
+
+          try {
+            const expoToken = await AsyncStorage.getItem("expoPushToken");
+            if (currentUserId && expoToken) {
+              await unregisterPushToken(
+                String(currentUserId),
+                expoToken,
+                "user"
+              );
+              console.log("✅ User push token unregistered on logout");
+            }
+          } catch (e) {
+            console.warn("⚠️ Failed to unregister push token:", e);
+          }
+
           dispatch(resetChatState());
           await dispatch(logoutUser());
+
           setShowProfileData(false);
           setShowPasswordChange(false);
         },
@@ -209,7 +244,7 @@ export default function UserProfileScreen() {
   const renderInfoRow = (
     label: string,
     value: string | undefined,
-    isLast: boolean = false,
+    isLast: boolean = false
   ) => (
     <View style={[styles.infoRow, !isLast && styles.infoRowBorder]}>
       <Text style={styles.infoLabel}>{label}</Text>
@@ -299,6 +334,30 @@ export default function UserProfileScreen() {
 
           {user?.token && (
             <View style={styles.sectionContainer}>
+              {/* ✅ SWITCH ACCOUNT */}
+              <View style={styles.cardGroup}>
+                <TouchableOpacity
+                  style={styles.cardRow}
+                  onPress={handleSwitchAccount}
+                >
+                  <View style={styles.cardRowLeft}>
+                    <View style={styles.iconBox}>
+                      <Ionicons
+                        name="swap-horizontal"
+                        size={20}
+                        color={Colors.royalGreen}
+                      />
+                    </View>
+                    <Text style={styles.cardRowText}>Switch Account</Text>
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color={Colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
+
               {/* PROFILE TAB */}
               <View style={styles.cardGroup}>
                 <TouchableOpacity
@@ -317,10 +376,14 @@ export default function UserProfileScreen() {
                         color={Colors.royalGreen}
                       />
                     </View>
-                    <Text style={styles.cardRowText}>Personal Information</Text>
+                    <Text style={styles.cardRowText}>
+                      Personal Information
+                    </Text>
                   </View>
                   <Ionicons
-                    name={showProfileData ? "chevron-down" : "chevron-forward"}
+                    name={
+                      showProfileData ? "chevron-down" : "chevron-forward"
+                    }
                     size={20}
                     color={Colors.textSecondary}
                   />
@@ -393,7 +456,9 @@ export default function UserProfileScreen() {
                           {loading ? (
                             <ActivityIndicator color="#FFF" />
                           ) : (
-                            <Text style={styles.saveBtnText}>Save Changes</Text>
+                            <Text style={styles.saveBtnText}>
+                              Save Changes
+                            </Text>
                           )}
                         </TouchableOpacity>
                       </View>
@@ -406,7 +471,7 @@ export default function UserProfileScreen() {
                           user.address?.district
                             ? `${user.address.district}, ${user.address.state}`
                             : "Not provided",
-                          true,
+                          true
                         )}
                       </View>
                     )}
@@ -451,7 +516,10 @@ export default function UserProfileScreen() {
                       secureTextEntry
                       value={passwordData.oldPassword}
                       onChangeText={(t) =>
-                        setPasswordData({ ...passwordData, oldPassword: t })
+                        setPasswordData({
+                          ...passwordData,
+                          oldPassword: t,
+                        })
                       }
                     />
                     <TextInput
@@ -461,7 +529,10 @@ export default function UserProfileScreen() {
                       secureTextEntry
                       value={passwordData.newPassword}
                       onChangeText={(t) =>
-                        setPasswordData({ ...passwordData, newPassword: t })
+                        setPasswordData({
+                          ...passwordData,
+                          newPassword: t,
+                        })
                       }
                     />
                     <TextInput
@@ -471,7 +542,10 @@ export default function UserProfileScreen() {
                       secureTextEntry
                       value={passwordData.confirmPassword}
                       onChangeText={(t) =>
-                        setPasswordData({ ...passwordData, confirmPassword: t })
+                        setPasswordData({
+                          ...passwordData,
+                          confirmPassword: t,
+                        })
                       }
                     />
 
@@ -483,7 +557,9 @@ export default function UserProfileScreen() {
                       {isChangingPassword ? (
                         <ActivityIndicator color="#FFF" />
                       ) : (
-                        <Text style={styles.saveBtnText}>Update Password</Text>
+                        <Text style={styles.saveBtnText}>
+                          Update Password
+                        </Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -516,7 +592,10 @@ export default function UserProfileScreen() {
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+              <TouchableOpacity
+                style={styles.logoutBtn}
+                onPress={handleLogout}
+              >
                 <Text style={styles.logoutBtnText}>Sign Out</Text>
               </TouchableOpacity>
             </View>
@@ -551,7 +630,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 50, paddingTop: 10 },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 50,
+    paddingTop: 10,
+  },
 
   profileHeaderCard: { alignItems: "center", marginBottom: 35 },
   imageContainer: {
@@ -577,7 +660,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   removePhotoBtn: { marginTop: 15 },
-  removePhotoText: { color: Colors.danger, fontSize: 14, fontWeight: "600" },
+  removePhotoText: {
+    color: Colors.danger,
+    fontSize: 14,
+    fontWeight: "600",
+  },
 
   userName: {
     fontSize: 24,
@@ -621,7 +708,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 15,
   },
-  cardRowText: { fontSize: 16, fontWeight: "500", color: Colors.textPrimary },
+  cardRowText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: Colors.textPrimary,
+  },
 
   expandedContent: {
     paddingHorizontal: 18,
@@ -635,8 +726,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 15,
   },
-  expandTitle: { fontSize: 18, fontWeight: "600", color: Colors.textPrimary },
-  editActionText: { fontSize: 16, color: Colors.royalGreen, fontWeight: "500" },
+  expandTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: Colors.textPrimary,
+  },
+  editActionText: {
+    fontSize: 16,
+    color: Colors.royalGreen,
+    fontWeight: "500",
+  },
 
   infoDisplayBox: {
     backgroundColor: Colors.background,
@@ -697,5 +796,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 10,
   },
-  logoutBtnText: { color: Colors.danger, fontSize: 17, fontWeight: "600" },
+  logoutBtnText: {
+    color: Colors.danger,
+    fontSize: 17,
+    fontWeight: "600",
+  },
 });

@@ -8,23 +8,40 @@ import {
   TouchableOpacity,
   Modal,
   ScrollView,
-  Platform,
   Dimensions,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import {
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { Colors, scale, verticalScale, moderateScale } from "../constants/colors";
 
 const { height } = Dimensions.get("window");
+
+// ─────────────────────────────────────────────────────────────
+// 👑 ROYAL PALETTE
+// ─────────────────────────────────────────────────────────────
+const Royal = {
+  gold: "#D4AF37",
+  goldSoft: "#E8CC7A",
+  goldDim: "rgba(212,175,55,0.35)",
+  goldFaint: "rgba(212,175,55,0.10)",
+  royalGreen: "#0A3D2B",
+  royalGreenDeep: "#062318",
+  obsidian: "#0B0B0F",
+  ivory: "#FBF7EE",
+  cream: "#FAF3E0",
+};
 
 interface AddressModalProps {
   visible: boolean;
   onClose: () => void;
   onSelectAddress: (address: any) => void;
-  onAddAddress: () => void;         // For "Use my current location"
+  onAddAddress: () => void;
   selectedAddress: any;
   addresses: any[];
   isLoading: boolean;
-  onOpenMap: () => void;            // For "Pick from Map"
+  onOpenMap: () => void;
 }
 
 export const AddressModal: React.FC<AddressModalProps> = ({
@@ -37,12 +54,17 @@ export const AddressModal: React.FC<AddressModalProps> = ({
   isLoading,
   onOpenMap,
 }) => {
+  // ✅ Safe area — fixes the bottom button overlap on Android
+  const insets = useSafeAreaInsets();
+  const footerPaddingBottom = Math.max(insets.bottom, 12) + 12;
+
   return (
     <Modal
       visible={visible}
       animationType="slide"
       transparent={true}
       onRequestClose={onClose}
+      statusBarTranslucent
     >
       <View style={addressModalStyles.overlay}>
         <TouchableOpacity
@@ -54,20 +76,28 @@ export const AddressModal: React.FC<AddressModalProps> = ({
           <View style={addressModalStyles.bottomSheetHandle} />
 
           <View style={addressModalStyles.sheetHeader}>
-            <Text style={addressModalStyles.sheetTitle}>Select Location</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color={Colors.textDark} />
+            <View style={addressModalStyles.sheetTitleRow}>
+              <Ionicons name="diamond" size={14} color={Royal.gold} />
+              <Text style={addressModalStyles.sheetTitle}>SELECT LOCATION</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} hitSlop={10}>
+              <Ionicons name="close" size={22} color={Royal.royalGreenDeep} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={addressModalStyles.addressList} showsVerticalScrollIndicator={false}>
-            {/* 🔥 UNCOMMENTED: Use my current location */}
+          <ScrollView
+            style={addressModalStyles.addressList}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 8 }}
+          >
+            {/* Use current location */}
             <TouchableOpacity
               style={addressModalStyles.currentLocationContainer}
               onPress={onAddAddress}
+              activeOpacity={0.75}
             >
               <View style={addressModalStyles.currentLocationIcon}>
-                <Ionicons name="locate" size={22} color={Colors.swiggyOrange} />
+                <Ionicons name="locate" size={20} color={Royal.gold} />
               </View>
               <View style={addressModalStyles.addressInfo}>
                 <Text style={addressModalStyles.currentLocationTitle}>
@@ -76,29 +106,33 @@ export const AddressModal: React.FC<AddressModalProps> = ({
                 <Text style={addressModalStyles.addressString} numberOfLines={1}>
                   {selectedAddress
                     ? selectedAddress.addressString
-                    : "Fetch GPS & find nearby shops"}
+                    : "Fetch GPS & find nearby boutiques"}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.textGray} />
+              <Ionicons name="chevron-forward" size={18} color={Royal.gold} />
             </TouchableOpacity>
 
             {/* Pick from Map */}
             <TouchableOpacity
-              style={[addressModalStyles.currentLocationContainer, { borderTopWidth: 0 }]}
+              style={[
+                addressModalStyles.currentLocationContainer,
+                { borderTopWidth: 0 },
+              ]}
               onPress={onOpenMap}
+              activeOpacity={0.75}
             >
-              <View style={[addressModalStyles.currentLocationIcon, { backgroundColor: 'rgba(27, 140, 64, 0.1)' }]}>
-                <Ionicons name="map" size={22} color={Colors.accentGreen} />
+              <View style={addressModalStyles.currentLocationIcon}>
+                <Ionicons name="map" size={20} color={Royal.gold} />
               </View>
               <View style={addressModalStyles.addressInfo}>
-                <Text style={[addressModalStyles.currentLocationTitle, { color: Colors.accentGreen }]}>
+                <Text style={addressModalStyles.currentLocationTitle}>
                   Pick from Map
                 </Text>
                 <Text style={addressModalStyles.addressString} numberOfLines={1}>
-                  Search and select location on map
+                  Search and select a location on map
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.textGray} />
+              <Ionicons name="chevron-forward" size={18} color={Royal.gold} />
             </TouchableOpacity>
 
             <View style={addressModalStyles.sectionDivider} />
@@ -123,12 +157,13 @@ export const AddressModal: React.FC<AddressModalProps> = ({
                         isSelected && addressModalStyles.addressItemSelected,
                       ]}
                       onPress={() => onSelectAddress(addr)}
+                      activeOpacity={0.75}
                     >
                       <View style={addressModalStyles.iconContainer}>
                         <Ionicons
                           name={iconName as any}
-                          size={22}
-                          color={isSelected ? Colors.swiggyOrange : Colors.textDark}
+                          size={20}
+                          color={isSelected ? Royal.gold : Royal.royalGreenDeep}
                         />
                       </View>
                       <View style={addressModalStyles.addressInfo}>
@@ -136,7 +171,7 @@ export const AddressModal: React.FC<AddressModalProps> = ({
                           <Text
                             style={[
                               addressModalStyles.addressType,
-                              isSelected && { color: Colors.swiggyOrange },
+                              isSelected && { color: Royal.royalGreenDeep },
                             ]}
                           >
                             {addr.type}
@@ -144,25 +179,28 @@ export const AddressModal: React.FC<AddressModalProps> = ({
                           {isSelected && (
                             <View style={addressModalStyles.selectedBadge}>
                               <Text style={addressModalStyles.selectedBadgeText}>
-                                Selected
+                                SELECTED
                               </Text>
                             </View>
                           )}
                         </View>
-                        <Text style={addressModalStyles.addressString} numberOfLines={2}>
+                        <Text
+                          style={addressModalStyles.addressString}
+                          numberOfLines={2}
+                        >
                           {addr.addressString}
                         </Text>
                         {addr.landmark && (
                           <Text style={addressModalStyles.landmarkText}>
-                            📍 {addr.landmark}
+                            ◆ {addr.landmark}
                           </Text>
                         )}
                       </View>
                       {isSelected && (
                         <Ionicons
                           name="checkmark-circle"
-                          size={24}
-                          color={Colors.successGreen}
+                          size={22}
+                          color={Royal.gold}
                         />
                       )}
                     </TouchableOpacity>
@@ -170,21 +208,29 @@ export const AddressModal: React.FC<AddressModalProps> = ({
                 })}
               </>
             )}
+
             {isLoading && (
               <View style={addressModalStyles.loadingContainer}>
-                <ActivityIndicator size="small" color={Colors.swiggyOrange} />
+                <ActivityIndicator size="small" color={Royal.gold} />
               </View>
             )}
           </ScrollView>
 
-          <View style={addressModalStyles.addAddressFooter}>
+          {/* ✅ Footer padded by real device bottom inset */}
+          <View
+            style={[
+              addressModalStyles.addAddressFooter,
+              { paddingBottom: footerPaddingBottom },
+            ]}
+          >
             <TouchableOpacity
               style={addressModalStyles.addAddressButton}
               onPress={onAddAddress}
+              activeOpacity={0.85}
             >
-              <Ionicons name="add" size={20} color={Colors.swiggyOrange} />
+              <Ionicons name="add" size={18} color={Royal.obsidian} />
               <Text style={addressModalStyles.addAddressButtonText}>
-                Add new address
+                ADD NEW ADDRESS
               </Text>
             </TouchableOpacity>
           </View>
@@ -194,68 +240,82 @@ export const AddressModal: React.FC<AddressModalProps> = ({
   );
 };
 
+// ─────────────────────────────────────────────────────────────
+// 👑 Royal Styles
+// ─────────────────────────────────────────────────────────────
 const addressModalStyles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: "rgba(11,11,15,0.55)",
+    justifyContent: "flex-end",
   },
   bottomSheet: {
-    backgroundColor: Colors.sheetBackground,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    backgroundColor: Royal.ivory,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
     paddingTop: 12,
-    maxHeight: height * 0.8,
-    overflow: 'hidden',
+    maxHeight: height * 0.88, // ← raised from 0.8 to give the footer room
+    overflow: "hidden",
+    borderTopWidth: 1.5,
+    borderTopColor: Royal.gold,
   },
   bottomSheetHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: '#D1D5DB',
+    width: 42,
+    height: 4,
+    backgroundColor: Royal.gold,
     borderRadius: 3,
-    alignSelf: 'center',
+    alignSelf: "center",
     marginBottom: 16,
+    opacity: 0.6,
   },
   sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.borderGray,
+    borderBottomColor: Royal.goldDim,
+  },
+  sheetTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   sheetTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.textDark,
-    letterSpacing: -0.3,
+    fontSize: 15,
+    fontWeight: "900",
+    color: Royal.royalGreenDeep,
+    letterSpacing: 2,
   },
   addressList: {
+    flexGrow: 0, // ← prevents pushing footer off-screen
     maxHeight: height * 0.55,
   },
   currentLocationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: Colors.white,
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 18,
+    backgroundColor: Royal.ivory,
     marginTop: 10,
     borderTopWidth: 1,
-    borderTopColor: Colors.borderGray,
+    borderTopColor: Royal.goldFaint,
   },
   currentLocationIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(252, 128, 25, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: Royal.goldFaint,
+    borderWidth: 1,
+    borderColor: Royal.goldDim,
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 12,
   },
   currentLocationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.swiggyOrange,
+    fontSize: 15,
+    fontWeight: "700",
+    color: Royal.royalGreenDeep,
     marginBottom: 2,
   },
   addressInfo: {
@@ -263,92 +323,95 @@ const addressModalStyles = StyleSheet.create({
     paddingRight: 10,
   },
   addressString: {
-    fontSize: 13,
-    color: Colors.textGray,
+    fontSize: 12,
+    color: Royal.royalGreen,
     lineHeight: 18,
+    opacity: 0.75,
   },
   landmarkText: {
-    fontSize: 12,
-    color: Colors.textGray,
-    marginTop: 2,
+    fontSize: 11,
+    color: Royal.gold,
+    marginTop: 3,
+    fontWeight: "700",
   },
   sectionDivider: {
-    height: 8,
-    backgroundColor: '#F0F0F0',
-    width: '100%',
+    height: 6,
+    backgroundColor: Royal.goldFaint,
+    width: "100%",
   },
   savedAddressesHeader: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textGray,
-    letterSpacing: 0.5,
+    fontSize: 10,
+    fontWeight: "900",
+    color: Royal.gold,
+    letterSpacing: 2,
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
+    paddingTop: 18,
+    paddingBottom: 8,
   },
   addressItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
     paddingHorizontal: 20,
-    backgroundColor: Colors.white,
+    backgroundColor: Royal.ivory,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.borderGray,
+    borderBottomColor: Royal.goldFaint,
   },
   addressItemSelected: {
-    backgroundColor: 'rgba(52, 199, 89, 0.04)',
+    backgroundColor: Royal.goldFaint,
   },
   iconContainer: {
     width: 30,
-    alignItems: 'flex-start',
+    alignItems: "flex-start",
   },
   addressTypeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 4,
   },
   addressType: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.textDark,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Royal.royalGreenDeep,
   },
   selectedBadge: {
     marginLeft: 8,
-    backgroundColor: Colors.successGreen,
+    backgroundColor: Royal.royalGreenDeep,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
   selectedBadgeText: {
-    color: Colors.white,
-    fontSize: 11,
-    fontWeight: '700',
+    color: Royal.gold,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
   },
   addAddressFooter: {
-    padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-    backgroundColor: Colors.white,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    backgroundColor: Royal.ivory,
     borderTopWidth: 1,
-    borderTopColor: Colors.borderGray,
+    borderTopColor: Royal.goldDim,
+    // paddingBottom is set dynamically via insets.bottom
   },
   addAddressButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.borderGray,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Royal.gold,
     paddingVertical: 14,
     borderRadius: 12,
   },
   addAddressButtonText: {
-    color: Colors.swiggyOrange,
-    fontSize: 16,
-    fontWeight: '700',
+    color: Royal.obsidian,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1.8,
     marginLeft: 8,
   },
   loadingContainer: {
     padding: 20,
-    alignItems: 'center',
+    alignItems: "center",
   },
 });

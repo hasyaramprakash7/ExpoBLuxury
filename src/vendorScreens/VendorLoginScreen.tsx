@@ -1,5 +1,5 @@
-// FILE: ../screens/VendorLoginScreen.tsx
-import React, { useState, useEffect } from "react";
+// FILE: src/vendorScreens/VendorLoginScreen.tsx
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -38,6 +38,18 @@ type VendorLoginScreenNavigationProp = NativeStackNavigationProp<
   "VendorLogin"
 >;
 
+// ─────────────────────────────────────────────────────────────
+// Helper: resolve the vendor ID from any possible payload shape
+// ─────────────────────────────────────────────────────────────
+const resolveVendorId = (payload: any): string | null => {
+  if (!payload) return null;
+  if (payload._id) return String(payload._id);
+  if (payload.id) return String(payload.id);
+  if (payload.vendor?._id) return String(payload.vendor._id);
+  if (payload.vendor?.id) return String(payload.vendor.id);
+  return null;
+};
+
 export default function VendorLoginScreen() {
   const navigation = useNavigation<VendorLoginScreenNavigationProp>();
   const dispatch = useDispatch<AppDispatch>();
@@ -57,13 +69,42 @@ export default function VendorLoginScreen() {
   const [otpCode, setOtpCode] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
 
-  // --- 🔥 LOG: Monitor vendor push token after login ---
-  useEffect(() => {
-    if (vendor) {
-      console.log('📱 [VendorLoginScreen] Vendor logged in:', vendor._id);
-      console.log('📱 [VendorLoginScreen] Vendor pushToken:', vendor.pushToken);
+  // Deduplication guard — don't register the same vendor twice
+  const pushRegisteredForVendorRef = useRef<string | null>(null);
+
+  // ─────────────────────────────────────────────────
+  // 🔔 Push registration helper — called after any successful login
+  //    ✅ Must pass 'vendor' so the backend stores it under ownerType='vendor'
+  // ─────────────────────────────────────────────────
+  const registerVendorPush = async (rawPayload: any) => {
+    try {
+      const vid = resolveVendorId(rawPayload) || resolveVendorId(vendor);
+      if (!vid) {
+        console.warn("⚠️ [VendorLoginScreen] No vendorId available for push");
+        return;
+      }
+      if (pushRegisteredForVendorRef.current === vid) return;
+      pushRegisteredForVendorRef.current = vid;
+
+      console.log(
+        "🔔 [VendorLoginScreen] Registering push for vendor:",
+        vid,
+        "role=vendor",
+      );
+      // ✅ FIX: pass 'vendor' as the 2nd argument
+      await registerForPushNotificationsAsync(vid, "vendor");
+    } catch (e) {
+      console.warn("⚠️ [VendorLoginScreen] Push registration failed:", e);
     }
-  }, [vendor]);
+  };
+
+  // Watch Redux vendor state — safety net in case the login thunk
+  // already set state.vendorAuth.vendor before our handler ran.
+  useEffect(() => {
+    if (!vendor) return;
+    registerVendorPush(vendor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendor?._id]);
 
   // --- HANDLERS ---
   const handlePasswordLogin = async () => {
@@ -71,14 +112,20 @@ export default function VendorLoginScreen() {
       Alert.alert("Validation Error", "Please enter your credentials.");
       return;
     }
-    console.log('🔑 [VendorLoginScreen] Dispatching loginVendor with identifier:', identifier);
+    console.log(
+      "🔑 [VendorLoginScreen] Dispatching loginVendor with identifier:",
+      identifier,
+    );
     const result = await dispatch(loginVendor({ identifier, password }));
-    console.log('📦 [VendorLoginScreen] Login result:', result);
+    console.log("📦 [VendorLoginScreen] Login result:", result);
     if (loginVendor.rejected.match(result)) {
       const errorMessage =
         typeof result.payload === "string" ? result.payload : "Login failed.";
       Alert.alert("Login Failed", errorMessage);
+      return;
     }
+    // ✅ Success — register push for the logged-in vendor
+    registerVendorPush(result.payload);
   };
 
   const handleSendOtp = async () => {
@@ -86,12 +133,15 @@ export default function VendorLoginScreen() {
       return Alert.alert("Error", "Please enter your phone number.");
     setSendingOtp(true);
     try {
-      console.log('📤 [VendorLoginScreen] Sending OTP to:', identifier);
+      console.log("📤 [VendorLoginScreen] Sending OTP to:", identifier);
       await axios.post(`${config.apiUrl}/auth/send-otp`, { phone: identifier });
       setOtpSent(true);
       Alert.alert("Success", "OTP Sent to your phone");
     } catch (err: any) {
-      console.error('❌ [VendorLoginScreen] OTP send error:', err.response?.data || err.message);
+      console.error(
+        "❌ [VendorLoginScreen] OTP send error:",
+        err.response?.data || err.message,
+      );
       Alert.alert("Error", err.response?.data?.message || "Failed to send OTP");
     } finally {
       setSendingOtp(false);
@@ -101,28 +151,36 @@ export default function VendorLoginScreen() {
   const handleOtpSubmit = async () => {
     if (!identifier || !otpCode)
       return Alert.alert("Error", "Please enter phone and OTP.");
-    console.log('🔑 [VendorLoginScreen] Dispatching loginVendorWithOtp for:', identifier);
+    console.log(
+      "🔑 [VendorLoginScreen] Dispatching loginVendorWithOtp for:",
+      identifier,
+    );
     const result = await dispatch(
       loginVendorWithOtp({ phone: identifier, otp: otpCode }),
     );
-    console.log('📦 [VendorLoginScreen] OTP Login result:', result);
+    console.log("📦 [VendorLoginScreen] OTP Login result:", result);
     if (loginVendorWithOtp.rejected.match(result)) {
       const errorMessage =
         typeof result.payload === "string" ? result.payload : "Invalid OTP.";
       Alert.alert("Login Failed", errorMessage);
+      return;
     }
+    // ✅ Success — register push for the logged-in vendor
+    registerVendorPush(result.payload);
   };
 
   // ✅ Handle navigation based on user authentication state
   const handleNavigateToUserLogin = () => {
     if (user?.token) {
-      // ✅ User is already logged in, go to UserTabs
-      console.log('👤 [VendorLoginScreen] User already logged in, navigating to UserTabs');
-      navigation.navigate('UserTabs' as never);
+      console.log(
+        "👤 [VendorLoginScreen] User already logged in, navigating to UserTabs",
+      );
+      navigation.navigate("UserTabs" as never);
     } else {
-      // ✅ User is not logged in, go to Login screen
-      console.log('👤 [VendorLoginScreen] User not logged in, navigating to Login');
-      navigation.navigate('Login' as never);
+      console.log(
+        "👤 [VendorLoginScreen] User not logged in, navigating to Login",
+      );
+      navigation.navigate("Login" as never);
     }
   };
 
@@ -295,8 +353,7 @@ export default function VendorLoginScreen() {
                 <Text style={styles.link}>Register here</Text>
               </TouchableOpacity>
             </View>
-            
-            {/* ✅ Updated: "Login as User" - checks if user is already logged in */}
+
             <View style={styles.linkContainer}>
               <Text style={styles.linkText}>
                 {user?.token ? "Switch to User Mode? " : "Not a vendor? "}

@@ -1,4 +1,4 @@
-// App.tsx - Complete updated file with vendor tab navigator & global fonts
+// App.tsx
 import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
@@ -34,14 +34,61 @@ import { useShareIntent } from "expo-share-intent";
 
 import {
   setupNotifications,
-  registerForPushNotificationsAsync,
   setupLeadNotificationListener,
 } from "./src/userScreens/utils/NotificationHelper";
 import { store, persistor, RootState, AppDispatch } from "./src/app/store";
-import socket, {
-  connectUserToSocket,
-  disconnectUserFromSocket,
-} from "./src/userScreens/utils/socket";
+import RootGate from "./src/app/RootGate";
+
+// ─────────────────────────────────────────────────────────────
+// SAFE SOCKET IMPORTS
+// ─────────────────────────────────────────────────────────────
+import * as SocketModule from "./src/userScreens/utils/socket";
+import * as UseSocketModule from "./src/hooks/useSocket";
+
+const safeConnectUserToSocket = (
+  userId: string,
+  groupIds: string[] = []
+): void => {
+  try {
+    const fn =
+      (SocketModule as any)?.connectUserToSocket ??
+      (UseSocketModule as any)?.connectUserToSocket;
+    if (typeof fn === "function") {
+      fn(userId, groupIds);
+    } else {
+      console.warn("⚠️ connectUserToSocket not available on socket module");
+    }
+  } catch (e) {
+    console.warn("⚠️ connectUserToSocket failed:", e);
+  }
+};
+
+const safeDisconnectUserFromSocket = (userId: string): void => {
+  try {
+    const fn =
+      (SocketModule as any)?.disconnectUserFromSocket ??
+      (UseSocketModule as any)?.disconnectUserFromSocket;
+    if (typeof fn === "function") {
+      fn(userId);
+    }
+  } catch (e) {
+    console.warn("⚠️ disconnectUserFromSocket failed:", e);
+  }
+};
+
+const safeCleanupSocket = (): void => {
+  try {
+    const fn =
+      (UseSocketModule as any)?.cleanupSocket ??
+      (SocketModule as any)?.cleanupSocket ??
+      (SocketModule as any)?.default?.cleanupSocket;
+    if (typeof fn === "function") {
+      fn();
+    }
+  } catch (e) {
+    console.warn("⚠️ cleanupSocket failed:", e);
+  }
+};
 
 import {
   fetchUserProfile,
@@ -76,7 +123,7 @@ import OrderScreen from "./src/screens/OrderScreen";
 import CartScreen from "./src/screens/Cart";
 import Chatscreen from "./src/screens/ChatScreen";
 import ShopListings from "./src/screens/ShopListings";
-import ShopReviewsScreen from './src/screens/ShopReviewsScreen';
+import ShopReviewsScreen from "./src/screens/ShopReviewsScreen";
 
 import ShopDetails from "./src/screens/ShopDetails";
 import CategoryShopsScreen from "./src/screens/CategoryShopsScreen";
@@ -91,57 +138,59 @@ import InsuranceProductsAndDetails from "./src/screens/InsuranceProductsAndDetai
 import ProductDetailScreen from "./src/components/ProductDetailScreen";
 import ProductDetailScreen10 from "./src/components/ProductDetailScreen10";
 import FloatingCartButton from "./src/userScreens/utils/FloatingCartButton";
-import VendorProductViewsScreen from './src/vendorScreens/VendorProductViewsScreen';
-import UserRentalListScreen from './src/screens/UserRentalListScreen';
-import RentalDetailScreen from './src/screens/RentalDetailScreen';
+import VendorProductViewsScreen from "./src/vendorScreens/VendorProductViewsScreen";
+import UserRentalListScreen from "./src/screens/UserRentalListScreen";
+import RentalDetailScreen from "./src/screens/RentalDetailScreen";
 import PropertyCRUDScreen from "./src/vendorScreens/PropertyCRUDScreen";
 import PropertyDetailScreen from "./src/screens/PropertyDetailScreen";
 import VendorChatScreen from "./src/vendorScreens/VendorChatScreen";
-import NotificationBell from "./src/components/NotificationBell";
 import UserPropertyListScreen from "./src/screens/UserPropertyListScreen";
 import AddressScreen from "./src/userScreens/AddressScreen";
-import RentalCRUDScreen from './src/screens/RentalCRUDScreen';
-import SubscriptionChoiceScreen from './src/vendorScreens/SubscriptionChoiceScreen';
-import SubscriptionManagementScreen from './src/vendorScreens/SubscriptionManagementScreen';
-import SubscriptionPendingScreen from './src/vendorScreens/SubscriptionPendingScreen';
+import RentalCRUDScreen from "./src/screens/RentalCRUDScreen";
+import SubscriptionChoiceScreen from "./src/vendorScreens/SubscriptionChoiceScreen";
+import SubscriptionManagementScreen from "./src/vendorScreens/SubscriptionManagementScreen";
+import SubscriptionPendingScreen from "./src/vendorScreens/SubscriptionPendingScreen";
 
-// ---- User screens added for vendor access ----
 import HomeScreen from "./src/screens/HomeScreen";
 import Search from "./src/screens/UserRentalListScreen";
 import AdListScreen from "./src/screens/AdListScreen";
 import WebViewScreen from "./src/screens/WebViewScreen";
-import AllCategoriesScreen from './src/screens/AllCategoriesScreen';
-import AddAddressScreen from './src/screens/AddAddressScreen';
+import AllCategoriesScreen from "./src/screens/AllCategoriesScreen";
+import AddAddressScreen from "./src/screens/AddAddressScreen";
 
-// ✅ Import vendor ad management screens
 import AdManagementScreen from "./src/screens/AdManagementScreen";
 import AdGroupDetailScreen from "./src/screens/AdGroupDetailScreen";
 
-import VendorLeadsScreen from "./src/vendorScreens/VendorLeadsScreen";
-import { navigationRef, RootStackParamList } from "./src/userScreens/utils/navigationRef";
+import MessagesScreen from "./src/screens/MessagesScreen";
+import NotificationsScreen from "./src/screens/NotificationsScreen";
+import EditProfileScreen from "./src/screens/EditProfileScreen";
+import StoryViewerScreen from "./src/screens/StoryViewerScreen";
+import HashtagPostsScreen from "./src/screens/HashtagPostsScreen";
+import SearchScreen from "./src/screens/SearchScreen";
 
-// ✅ Import the vendor tab navigator
+import VendorLeadsScreen from "./src/vendorScreens/VendorLeadsScreen";
+import {
+  navigationRef,
+  RootStackParamList,
+} from "./src/userScreens/utils/navigationRef";
+
 import VendorTabNavigator from "./src/navigation/VendorTabNavigator";
 
-// =========================================================================
-// GLOBAL FONT & TYPOGRAPHY CONFIGURATION
-// =========================================================================
-const GLOBAL_FONT_FAMILY = "System"; 
-const GLOBAL_FONT_SIZE_MULTIPLIER = 1.0;
+// ✅ Profile chooser
+import ProfileChooserScreen from "./src/screens/ProfileChooserScreen";
 
-if ((RNText as any).defaultProps == null) {
-  (RNText as any).defaultProps = {};
-}
+// =========================================================================
+// GLOBAL FONT & TYPOGRAPHY
+// =========================================================================
+const GLOBAL_FONT_FAMILY = "System";
+if ((RNText as any).defaultProps == null) (RNText as any).defaultProps = {};
 (RNText as any).defaultProps.allowFontScaling = true;
 
 const originalRender = (RNText as any).render;
 (RNText as any).render = function (...args: any[]) {
   const origin = originalRender.call(this, ...args);
   return React.cloneElement(origin, {
-    style: [
-      { fontFamily: GLOBAL_FONT_FAMILY },
-      origin.props.style,
-    ],
+    style: [{ fontFamily: GLOBAL_FONT_FAMILY }, origin.props.style],
   });
 };
 // =========================================================================
@@ -193,15 +242,29 @@ const toastConfig = {
 };
 
 const compareVersions = (v1: string, v2: string) => {
-  const parts1 = v1.split(".").map(Number);
-  const parts2 = v2.split(".").map(Number);
-  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
-    const p1 = parts1[i] || 0;
-    const p2 = parts2[i] || 0;
-    if (p1 > p2) return 1;
-    if (p1 < p2) return -1;
+  const p1 = v1.split(".").map(Number);
+  const p2 = v2.split(".").map(Number);
+  for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+    const a = p1[i] || 0;
+    const b = p2[i] || 0;
+    if (a > b) return 1;
+    if (a < b) return -1;
   }
   return 0;
+};
+
+/**
+ * Reads the current active role directly from the Redux store.
+ * RootGate guarantees session.activeRole is already decided by the
+ * time AppNavigator's bootstrap effect runs, so this is safe to call.
+ */
+const getActiveRoleFromStore = (): string | null => {
+  try {
+    const s = store.getState() as RootState;
+    return (s.session?.activeRole as string | null) ?? null;
+  } catch {
+    return null;
+  }
 };
 
 const AppUpdateOverlay = () => {
@@ -210,14 +273,11 @@ const AppUpdateOverlay = () => {
 
   useEffect(() => {
     if (appConfig) {
-      const latestVersion =
+      const latest =
         Platform.OS === "ios"
           ? appConfig.latestIOSVersion
           : appConfig.latestAndroidVersion;
-      if (
-        latestVersion &&
-        compareVersions(latestVersion, CURRENT_APP_VERSION) > 0
-      ) {
+      if (latest && compareVersions(latest, CURRENT_APP_VERSION) > 0) {
         setShowUpdate(true);
       }
     }
@@ -317,7 +377,7 @@ const PermissionGate = ({ onComplete }: { onComplete: () => void }) => {
       await AudioModule.requestRecordingPermissionsAsync();
       await AsyncStorage.setItem("permissionsGranted", "true");
       onComplete();
-    } catch (error) {
+    } catch {
       await AsyncStorage.setItem("permissionsGranted", "true");
       onComplete();
     } finally {
@@ -359,162 +419,118 @@ const AppNavigator = () => {
   const dispatch = useDispatch<AppDispatch>();
   const { user } = useSelector((state: RootState) => state.auth);
   const { token: vendorAuthToken, vendor } = useSelector(
-    (state: RootState) => state.vendorAuth,
+    (state: RootState) => state.vendorAuth
   );
   const { deliveryBoy } = useSelector(
-    (state: RootState) => state.deliveryBoyAuth,
+    (state: RootState) => state.deliveryBoyAuth
   );
   const { groups } = useSelector((state: RootState) => state.chat);
+  const activeRole = useSelector(
+    (state: RootState) => state.session?.activeRole ?? null
+  );
+
+  const hasHydrated = useSelector(
+    (state: any) =>
+      state.bootstrap?.hydrated ??
+      state.session?.hasHydrated ??
+      false
+  );
 
   const [isInitializing, setIsInitializing] = useState(true);
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [permissionsDone, setPermissionsDone] = useState(false);
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
 
-  // Setup notification listeners
+  // Notification listeners
   useEffect(() => {
-    const subscriptions = setupLeadNotificationListener();
+    const subs = setupLeadNotificationListener();
     return () => {
-      if (subscriptions?.foregroundSubscription) {
-        subscriptions.foregroundSubscription.remove();
-      }
-      if (subscriptions?.responseSubscription) {
-        subscriptions.responseSubscription.remove();
-      }
+      subs?.foregroundSubscription?.remove();
+      subs?.responseSubscription?.remove();
     };
   }, []);
 
-  // Handle notification responses
-  useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
-        const data = response.notification.request.content.data;
-        console.log('🔔 Notification tapped:', data);
-        
-        if (!data || !data.type) {
-          console.warn('⚠️ Notification missing type data');
-          return;
-        }
-
-        switch (data.type) {
-          case 'view':
-            if (data.vendorId) {
-              navigationRef.current?.navigate('ShopDetails', { 
-                vendorId: data.vendorId 
-              });
-            } else {
-              navigationRef.current?.navigate('ShopListings');
-            }
-            break;
-          case 'lead':
-            if (vendorAuthToken) {
-              navigationRef.current?.navigate('VendorLeads');
-            } else {
-              navigationRef.current?.navigate('VendorLogin');
-            }
-            break;
-          case 'product':
-            if (data.id) {
-              navigationRef.current?.navigate('ProductDetails', { productId: data.id });
-            }
-            break;
-          case 'property':
-            if (data.id) {
-              navigationRef.current?.navigate('PropertyDetailScreen', { propertyId: data.id });
-            }
-            break;
-          case 'rental':
-            if (data.id) {
-              navigationRef.current?.navigate('RentalDetail', { rentalId: data.id });
-            }
-            break;
-          case 'chat':
-            navigationRef.current?.navigate('ChatScreen');
-            break;
-          case 'daily_update':
-            if (vendorAuthToken) {
-              navigationRef.current?.navigate('VendorDashboard');
-            }
-            break;
-          default:
-            navigationRef.current?.navigate('UserTabs');
-            break;
-        }
-      }
-    );
-    return () => subscription.remove();
-  }, [vendorAuthToken]);
-
+  // Legacy socket connection (chat groups) — fully guarded
   useEffect(() => {
     const currentUserId = vendor?._id || user?._id || deliveryBoy?._id;
     if (currentUserId) {
-      const myGroupIds = groups?.map((g) => g._id) || [];
-      connectUserToSocket(currentUserId, myGroupIds);
+      const myGroupIds = Array.isArray(groups)
+        ? groups.map((g: any) => g?._id).filter(Boolean)
+        : [];
+      safeConnectUserToSocket(currentUserId, myGroupIds);
     }
     return () => {
-      if (currentUserId) disconnectUserFromSocket(currentUserId);
+      if (currentUserId) {
+        safeDisconnectUserFromSocket(currentUserId);
+      }
     };
   }, [user?._id, vendor?._id, deliveryBoy?._id, groups]);
+
+  // Global socket cleanup on unmount — fully guarded
+  useEffect(() => {
+    return () => {
+      safeCleanupSocket();
+    };
+  }, []);
 
   useEffect(() => {
     async function loadResourcesAndAuth() {
       try {
         await Font.loadAsync(Ionicons.font);
         setFontsLoaded(true);
+
         const permStatus = await AsyncStorage.getItem("permissionsGranted");
         if (permStatus === "true") setPermissionsDone(true);
+
         await setupNotifications();
         dispatch(fetchAppConfig() as any);
+
+        // ✅ Read active role FIRST so we only hit role-specific endpoints
+        const role = getActiveRoleFromStore();
+        console.log(`[App/bootstrap] activeRole = '${role}'`);
+
         const [userToken, vendorToken, deliveryBoyToken] = await Promise.all([
           AsyncStorage.getItem("token"),
           AsyncStorage.getItem("vendorToken"),
           SecureStore.getItemAsync("deliveryBoyToken"),
         ]);
-        
-        if (deliveryBoyToken) {
-          console.log('🔐 DeliveryBoy token found');
+
+        // ── Delivery Boy (only when its role is active) ──
+        if (
+          role === "deliveryBoy" &&
+          deliveryBoyToken &&
+          deliveryBoyToken !== "null"
+        ) {
           await dispatch(fetchDeliveryBoyProfile() as any)
             .unwrap()
-            .then((deliveryBoyData) => {
-              console.log('✅ DeliveryBoy profile fetched:', deliveryBoyData);
-              if (deliveryBoyData?._id) {
-                registerForPushNotificationsAsync(deliveryBoyData._id);
-              }
-            })
             .catch(() => dispatch(logoutDeliveryBoy()));
         }
-        
-        if (userToken) {
-          console.log('🔐 User token found');
+
+        // ── User (only when user role is active) ──
+        if (role === "user" && userToken && userToken !== "null") {
           await dispatch(fetchUserProfile() as any)
             .unwrap()
-            .then((userData) => {
-              console.log('✅ User profile fetched:', userData);
-              if (userData?._id) {
-                registerForPushNotificationsAsync(userData._id);
-              }
-            })
             .catch(() => {});
           dispatch(fetchCart() as any);
         }
-        
-        if (vendorToken) {
-          console.log('🔐 Vendor token found, fetching profile...');
+
+        // ── Vendor (only when vendor role is active) ──
+        if (role === "vendor" && vendorToken && vendorToken !== "null") {
           try {
-            const vendorData = await dispatch(fetchVendorProfile() as any).unwrap();
-            console.log('✅ Vendor profile fetched:', vendorData);
-            if (vendorData?._id) {
-              console.log('📱 Registering push token for vendor:', vendorData._id);
-              await registerForPushNotificationsAsync(vendorData._id);
-            } else {
-              console.warn('⚠️ Vendor _id missing from profile data');
-            }
-          } catch (error) {
-            console.error('❌ Failed to fetch vendor profile:', error);
+            await dispatch(fetchVendorProfile() as any).unwrap();
+          } catch (e) {
+            console.warn(
+              "⚠️ Vendor profile fetch failed — keeping cached vendor:",
+              e
+            );
           }
         }
+
+        // If no role is decided yet (fresh install / both sessions present),
+        // do NOT proactively fetch either profile. RootGate will decide the
+        // role, and the corresponding navigator's screens will hydrate.
       } catch (e) {
-        console.error('❌ Error in loadResourcesAndAuth:', e);
+        console.error("❌ loadResourcesAndAuth error:", e);
       } finally {
         setIsInitializing(false);
       }
@@ -526,7 +542,7 @@ const AppNavigator = () => {
     if (!isInitializing && fontsLoaded) await SplashScreenExpo.hideAsync();
   }, [isInitializing, fontsLoaded]);
 
-  if (isInitializing || !fontsLoaded) {
+  if (isInitializing || !fontsLoaded || !hasHydrated) {
     return (
       <View style={appStyles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.luxuryAccent} />
@@ -543,99 +559,244 @@ const AppNavigator = () => {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // ROUTING BY ACTIVE ROLE
+  // ─────────────────────────────────────────────────────────────
+  const hasUserSession = !!user?.token;
+  const hasVendorSession = !!vendorAuthToken || !!vendor?._id;
+
+  const shouldShowChooser =
+    !activeRole ||
+    (activeRole === "user" && !hasUserSession) ||
+    (activeRole === "vendor" && !hasVendorSession);
+
   let MainNavigator;
-  if (vendorAuthToken) {
+
+  if (shouldShowChooser) {
+    // ── PROFILE CHOOSER (+ login / signup screens) ──
+    MainNavigator = (
+      <Stack.Navigator
+        screenOptions={{ headerShown: false }}
+        initialRouteName="ProfileChooser"
+      >
+        <Stack.Screen name="ProfileChooser" component={ProfileChooserScreen} />
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Signup" component={SignupScreen} />
+        <Stack.Screen name="VendorLogin" component={VendorLoginScreen} />
+        <Stack.Screen name="SignupVendor" component={SignupVendorScreen} />
+        <Stack.Screen
+          name="DeliveryBoyLogin"
+          component={DeliveryBoyLoginScreen}
+        />
+        <Stack.Screen
+          name="DeliveryBoySignup"
+          component={DeliveryBoySignupScreen}
+        />
+      </Stack.Navigator>
+    );
+  } else if (activeRole === "vendor") {
+    // ── VENDOR FULL APP ──
     MainNavigator = (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="VendorTabs" component={VendorTabNavigator} />
-        <Stack.Screen name="VendorProductViews" component={VendorProductViewsScreen} />
+        <Stack.Screen
+          name="VendorProductViews"
+          component={VendorProductViewsScreen}
+        />
         <Stack.Screen name="VendorChatScreen" component={VendorChatScreen} />
-        <Stack.Screen name="VendorProductCRUD" component={VendorProductCRUDScreen} />
+        <Stack.Screen
+          name="VendorProductCRUD"
+          component={VendorProductCRUDScreen}
+        />
         <Stack.Screen name="VendorOrderList" component={VendorOrderList} />
         <Stack.Screen name="ActiveDeliveryBoys" component={AllDeliveryBoys} />
-        <Stack.Screen name="VendorGenerateInvoice" component={WhatsappInvoiceSender} />
-        <Stack.Screen name="InsuranceProductCRUD" component={InsuranceProductCRUDScreen} />
-        <Stack.Screen name="PropertyCRUDScreen" component={PropertyCRUDScreen} />
-        <Stack.Screen name="VendorAppointmentsList" component={VendorAppointmentsList} />
+        <Stack.Screen
+          name="VendorGenerateInvoice"
+          component={WhatsappInvoiceSender}
+        />
+        <Stack.Screen
+          name="InsuranceProductCRUD"
+          component={InsuranceProductCRUDScreen}
+        />
+        <Stack.Screen
+          name="PropertyCRUDScreen"
+          component={PropertyCRUDScreen}
+        />
+        <Stack.Screen
+          name="VendorAppointmentsList"
+          component={VendorAppointmentsList}
+        />
         <Stack.Screen name="VendorLeads" component={VendorLeadsScreen} />
         <Stack.Screen name="RentalCRUD" component={RentalCRUDScreen} />
-        <Stack.Screen name="SubscriptionChoice" component={SubscriptionChoiceScreen} />
-        <Stack.Screen name="SubscriptionManagement" component={SubscriptionManagementScreen} />
-        <Stack.Screen name="SubscriptionPending" component={SubscriptionPendingScreen} />
-        <Stack.Screen name="CategoryShopsScreen" component={CategoryShopsScreen} />
+        <Stack.Screen
+          name="SubscriptionChoice"
+          component={SubscriptionChoiceScreen}
+        />
+        <Stack.Screen
+          name="SubscriptionManagement"
+          component={SubscriptionManagementScreen}
+        />
+        <Stack.Screen
+          name="SubscriptionPending"
+          component={SubscriptionPendingScreen}
+        />
+        <Stack.Screen
+          name="CategoryShopsScreen"
+          component={CategoryShopsScreen}
+        />
         <Stack.Screen name="HomeScreen" component={HomeScreen} />
-        <Stack.Screen name="ProductSearchScreen" component={ProductSearchScreen} />
+        <Stack.Screen
+          name="ProductSearchScreen"
+          component={ProductSearchScreen}
+        />
         <Stack.Screen name="Search" component={Search} />
-        <Stack.Screen name="InsuranceProductsAndDetails" component={InsuranceProductsAndDetails} />
+        <Stack.Screen
+          name="InsuranceProductsAndDetails"
+          component={InsuranceProductsAndDetails}
+        />
         <Stack.Screen name="UserOrderScreen" component={UserOrderScreen} />
         <Stack.Screen name="ChatScreen" component={Chatscreen} />
         <Stack.Screen name="ShopListings" component={ShopListings} />
         <Stack.Screen name="ShopDetails" component={ShopDetails} />
         <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />
-        <Stack.Screen name="AllCategoriesScreen" component={AllCategoriesScreen} />
-        <Stack.Screen name="UserPropertyListScreen" component={UserPropertyListScreen} />
-        <Stack.Screen name="PropertyDetailScreen" component={PropertyDetailScreen} />
+        <Stack.Screen
+          name="AllCategoriesScreen"
+          component={AllCategoriesScreen}
+        />
+        <Stack.Screen
+          name="UserPropertyListScreen"
+          component={UserPropertyListScreen}
+        />
+        <Stack.Screen
+          name="PropertyDetailScreen"
+          component={PropertyDetailScreen}
+        />
         <Stack.Screen name="RentalList" component={UserRentalListScreen} />
         <Stack.Screen name="RentalDetail" component={RentalDetailScreen} />
         <Stack.Screen name="AdListScreen" component={AdListScreen} />
-        {/* ✅ Vendor Ad Management Screens */}
         <Stack.Screen name="AdManagement" component={AdManagementScreen} />
         <Stack.Screen name="AdGroupDetail" component={AdGroupDetailScreen} />
         <Stack.Screen name="WebViewScreen" component={WebViewScreen} />
+
+        <Stack.Screen name="Messages" component={MessagesScreen} />
+        <Stack.Screen name="Notifications" component={NotificationsScreen} />
+        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+        <Stack.Screen
+          name="StoryViewer"
+          component={StoryViewerScreen}
+          options={{ presentation: "fullScreenModal" }}
+        />
+        <Stack.Screen name="HashtagPosts" component={HashtagPostsScreen} />
+        <Stack.Screen name="SearchScreen" component={SearchScreen} />
       </Stack.Navigator>
     );
-  } else if (deliveryBoy?._id) {
-    MainNavigator = (
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="DeliveryBoyDashboard" component={DeliveryBoyDashboardScreen} />
-        <Stack.Screen name="DeliveryBoyOrders" component={DeliveryBoyOrdersPage} />
-      </Stack.Navigator>
-    );
-  } else if (user?.token) {
+  } else if (activeRole === "user") {
+    // ── USER FULL APP ──
     MainNavigator = (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="UserTabs" component={UserTabNavigator} />
         <Stack.Screen name="AddressScreen" component={AddressScreen} />
         <Stack.Screen name="Profile" component={UserProfileScreen} />
-        <Stack.Screen name="ChatScreen" component={Chatscreen} />
         <Stack.Screen name="CartScreen" component={CartScreen} />
         <Stack.Screen name="OrderScreen" component={OrderScreen} />
-        <Stack.Screen name="ProductDetails" component={ProductDetailsScreen} />
+        <Stack.Screen
+          name="ProductDetails"
+          component={ProductDetailsScreen}
+        />
         <Stack.Screen name="UserOrderScreen" component={UserOrderScreen} />
         <Stack.Screen name="ShopListings" component={ShopListings} />
         <Stack.Screen name="ShopDetails" component={ShopDetails} />
         <Stack.Screen name="ShopReviews" component={ShopReviewsScreen} />
-        <Stack.Screen name="CategoryShopsScreen" component={CategoryShopsScreen} />
-        <Stack.Screen name="CategoryProducts" component={CategoryProductsScreen} />
+        <Stack.Screen
+          name="CategoryShopsScreen"
+          component={CategoryShopsScreen}
+        />
+        <Stack.Screen
+          name="CategoryProducts"
+          component={CategoryProductsScreen}
+        />
         <Stack.Screen name="ShopProducts" component={ShopProductsScreen} />
         <Stack.Screen name="BrandProducts" component={BrandProductsScreen} />
-        <Stack.Screen name="ProductSearchScreen" component={ProductSearchScreen} />
-        <Stack.Screen name="MyCategoriesScreen" component={MyCategoriesScreen} />
-        <Stack.Screen name="InsuranceProductsAndDetails" component={InsuranceProductsAndDetails} />
-        <Stack.Screen name="ProductDetailScreen" component={ProductDetailScreen} options={{ presentation: "transparentModal" }} />
-        <Stack.Screen name="ProductDetailScreen10" component={ProductDetailScreen10} />
-        <Stack.Screen name="PropertyDetailScreen" component={PropertyDetailScreen} />
-        <Stack.Screen name="UserPropertyListScreen" component={UserPropertyListScreen} />
+        <Stack.Screen
+          name="ProductSearchScreen"
+          component={ProductSearchScreen}
+        />
+        <Stack.Screen
+          name="MyCategoriesScreen"
+          component={MyCategoriesScreen}
+        />
+        <Stack.Screen
+          name="InsuranceProductsAndDetails"
+          component={InsuranceProductsAndDetails}
+        />
+        <Stack.Screen
+          name="ProductDetailScreen"
+          component={ProductDetailScreen}
+          options={{ presentation: "transparentModal" }}
+        />
+        <Stack.Screen
+          name="ProductDetailScreen10"
+          component={ProductDetailScreen10}
+        />
+        <Stack.Screen
+          name="PropertyDetailScreen"
+          component={PropertyDetailScreen}
+        />
+        <Stack.Screen
+          name="UserPropertyListScreen"
+          component={UserPropertyListScreen}
+        />
         <Stack.Screen name="RentalList" component={UserRentalListScreen} />
         <Stack.Screen name="RentalDetail" component={RentalDetailScreen} />
         <Stack.Screen name="AdListScreen" component={AdListScreen} />
         <Stack.Screen name="AdGroupDetail" component={AdGroupDetailScreen} />
-        <Stack.Screen name="WebViewScreen" component={WebViewScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="AllCategoriesScreen" component={AllCategoriesScreen} />
+        <Stack.Screen
+          name="WebViewScreen"
+          component={WebViewScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="AllCategoriesScreen"
+          component={AllCategoriesScreen}
+        />
         <Stack.Screen name="AddAddressScreen" component={AddAddressScreen} />
         <Stack.Screen name="VendorLogin" component={VendorLoginScreen} />
         <Stack.Screen name="SignupVendor" component={SignupVendorScreen} />
+
+        <Stack.Screen name="Messages" component={MessagesScreen} />
+        <Stack.Screen name="Notifications" component={NotificationsScreen} />
+        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+        <Stack.Screen
+          name="StoryViewer"
+          component={StoryViewerScreen}
+          options={{ presentation: "fullScreenModal" }}
+        />
+        <Stack.Screen name="HashtagPosts" component={HashtagPostsScreen} />
+        <Stack.Screen name="SearchScreen" component={SearchScreen} />
+      </Stack.Navigator>
+    );
+  } else if (activeRole === "deliveryBoy") {
+    // ── DELIVERY BOY ──
+    MainNavigator = (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen
+          name="DeliveryBoyDashboard"
+          component={DeliveryBoyDashboardScreen}
+        />
+        <Stack.Screen
+          name="DeliveryBoyOrders"
+          component={DeliveryBoyOrdersPage}
+        />
       </Stack.Navigator>
     );
   } else {
+    // Fallback — should not reach here
     MainNavigator = (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Signup" component={SignupScreen} />
-        <Stack.Screen name="VendorLogin" component={VendorLoginScreen} />
-        <Stack.Screen name="SignupVendor" component={SignupVendorScreen} />
-        <Stack.Screen name="DeliveryBoyLogin" component={DeliveryBoyLoginScreen} />
-        <Stack.Screen name="DeliveryBoySignup" component={DeliveryBoySignupScreen} />
+        <Stack.Screen
+          name="ProfileChooser"
+          component={ProfileChooserScreen}
+        />
       </Stack.Navigator>
     );
   }
@@ -643,11 +804,21 @@ const AppNavigator = () => {
   return (
     <NavigationContainer ref={navigationRef} onReady={onLayoutRootView}>
       {MainNavigator}
-      {user?.token && !vendorAuthToken && !deliveryBoy?._id && <FloatingCartButton />}
+      {activeRole === "user" && hasUserSession && <FloatingCartButton />}
       <AppUpdateOverlay />
     </NavigationContainer>
   );
 };
+
+/**
+ * Inner shell — everything that needs Redux/PersistGate context.
+ */
+const AppShell = () => (
+  <RootGate>
+    <AppNavigator />
+    <Toast config={toastConfig} />
+  </RootGate>
+);
 
 export default function App() {
   return (
@@ -655,8 +826,7 @@ export default function App() {
       <PersistGate loading={null} persistor={persistor}>
         <GestureHandlerRootView style={{ flex: 1 }}>
           <SafeAreaProvider>
-            <AppNavigator />
-            <Toast config={toastConfig} />
+            <AppShell />
           </SafeAreaProvider>
         </GestureHandlerRootView>
       </PersistGate>
@@ -671,7 +841,11 @@ const appStyles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: Colors.luxuryBackground,
   },
-  loadingText: { color: Colors.luxuryTextPrimary, fontSize: 16, marginTop: 10 },
+  loadingText: {
+    color: Colors.luxuryTextPrimary,
+    fontSize: 16,
+    marginTop: 10,
+  },
   gateContainer: {
     flex: 1,
     backgroundColor: Colors.luxuryBackground,

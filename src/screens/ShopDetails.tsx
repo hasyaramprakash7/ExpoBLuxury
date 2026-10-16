@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Image,
   TouchableOpacity,
-  FlatList,
   Linking,
   Alert,
   Platform,
@@ -25,13 +24,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useSelector, useDispatch } from "react-redux";
 import { RootState, AppDispatch } from "../app/store";
-import { fetchAllVendorProducts } from "../features/vendor/vendorProductSlices";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import MaterialIcons from "@expo/vector-icons/MaterialIcons";
-import NewProductCard from "../components/NewProductCard10";
 import { fetchVendorReviews, createReview, clearReviews } from "../features/reviewSlice";
 import { createViewLead, createCallLead, createWhatsAppLead } from "../features/leadSlice";
-import VendorHorizontalScroll from "../components/VendorHorizontalScroll";
+import VendorVerticalScroll from "../components/VendorVerticalScroll";
 import * as FileSystem from 'expo-file-system/legacy';
 import Share from 'react-native-share';
 import { Share as RNShare } from 'react-native';
@@ -555,17 +551,11 @@ const ShopDetails = () => {
   const { vendor } = route.params;
 
   const dispatch = useDispatch<AppDispatch>();
-  const { allProducts, loading: productsLoading } = useSelector(
-    (state: RootState) => state.vendorProducts
-  );
   const { user } = useSelector((state: RootState) => state.auth);
   const { reviews, loading: reviewsLoading } = useSelector(
     (state: RootState) => state.reviews
   );
 
-  const [products, setProducts] = useState<any[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filteredProducts, setFilteredProducts] = useState<any[]>([]);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAllHours, setShowAllHours] = useState(false);
@@ -642,48 +632,16 @@ const ShopDetails = () => {
   }, [vendor?._id, user?._id, dispatch]);
 
   useEffect(() => {
-    if (!allProducts || allProducts.length === 0) {
-      dispatch(fetchAllVendorProducts());
-    }
-  }, [dispatch]);
-
-  useEffect(() => {
     if (vendorData?._id && isMounted.current) {
       dispatch(clearReviews());
       dispatch(fetchVendorReviews({ vendorId: vendorData._id, page: 1, limit: 20 }));
     }
   }, [vendorData?._id, dispatch]);
 
-  useEffect(() => {
-    if (allProducts && vendorData?._id) {
-      const filtered = allProducts.filter(
-        (p) => (p.vendor?._id || p.vendorId) === vendorData._id
-      );
-      setProducts(filtered);
-    }
-  }, [allProducts, vendorData]);
-
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredProducts(products);
-    } else {
-      const query = searchQuery.toLowerCase().trim();
-      const filtered = products.filter((p) =>
-        p.name?.toLowerCase().includes(query) ||
-        p.description?.toLowerCase().includes(query) ||
-        p.category?.toLowerCase().includes(query)
-      );
-      setFilteredProducts(filtered);
-    }
-  }, [products, searchQuery]);
-
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      await Promise.all([
-        dispatch(fetchAllVendorProducts()).unwrap(),
-        dispatch(fetchVendorReviews({ vendorId: vendorData._id, page: 1, limit: 20 })).unwrap(),
-      ]);
+      await dispatch(fetchVendorReviews({ vendorId: vendorData._id, page: 1, limit: 20 })).unwrap();
     } catch (error) {
       console.error('Refresh error:', error);
     } finally {
@@ -938,12 +896,6 @@ const ShopDetails = () => {
       setIsSubmitting(false);
     }
   };
-
-  const renderProductItem = ({ item }: { item: any }) => (
-    <View style={styles.verticalProductCardWrapper}>
-      <NewProductCard product={item} />
-    </View>
-  );
 
   if (!vendorData) {
     return (
@@ -1225,65 +1177,12 @@ const ShopDetails = () => {
 
           <View style={styles.divider} />
 
-          {/* Products Section with Search */}
-          <View style={styles.productsHeader}>
-            <Text style={styles.sectionTitle}>Products</Text>
-            <Text style={styles.productCount}>{products.length} items</Text>
-          </View>
-
-          <View style={styles.searchContainer}>
-            <Ionicons name="search-outline" size={moderateScale(20)} color={Colors.textTertiary} style={styles.searchIcon} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search products..."
-              placeholderTextColor={Colors.textTertiary}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              clearButtonMode="while-editing"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchButton}>
-                <Ionicons name="close-circle" size={moderateScale(20)} color={Colors.textTertiary} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {productsLoading ? (
-            <View style={styles.loadingProducts}>
-              <ActivityIndicator size="small" color={Colors.accentGreen} />
-              <Text style={styles.loadingProductsText}>Loading products...</Text>
-            </View>
-          ) : filteredProducts.length === 0 ? (
-            <View style={styles.emptyProducts}>
-              <Ionicons name="cube-outline" size={moderateScale(40)} color={Colors.textTertiary} />
-              <Text style={styles.emptyProductsText}>
-                {searchQuery.trim() ? 'No products match your search' : 'No products available'}
-              </Text>
-              {searchQuery.trim() && (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <Text style={styles.clearSearchText}>Clear search</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            <FlatList
-              data={filteredProducts}
-              renderItem={renderProductItem}
-              keyExtractor={(item) => item._id || item.id || Math.random().toString()}
-              scrollEnabled={false}
-              contentContainerStyle={styles.verticalProductList}
-            />
-          )}
-
-          <View style={styles.divider} />
-
+          {/* Products & Listings — handled by VendorVerticalScroll */}
           <View style={styles.horizontalScrollSection}>
-            <Text style={styles.sectionTitle}>More from {vendorData.shopName}</Text>
-            <VendorHorizontalScroll
+            <VendorVerticalScroll
               vendorId={vendorData._id}
               vendorName={vendorData.shopName}
               isVendorOffline={!vendorData.isOnline}
-              horizontal={false}
             />
           </View>
 
@@ -1512,6 +1411,8 @@ const styles = StyleSheet.create({
     paddingVertical: verticalScale(6),
     borderWidth: 1,
     borderColor: Colors.border,
+    marginRight: scale(6),
+    marginBottom: verticalScale(6),
   },
   tagText: {
     fontSize: moderateScale(13),
@@ -1730,71 +1631,6 @@ const styles = StyleSheet.create({
     color: Colors.accentBlue,
     fontSize: moderateScale(15),
     fontWeight: "600",
-  },
-  productsHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: verticalScale(12),
-  },
-  productCount: {
-    fontSize: moderateScale(14),
-    color: Colors.textTertiary,
-  },
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.backgroundSecondary,
-    borderRadius: moderateScale(12),
-    paddingHorizontal: scale(14),
-    marginBottom: verticalScale(16),
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  searchIcon: {
-    marginRight: scale(8),
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: verticalScale(10),
-    fontSize: moderateScale(15),
-    color: Colors.textPrimary,
-  },
-  clearSearchButton: {
-    padding: scale(4),
-  },
-  clearSearchText: {
-    color: Colors.accentBlue,
-    fontSize: moderateScale(14),
-    fontWeight: "600",
-    marginTop: verticalScale(8),
-  },
-  loadingProducts: {
-    alignItems: "center",
-    paddingVertical: verticalScale(30),
-    gap: verticalScale(12),
-  },
-  loadingProductsText: {
-    color: Colors.textTertiary,
-    fontSize: moderateScale(14),
-  },
-  emptyProducts: {
-    alignItems: "center",
-    paddingVertical: verticalScale(30),
-    gap: verticalScale(6),
-  },
-  emptyProductsText: {
-    color: Colors.textSecondary,
-    fontSize: moderateScale(16),
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  verticalProductList: {
-    paddingBottom: verticalScale(8),
-  },
-  verticalProductCardWrapper: {
-    width: '100%',
-    marginBottom: verticalScale(12),
   },
   horizontalScrollSection: {
     marginTop: verticalScale(4),

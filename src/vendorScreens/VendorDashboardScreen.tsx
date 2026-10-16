@@ -91,16 +91,43 @@ export default function VendorDashboard() {
   const navigation = useNavigation<VendorDashboardNavigationProp>();
   const insets = useSafeAreaInsets();
 
-  const { vendor, loading: vendorAuthLoading, subscriptionStatus } = useSelector(
-    (state: RootState) => state.vendorAuth
-  );
+  const {
+    vendor,
+    loading: vendorAuthLoading,
+    subscriptionStatus,
+    error: vendorAuthError,
+  } = useSelector((state: RootState) => state.vendorAuth);
+
   const {
     orders: vendorOrders,
     loading: vendorOrdersLoading,
+    error: vendorOrdersError,
   } = useSelector((state: RootState) => state.vendorOrders);
-  const { categories, loading: categoriesLoading } = useSelector(
-    (state: RootState) => state.categories
-  );
+
+  const {
+    categories,
+    loading: categoriesLoading,
+    error: categoriesError,
+  } = useSelector((state: RootState) => state.categories);
+
+  // ═══════════════════════════════════════════════════════════════
+  // 🔍 DIAGNOSTIC LOG #1 — render state snapshot
+  // Fires on every render. Watch this while the spinner spins.
+  // ═══════════════════════════════════════════════════════════════
+  console.log('[VendorDashboard] 🔄 RENDER', {
+    hasVendor: !!vendor,
+    vendorId: vendor?._id ?? null,
+    vendorShopName: vendor?.shopName ?? null,
+    vendorAuthLoading,
+    subscriptionStatus,
+    vendorAuthError,
+    vendorOrdersCount: vendorOrders?.length ?? 0,
+    vendorOrdersLoading,
+    vendorOrdersError,
+    categoriesCount: categories?.length ?? 0,
+    categoriesLoading,
+    categoriesError,
+  });
 
   const [isEditing, setIsEditing] = useState(false);
   const [shopImageFile, setShopImageFile] =
@@ -137,7 +164,6 @@ export default function VendorDashboard() {
     isPremium: false,
   });
 
-  // ─── Map Picker Modal state (like SignupVendorScreen) ──────────
   const [showMapModal, setShowMapModal] = useState(false);
   const mapWebViewRef = useRef<WebView>(null);
   const [mapInitialCoords, setMapInitialCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -153,40 +179,80 @@ export default function VendorDashboard() {
   });
   const [fetchingAddress, setFetchingAddress] = useState(false);
 
-  // Search inside map
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const searchTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const onRefresh = useCallback(async () => {
+    console.log('[VendorDashboard] 🎯 onRefresh called');
     setRefreshing(true);
     try {
-      await Promise.all([
+      console.log('[VendorDashboard] 📡 dispatching refresh batch…');
+      const results = await Promise.all([
         dispatch(fetchVendorProfile()),
         dispatch(fetchVendorStats()),
         dispatch(fetchSubscriptionStatus()),
         dispatch(fetchVendorOrders(vendor?._id || "")),
       ]);
+      console.log('[VendorDashboard] ✅ refresh batch resolved:', results.map((r: any) => r?.meta?.requestStatus));
     } catch (error) {
+      console.error('[VendorDashboard] ❌ refresh batch threw:', error);
       Alert.alert("Refresh Failed", "Could not refresh dashboard data.");
     } finally {
       setRefreshing(false);
     }
   }, [dispatch, vendor?._id]);
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🔍 DIAGNOSTIC LOG #2 — useFocusEffect
+  // ═══════════════════════════════════════════════════════════════
   useFocusEffect(
     useCallback(() => {
-      dispatch(fetchSubscriptionStatus());
+      console.log('[VendorDashboard] 🎯 useFocusEffect fired → fetchSubscriptionStatus()');
+      dispatch(fetchSubscriptionStatus())
+        .then((r: any) => {
+          console.log('[VendorDashboard] ✅ fetchSubscriptionStatus resolved:', {
+            status: r?.meta?.requestStatus,
+            payload: r?.payload,
+          });
+        })
+        .catch((e) => {
+          console.error('[VendorDashboard] ❌ fetchSubscriptionStatus threw:', e);
+        });
     }, [dispatch])
   );
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🔍 DIAGNOSTIC LOG #3 — subscription redirect logic
+  // THIS is likely where the "spin" comes from: if the effect fires
+  // navigation.replace('SubscriptionChoice') on a loop, you get a
+  // frozen/spinning dashboard.
+  // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
+    const effectiveStatus = subscriptionStatus || "inactive";
+    console.log('[VendorDashboard] 🔀 subscription redirect check:', {
+      vendorAuthLoading,
+      subscriptionStatus,
+      effectiveStatus,
+      willRedirect:
+        !vendorAuthLoading &&
+        (effectiveStatus === "inactive" || effectiveStatus === "expired"),
+    });
+
     if (!vendorAuthLoading) {
-      const effectiveStatus = subscriptionStatus || "inactive";
       if (effectiveStatus === "inactive" || effectiveStatus === "expired") {
+        console.log(
+          `[VendorDashboard] ➡️ REDIRECT → SubscriptionChoice (status=${effectiveStatus})`
+        );
         navigation.replace("SubscriptionChoice");
+      } else {
+        console.log(
+          `[VendorDashboard] ✅ staying on dashboard (status=${effectiveStatus})`
+        );
       }
+    } else {
+      console.log('[VendorDashboard] ⏳ waiting for vendorAuthLoading to settle');
     }
   }, [subscriptionStatus, vendorAuthLoading, navigation]);
 
@@ -223,7 +289,14 @@ export default function VendorDashboard() {
     return [];
   }, []);
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🔍 DIAGNOSTIC LOG #4 — form sync from vendor
+  // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
+    console.log('[VendorDashboard] 🔧 vendor→formData sync effect fired', {
+      hasVendor: !!vendor,
+      vendorId: vendor?._id ?? null,
+    });
     if (vendor) {
       const parsedCategories = parseArrayField(vendor.categories);
       const parsedServices = parseArrayField(vendor.services);
@@ -263,8 +336,27 @@ export default function VendorDashboard() {
     }
   }, [vendor, parseArrayField]);
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🔍 DIAGNOSTIC LOG #5 — vendor orders fetch
+  // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
-    if (vendor?._id) dispatch(fetchVendorOrders(vendor._id));
+    console.log('[VendorDashboard] 🎯 vendor orders effect', {
+      vendorId: vendor?._id ?? null,
+      willFetch: !!vendor?._id,
+    });
+    if (vendor?._id) {
+      dispatch(fetchVendorOrders(vendor._id))
+        .then((r: any) => {
+          console.log('[VendorDashboard] ✅ fetchVendorOrders resolved:', {
+            status: r?.meta?.requestStatus,
+            payloadCount: Array.isArray(r?.payload) ? r.payload.length : null,
+            error: r?.error?.message,
+          });
+        })
+        .catch((e) => {
+          console.error('[VendorDashboard] ❌ fetchVendorOrders threw:', e);
+        });
+    }
   }, [dispatch, vendor?._id]);
 
   const totalOrders = vendorOrders.length;
@@ -318,7 +410,6 @@ export default function VendorDashboard() {
     }
   }, []);
 
-  // ─── Image Picker: Camera + Gallery, no crop ─────────────────
   const pickFromGallery = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -363,7 +454,6 @@ export default function VendorDashboard() {
     ]);
   }, [pickFromCamera, pickFromGallery]);
 
-  // ─── Map Picker: helpers ─────────────────────────────────────
   const reverseGeocode = useCallback(async (lat: number, lng: number) => {
     setFetchingAddress(true);
     try {
@@ -410,7 +500,6 @@ export default function VendorDashboard() {
     setSearchQuery("");
     setSearchResults([]);
 
-    // Prefer vendor's saved coords first, then device location, then India center
     const savedLat = parseFloat(formData.address.latitude);
     const savedLng = parseFloat(formData.address.longitude);
     if (!isNaN(savedLat) && !isNaN(savedLng) && savedLat && savedLng) {
@@ -726,7 +815,11 @@ export default function VendorDashboard() {
     []
   );
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🔍 DIAGNOSTIC LOG #6 — which branch is rendering?
+  // ═══════════════════════════════════════════════════════════════
   if (vendorAuthLoading) {
+    console.log('[VendorDashboard] 🖼️ BRANCH: loading spinner (vendorAuthLoading=true)');
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.centered}>
@@ -738,6 +831,7 @@ export default function VendorDashboard() {
   }
 
   if (!vendor) {
+    console.log('[VendorDashboard] 🖼️ BRANCH: access denied (no vendor)');
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.accessDeniedContainer}>
@@ -760,6 +854,7 @@ export default function VendorDashboard() {
   }
 
   if (subscriptionStatus === "pending") {
+    console.log('[VendorDashboard] 🖼️ BRANCH: pending subscription');
     const [verifying, setVerifying] = useState(false);
     const handleVerifyPayment = async () => {
       setVerifying(true);
@@ -805,6 +900,8 @@ export default function VendorDashboard() {
     );
   }
 
+  console.log('[VendorDashboard] 🖼️ BRANCH: full dashboard render');
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
@@ -839,7 +936,7 @@ export default function VendorDashboard() {
               getStatusDisplay={getStatusDisplay}
               categories={categories}
               categoriesLoading={categoriesLoading}
-              onPickFromMap={openMapPicker}   // ← NEW prop
+              onPickFromMap={openMapPicker}
             />
           </View>
           <VendorDashboardSidePanel
@@ -865,7 +962,6 @@ export default function VendorDashboard() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ─── Map Picker Modal (Leaflet center-pin like Signup) ─── */}
       <Modal
         visible={showMapModal}
         animationType="slide"
@@ -892,7 +988,6 @@ export default function VendorDashboard() {
               </View>
             )}
 
-            {/* Center marker */}
             <View style={styles.centerMarkerContainer} pointerEvents="none">
               <View
                 style={[
@@ -913,7 +1008,6 @@ export default function VendorDashboard() {
               <View style={styles.markerShadow} />
             </View>
 
-            {/* Search Bar Overlay */}
             <View style={[styles.mapSearchContainer, { top: Math.max(insets.top, 20) }]}>
               <View style={styles.mapSearchBar}>
                 <Ionicons name="search" size={20} color={MAP_COLORS.textSecondary} />
@@ -967,7 +1061,6 @@ export default function VendorDashboard() {
               )}
             </View>
 
-            {/* Close button */}
             <TouchableOpacity
               style={[styles.mapCloseButton, { top: Math.max(insets.top, 20) }]}
               onPress={() => setShowMapModal(false)}
@@ -975,13 +1068,11 @@ export default function VendorDashboard() {
               <Ionicons name="close" size={24} color="#1C1C1E" />
             </TouchableOpacity>
 
-            {/* My location button */}
             <TouchableOpacity style={styles.mapMyLocationButton} onPress={recenterMap}>
               <Ionicons name="locate" size={24} color={MAP_COLORS.primary} />
             </TouchableOpacity>
           </View>
 
-          {/* Bottom sheet */}
           <View style={[styles.mapBottomSheet, { paddingBottom: insets.bottom + 20 }]}>
             <View style={styles.mapLocationHeader}>
               <View style={styles.mapLocationIconContainer}>
@@ -1161,7 +1252,6 @@ const styles = StyleSheet.create({
   pendingCancelButton: { backgroundColor: "#64748b" },
   pendingButtonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 
-  // ─── Map Modal Styles ───────────────────────────────────────
   mapLoading: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "center",

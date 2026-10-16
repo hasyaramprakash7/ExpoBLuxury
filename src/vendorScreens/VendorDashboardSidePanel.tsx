@@ -1,5 +1,5 @@
 // src/vendorScreens/VendorDashboardSidePanel.tsx
-import React, { useEffect, useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -27,6 +27,7 @@ import { RootState, AppDispatch } from "../app/store";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { fetchVendorStats } from "../features/vendor/vendorAuthSlice";
 import { fetchVendorLeads } from "../features/leadSlice";
+import { clearActiveRole } from "../features/session/sessionSlice";
 
 const { width } = Dimensions.get("window");
 
@@ -52,7 +53,7 @@ interface VendorDashboardSidePanelProps {
   handleLogout: () => void;
   getStatusDisplay: (
     isApproved: boolean | undefined,
-    isOnline: boolean | undefined,
+    isOnline: boolean | undefined
   ) => JSX.Element;
   totalOrders: number;
   pendingOrders: number;
@@ -61,7 +62,6 @@ interface VendorDashboardSidePanelProps {
   navigation: StackNavigationProp<RootStackParamList>;
 }
 
-// --- Light Theme: White + Royal Green ---
 const Colors = {
   background: "#F8FAFC",
   cardBackground: "#FFFFFF",
@@ -83,7 +83,7 @@ interface MetricItem {
   id: string;
   label: string;
   value: number | string;
-  rawValue: number;        // numeric for dot logic (>0)
+  rawValue: number;
   icon: LucideIcon;
   color: string;
   onPress?: () => void;
@@ -102,48 +102,91 @@ const VendorDashboardSidePanel = ({
   navigation,
 }: VendorDashboardSidePanelProps) => {
   const dispatch = useDispatch<AppDispatch>();
+  const [switching, setSwitching] = useState(false);
 
-  // --- Leads (from leads slice) ---
-  const { stats: leadStats } = useSelector((state: RootState) => state.leads);
-  // --- Vendor profile (fallback) ---
-  const { vendor: vendorAuth } = useSelector((state: RootState) => state.vendorAuth);
-
-  // --- Views (from productViews slice) ---
+  const { stats: leadStats, loading: leadsLoading, error: leadsError } = useSelector(
+    (state: RootState) => state.leads
+  );
+  const { vendor: vendorAuth } = useSelector(
+    (state: RootState) => state.vendorAuth
+  );
   const { views: productViews, total: viewsTotal } = useSelector(
     (state: RootState) => state.productViews
   );
   const totalViews = viewsTotal || productViews.length;
 
-  // --- Determine leads count: prefer slice, fallback to profile ---
   const leadCount = leadStats?.total ?? vendorAuth?.totalLeads ?? 0;
+  const viewCount = totalViews > 0 ? totalViews : vendorAuth?.totalViews ?? 0;
 
-  // --- Determine views count: prefer slice, fallback to profile ---
-  const viewCount = totalViews > 0 ? totalViews : (vendorAuth?.totalViews ?? 0);
+  // ═══════════════════════════════════════════════════════════════
+  // 🔍 DIAGNOSTIC LOG #7 — side panel render
+  // ═══════════════════════════════════════════════════════════════
+  console.log('[VendorSidePanel] 🔄 RENDER', {
+    hasVendor: !!vendor,
+    vendorId: vendor?._id ?? null,
+    loading,
+    statsLoading,
+    leadCount,
+    leadsLoading,
+    leadsError,
+    viewCount,
+    totalOrders,
+    pendingOrders,
+    totalRevenue,
+    switching,
+  });
 
-  // ✅ Polling only when screen is focused
+  // ═══════════════════════════════════════════════════════════════
+  // 🔍 DIAGNOSTIC LOG #8 — side panel focus effect
+  // ═══════════════════════════════════════════════════════════════
   useFocusEffect(
     useCallback(() => {
-      // Initial fetch on focus
-      dispatch(fetchVendorStats());
-      dispatch(fetchVendorLeads());
+      console.log('[VendorSidePanel] 🎯 useFocusEffect fired → dispatching stats + leads');
+
+      dispatch(fetchVendorStats())
+        .then((r: any) =>
+          console.log('[VendorSidePanel] ✅ fetchVendorStats resolved:', {
+            status: r?.meta?.requestStatus,
+            payload: r?.payload,
+            error: r?.error?.message,
+          })
+        )
+        .catch((e) => console.error('[VendorSidePanel] ❌ fetchVendorStats threw:', e));
+
+      dispatch(fetchVendorLeads())
+        .then((r: any) =>
+          console.log('[VendorSidePanel] ✅ fetchVendorLeads resolved:', {
+            status: r?.meta?.requestStatus,
+            payload: r?.payload,
+            error: r?.error?.message,
+          })
+        )
+        .catch((e) => console.error('[VendorSidePanel] ❌ fetchVendorLeads threw:', e));
 
       const interval = setInterval(() => {
+        console.log('[VendorSidePanel] ⏰ interval tick → dispatching stats + leads');
         dispatch(fetchVendorStats());
         dispatch(fetchVendorLeads());
-      }, 30000); // 30 seconds
+      }, 30000);
 
       return () => {
+        console.log('[VendorSidePanel] 🧹 useFocusEffect cleanup → clearing interval');
         clearInterval(interval);
       };
     }, [dispatch])
   );
 
-  // Placeholder counts (connect to real slices later)
   const propertyCount = 0;
   const rentalCount = 0;
   const productCount = 0;
 
-  // --- Metrics ---
+  const handleSwitchAccount = () => {
+    console.log('[VendorSidePanel] 🎯 handleSwitchAccount called → clearActiveRole()');
+    setSwitching(true);
+    dispatch(clearActiveRole());
+    // App.tsx will switch to the chooser automatically
+  };
+
   const metrics: MetricItem[] = [
     {
       id: "orders",
@@ -212,7 +255,6 @@ const VendorDashboardSidePanel = ({
 
   const renderMetricItem = (metric: MetricItem) => {
     const showDot = metric.rawValue > 0;
-
     return (
       <TouchableOpacity
         key={metric.id}
@@ -221,7 +263,12 @@ const VendorDashboardSidePanel = ({
         activeOpacity={0.8}
       >
         <View style={styles.metricHeader}>
-          <View style={[styles.metricIconWrapper, { backgroundColor: metric.color + '20' }]}>
+          <View
+            style={[
+              styles.metricIconWrapper,
+              { backgroundColor: metric.color + "20" },
+            ]}
+          >
             <metric.icon size={20} color={metric.color} />
             {showDot && <View style={styles.notificationDot} />}
           </View>
@@ -244,7 +291,6 @@ const VendorDashboardSidePanel = ({
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.contentContainer}
     >
-      {/* Hero Status Card */}
       <View style={styles.heroCard}>
         <View style={styles.heroHeader}>
           <View style={styles.statusIndicator}>
@@ -257,7 +303,11 @@ const VendorDashboardSidePanel = ({
             <Text
               style={[
                 styles.statusText,
-                { color: vendor?.isOnline ? Colors.onlineGreen : Colors.offlineRed },
+                {
+                  color: vendor?.isOnline
+                    ? Colors.onlineGreen
+                    : Colors.offlineRed,
+                },
               ]}
             >
               {vendor?.isOnline ? "● LIVE" : "● OFFLINE"}
@@ -269,40 +319,52 @@ const VendorDashboardSidePanel = ({
         </View>
 
         <View style={styles.heroContent}>
-          <Text style={styles.vendorName}>{vendor?.shopName || vendor?.name || 'Vendor'}</Text>
-          <Text style={styles.vendorType}>{vendor?.businessType || 'Shop'}</Text>
+          <Text style={styles.vendorName}>
+            {vendor?.shopName || vendor?.name || "Vendor"}
+          </Text>
+          <Text style={styles.vendorType}>
+            {vendor?.businessType || "Shop"}
+          </Text>
           <View style={styles.approvalBadge}>
             {vendor?.isApproved ? (
-              <Ionicons name="checkmark-circle" size={16} color={Colors.royalGreen} />
+              <Ionicons
+                name="checkmark-circle"
+                size={16}
+                color={Colors.royalGreen}
+              />
             ) : (
               <Ionicons name="time-outline" size={16} color={Colors.gold} />
             )}
             <Text
               style={[
                 styles.approvalText,
-                { color: vendor?.isApproved ? Colors.royalGreen : Colors.gold },
+                {
+                  color: vendor?.isApproved
+                    ? Colors.royalGreen
+                    : Colors.gold,
+                },
               ]}
             >
-              {vendor?.isApproved ? 'Approved' : 'Pending Approval'}
+              {vendor?.isApproved ? "Approved" : "Pending Approval"}
             </Text>
           </View>
         </View>
       </View>
 
-      {/* Metrics Grid */}
       <View style={styles.metricsSection}>
         <Text style={styles.sectionTitle}>PERFORMANCE & ACTIONS</Text>
         <View style={styles.metricsGrid}>{metrics.map(renderMetricItem)}</View>
       </View>
 
-      {/* Controls */}
       <View style={styles.controlsSection}>
         <View style={styles.controlsRow}>
           <TouchableOpacity
             onPress={handleToggleOnlineStatus}
             style={[
               styles.controlButton,
-              vendor?.isOnline ? styles.offlineControl : styles.onlineControl,
+              vendor?.isOnline
+                ? styles.offlineControl
+                : styles.onlineControl,
             ]}
             disabled={loading}
             activeOpacity={0.8}
@@ -329,11 +391,35 @@ const VendorDashboardSidePanel = ({
         </View>
 
         <TouchableOpacity
+          onPress={handleSwitchAccount}
+          style={styles.switchButton}
+          disabled={switching}
+          activeOpacity={0.8}
+        >
+          {switching ? (
+            <ActivityIndicator color={Colors.royalGreen} />
+          ) : (
+            <>
+              <Ionicons
+                name="swap-horizontal"
+                size={20}
+                color={Colors.royalGreen}
+              />
+              <Text style={styles.switchText}>Switch Account</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
           onPress={() => navigation.navigate("VendorChatScreen")}
           style={styles.chatButton}
           activeOpacity={0.8}
         >
-          <Ionicons name="chatbubbles-outline" size={20} color={Colors.textPrimary} />
+          <Ionicons
+            name="chatbubbles-outline"
+            size={20}
+            color={Colors.textPrimary}
+          />
           <Text style={styles.chatText}>Chat Support</Text>
         </TouchableOpacity>
       </View>
@@ -341,10 +427,13 @@ const VendorDashboardSidePanel = ({
   );
 };
 
-// --- Styles (White + Green theme) ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  contentContainer: { paddingHorizontal: 16, paddingVertical: 20, paddingBottom: 40 },
+  contentContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    paddingBottom: 40,
+  },
   heroCard: {
     backgroundColor: Colors.cardBackground,
     borderRadius: 16,
@@ -398,7 +487,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.royalGreenLight,
   },
-  brandText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  brandText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
   heroContent: { alignItems: "center", paddingVertical: 8 },
   vendorName: {
     fontSize: 22,
@@ -407,7 +501,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 4,
   },
-  vendorType: { fontSize: 14, color: Colors.textSecondary, marginBottom: 8 },
+  vendorType: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 8,
+  },
   approvalBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -464,7 +562,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.cardBackground,
   },
-  metricValue: { fontSize: 18, fontWeight: "bold", color: Colors.textPrimary },
+  metricValue: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: Colors.textPrimary,
+  },
   metricLabel: {
     fontSize: 10,
     color: Colors.textMuted,
@@ -503,7 +605,12 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-  controlText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700", letterSpacing: 0.5 },
+  controlText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
   logoutButton: {
     flex: 0.4,
     flexDirection: "row",
@@ -516,7 +623,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(239, 68, 68, 0.2)",
   },
-  logoutText: { color: Colors.offlineRed, fontSize: 14, fontWeight: "600", letterSpacing: 0.5 },
+  logoutText: {
+    color: Colors.offlineRed,
+    fontSize: 14,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+  },
+  switchButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 10,
+    backgroundColor: "rgba(27, 140, 64, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(27, 140, 64, 0.25)",
+  },
+  switchText: {
+    color: Colors.royalGreen,
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
   chatButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -528,7 +657,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.cardBorder,
   },
-  chatText: { color: Colors.textSecondary, fontSize: 14, fontWeight: "600" },
+  chatText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
 });
 
 export default VendorDashboardSidePanel;

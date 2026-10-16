@@ -1,921 +1,1163 @@
-// screens/AdListScreen.tsx
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+// src/screens/AdListScreen.tsx
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Text,
   FlatList,
   StyleSheet,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
-  Dimensions,
-  RefreshControl,
-  ScrollView,
-  TextInput,
-  SafeAreaView,
   StatusBar,
-  Animated,
   Alert,
   BackHandler,
-  Linking,
+  KeyboardAvoidingView,
+  Keyboard,
   Platform,
-  Share as RNShare,
+  ScrollView,
+  Linking,
+  PanResponder,
+  Dimensions,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
-import { RootState } from '../store';
-import { fetchActiveAds } from '../features/adSlice';
-import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { LinearGradient } from 'expo-linear-gradient';
-import * as WebBrowser from 'expo-web-browser';
-import * as FileSystem from 'expo-file-system/legacy';
-import Share from 'react-native-share';
+import { Image as ExpoImage } from 'expo-image';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ---------- Dynamically load speech recognition (fallback for Expo Go) ----------
-let SpeechRecognition: any = null;
-try {
-  SpeechRecognition = require('expo-speech-recognition');
-} catch (e) {
-  console.warn('🔇 Speech recognition not available', e);
-}
+import { RootState, AppDispatch } from '../app/store';
+import {
+  fetchActiveAds,
+  fetchMyPosts,
+  toggleLikeAd,
+  trackAdShare,
+  fetchComments,
+  addComment,
+  deleteComment,
+  toggleCommentLike,
+  createAd,
+  createStory,
+  deleteAd,
+  fetchActiveStories,
+  fetchMyStories,
+  fetchUserProfile,
+  fetchNotifications,
+  fetchConversations,
+  fetchFollowers,
+  fetchFollowing,
+  toggleFollow,
+  selectActiveAds,
+  selectAdsLoading,
+  selectAdsError,
+  selectAdsRefreshing,
+  selectMyPosts,
+  selectActiveAdsLoaded,
+  selectActiveAdsHasMore,
+  selectActiveAdsLoadingMore,
+  selectActiveAdsPage,
+  selectStories,
+  selectMyStories,
+  selectUserProfile,
+  selectUnreadNotifications,
+  selectConversations,
+} from '../features/adSlice';
 
-// Play Store & App Store links – replace with your actual links
-const PLAY_STORE_LINK = 'https://play.google.com/store/apps/details?id=com.ram1234567890.BLuxury';
-const APP_STORE_LINK = 'https://apps.apple.com/app/bluxury/id123456789';
+import {
+  fetchUserProfile as fetchAuthUserProfile,
+} from '../features/user/authSlice';
 
-// Helper to detect user cancellation
-const isCancellationError = (error: any): boolean => {
-  const msg = error?.message?.toLowerCase() || '';
-  return (
-    msg.includes('user cancelled') ||
-    msg.includes('canceled') ||
-    msg.includes('user did not share') ||
-    msg.includes('dismissed')
-  );
+import CommentsSheet from '../components/CommentsSheet';
+import {
+  GridCard,
+  AdFeedPost,
+  normalizePhone,
+  downloadMediaLocally,
+  deleteLocalFile,
+  GRID_GAP,
+  GRID_COLUMNS,
+  pickVideoSource,
+} from '../components/FeedCards';
+import {
+  CreatePostModal,
+  UserProfileModal,
+  StoryCreatorModal,
+  FollowListModal,
+  getProfileAvatar,
+} from '../components/AdModals';
+import ReelFeedScreen from './ReelFeedScreen';
+import MessagesScreen from './MessagesScreen';
+
+import { useSocket } from '../hooks/useSocket';
+
+import {
+  RESET_ADLIST_EVENT,
+  HIDE_USER_TABBAR_EVENT,
+  SHOW_USER_TABBAR_EVENT,
+  ADLIST_REQUEST_SWIPE_EVENT,
+  useTabBarVisibility,
+} from '../navigation/UserTabNavigator';
+
+const PAGE_SIZE = 20;
+const SAVED_ITEMS_KEY = '@bluxury_saved_items_v1';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const LOG_TAG = '🟦[AdListScreen]';
+
+const log = (...args: any[]) => {
+  if (__DEV__) console.log(LOG_TAG, ...args);
+};
+const logWarn = (...args: any[]) => {
+  if (__DEV__) console.warn(LOG_TAG, '⚠️', ...args);
+};
+const logError = (...args: any[]) => {
+  if (__DEV__) console.error(LOG_TAG, '❌', ...args);
 };
 
-// ---------- Share function (reusable) ----------
-const shareAd = async (ad: any, setIsSharing: (val: boolean) => void) => {
-  if (!ad) return;
+const pickBestAvatar = (...candidates: any[]): string => {
+  let fallback = '';
+  for (const c of candidates) {
+    if (typeof c !== 'string' || !c.trim()) continue;
+    const s = c.trim();
+    if (/^https?:\/\//i.test(s)) return s;
+    if (!fallback) fallback = s;
+  }
+  return fallback;
+};
 
-  setIsSharing(true);
+type ListMode = 'grid' | 'posts' | 'saved' | 'profile' | 'messages';
+type ScreenMode = ListMode | 'feed';
+type SwipeEntry = ListMode | 'shops';
+
+const SWIPE_ORDER: SwipeEntry[] = ['posts', 'grid', 'messages', 'profile', 'shops'];
+
+const Royal = {
+  pureBlack: '#000000',
+  pureWhite: '#FFFFFF',
+  offWhite: '#F4F4F6',
+  softWhite: '#F2F2F7',
+  textPrimary: '#0B0B0F',
+  textSecondary: 'rgba(11,11,15,0.55)',
+  textTertiary: 'rgba(11,11,15,0.40)',
+  borderLight: 'rgba(0,0,0,0.08)',
+  borderMedium: 'rgba(0,0,0,0.15)',
+  shadow: 'rgba(0,0,0,0.10)',
+  redAlert: '#FF3040',
+  blueAccent: '#0095F6',
+  greenAccent: '#00C853',
+  onlineGreen: '#4CD964',
+  maroon: '#5C1A2B',
+};
+
+const URL_PATTERN =
+  /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9-]+\.(?:com|org|net|io|co|in|app|dev|me|tech|site|xyz|store|shop|link|ai|us|uk|info|biz|online|cloud|live)(?:\/[^\s]*)?)/gi;
+
+const openExternalUrl = async (raw: string) => {
+  if (!raw) return;
+  const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   try {
-    const imageUrl = ad.image || '';
-    const title = ad.title || 'Ad';
-    const description = ad.description || '';
-    const category = ad.category || '';
-    const link = ad.link || '';
-
-    let message = `📢 *${title}*\n\n`;
-    if (description) message += `${description}\n\n`;
-    if (category) message += `🏷️ Category: ${category}\n`;
-    if (link) message += `🔗 Link: ${link}\n\n`;
-    const appLink = Platform.OS === 'ios' ? APP_STORE_LINK : PLAY_STORE_LINK;
-    message += `📱 Download the BLuxury App: ${appLink}`;
-
-    if (imageUrl) {
-      try {
-        const timestamp = Date.now();
-        const filePath = `${FileSystem.cacheDirectory}ad_${timestamp}.jpg`;
-        const downloadResult = await FileSystem.downloadAsync(imageUrl, filePath);
-        if (downloadResult.status === 200) {
-          let localUri = downloadResult.uri;
-          if (Platform.OS === 'android') {
-            localUri = `file://${localUri}`;
-          }
-          const shareOptions = {
-            title: 'BLuxury Ad',
-            message: message,
-            url: localUri,
-            type: 'image/jpeg',
-          };
-          await Share.open(shareOptions);
-          setIsSharing(false);
-          return;
-        }
-      } catch (imageError) {
-        if (isCancellationError(imageError)) {
-          setIsSharing(false);
-          return;
-        }
-        console.log('Image share failed, falling back to text', imageError);
-      }
-    }
-
-    await RNShare.share({
-      message: message,
-      title: 'BLuxury Ad',
-    });
-  } catch (error) {
-    console.error('Share error:', error);
-    if (!isCancellationError(error)) {
-      Alert.alert('Share Error', 'Could not share this ad. Please try again.');
-    }
-  } finally {
-    setIsSharing(false);
+    const ok = await Linking.canOpenURL(url);
+    if (ok) await Linking.openURL(url);
+    else Alert.alert('Invalid Link', url);
+  } catch (e) {
+    logError('openExternalUrl failed:', e);
+    Alert.alert('Error', 'Could not open this link.');
   }
 };
 
-// ---------- Component Interfaces ----------
+type SavedItem = {
+  ad: any;
+  localUri: string;
+  mediaType: 'image' | 'video';
+  savedAt: number;
+};
+
+let savedItemsCache: Record<string, SavedItem> | null = null;
+let savedItemsPromise: Promise<Record<string, SavedItem>> | null = null;
+
+const loadSavedItemsOnce = (): Promise<Record<string, SavedItem>> => {
+  if (savedItemsCache) return Promise.resolve(savedItemsCache);
+  if (savedItemsPromise) return savedItemsPromise;
+  savedItemsPromise = (async () => {
+    try {
+      const raw = await AsyncStorage.getItem(SAVED_ITEMS_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, SavedItem>) : {};
+      const safe = parsed && typeof parsed === 'object' ? parsed : {};
+      savedItemsCache = safe;
+      return safe;
+    } catch (e) {
+      logError('loadSavedItemsOnce failed:', e);
+      savedItemsCache = {};
+      return {};
+    }
+  })();
+  return savedItemsPromise;
+};
+
 interface AdListScreenProps {
   products?: any[];
   title?: string;
+  notificationsCount?: number;
+  onPressNotifications?: () => void;
 }
 
-const { width } = Dimensions.get('window');
-const TAB_WIDTH = 80;
-const TAB_HEIGHT = 80;
-const CATEGORY_ITEM_WIDTH = 90;
-const TOP_BAR_HEIGHT = 270;
-
-const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
-
-// ----- helper to normalize phone -----
-const normalizePhone = (phone: string) => {
-  if (!phone) return '';
-  return phone.replace(/^\+91/, '').replace(/\D/g, '');
-};
-
-// ----- Category Item Component -----
-const CategoryItem: React.FC<{
-  category: string;
-  image: string;
-  isSelected: boolean;
-  onPress: (category: string) => void;
-}> = ({ category, image, isSelected, onPress }) => {
-  return (
-    <TouchableOpacity
-      style={[
-        styles.categoryItem,
-        isSelected && styles.categoryItemActive,
-      ]}
-      onPress={() => onPress(category)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.categoryImageContainer}>
-        <Image
-          source={{ uri: image || 'https://via.placeholder.com/80' }}
-          style={styles.categoryImage}
-          resizeMode="cover"
-        />
-        {isSelected && (
-          <View style={styles.categorySelectedOverlay}>
-            <Ionicons name="checkmark-circle" size={18} color="#0A3D2B" />
-          </View>
-        )}
-      </View>
-      <Text
-        style={[
-          styles.categoryText,
-          isSelected && styles.categoryTextActive,
-        ]}
-        numberOfLines={1}
-      >
-        {category}
-      </Text>
-    </TouchableOpacity>
-  );
-};
-
-// ----- Full Width Product Ad Card with Share & optional owner -----
-const FullWidthProductAdCard: React.FC<{
-  ad: any;
-  onPress: (ad: any) => void;
-  style?: any;
-  showOwner?: boolean;
-}> = ({ ad, onPress, style, showOwner = false }) => {
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageAspectRatio, setImageAspectRatio] = useState(3 / 4);
-  const [isSharing, setIsSharing] = useState(false);
-
-  const handleImageLoad = (event: any) => {
-    const { width, height } = event.nativeEvent.source;
-    if (width && height) {
-      setImageAspectRatio(width / height);
-    }
-    setImageLoaded(true);
-  };
-
-  const handleImageError = () => {
-    setImageLoaded(true);
-  };
-
-  const handleShare = useCallback(() => {
-    shareAd(ad, setIsSharing);
-  }, [ad]);
-
-  return (
-    <TouchableOpacity
-      style={[styles.fullWidthProductAdItem, style]}
-      onPress={() => onPress(ad)}
-      activeOpacity={0.9}
-    >
-      <View style={styles.fullWidthProductImageContainer}>
-        {!imageLoaded && (
-          <View style={styles.imagePlaceholder}>
-            <ActivityIndicator size="small" color="#0A3D2B" />
-          </View>
-        )}
-        <Image
-          source={{ uri: ad.image || 'https://via.placeholder.com/400x500' }}
-          style={[
-            styles.fullWidthProductAdImage,
-            !imageLoaded && styles.imageHidden,
-            { aspectRatio: imageAspectRatio }
-          ]}
-          resizeMode="contain"
-          onLoad={handleImageLoad}
-          onError={handleImageError}
-        />
-        <LinearGradient
-          colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.8)']}
-          style={styles.fullWidthOverlay}
-        >
-          <View style={styles.fullWidthOverlayContent}>
-            <View style={styles.fullWidthTextContainer}>
-              {showOwner && ad.userName && (
-                <Text style={styles.ownerName}>👤 {ad.userName}</Text>
-              )}
-              {ad.description && (
-                <Text style={styles.fullWidthAdDescription} numberOfLines={2}>
-                  {ad.description}
-                </Text>
-              )}
-              {ad.category && (
-                <Text style={styles.fullWidthAdCategory}>{ad.category}</Text>
-              )}
-            </View>
-            <View style={styles.fullWidthActionButtons}>
-              <TouchableOpacity
-                style={styles.glassCartContainer}
-                onPress={() => onPress(ad)}
-              >
-                <Ionicons name="cart-outline" size={24} color="#FFFFFF" style={styles.glassCartIcon} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.glassCartContainer, { marginLeft: 8 }]}
-                onPress={handleShare}
-                disabled={isSharing}
-              >
-                {isSharing ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Ionicons name="share-social-outline" size={22} color="#FFFFFF" />
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </LinearGradient>
-      </View>
-    </TouchableOpacity>
-  );
-};
-
-// ----- Generic Ad Card with Share & optional owner -----
-const GenericAdCard: React.FC<{
-  ad: any;
-  onPress: (ad: any) => void;
-  style?: any;
-  showOwner?: boolean;
-}> = ({ ad, onPress, style, showOwner = false }) => {
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
-
-  const handleShare = useCallback(() => {
-    shareAd(ad, setIsSharing);
-  }, [ad]);
-
-  return (
-    <TouchableOpacity
-      style={[styles.genericAdItem, style]}
-      onPress={() => onPress(ad)}
-      activeOpacity={0.9}
-    >
-      <View style={styles.genericImageContainer}>
-        {!imageLoaded && (
-          <View style={styles.imagePlaceholder}>
-            <ActivityIndicator size="small" color="#0A3D2B" />
-          </View>
-        )}
-        <Image
-          source={{ uri: ad.image || 'https://via.placeholder.com/400x300' }}
-          style={[styles.genericAdImage, !imageLoaded && styles.imageHidden]}
-          resizeMode="cover"
-          onLoad={() => setImageLoaded(true)}
-          onError={() => setImageLoaded(true)}
-        />
-        <LinearGradient
-          colors={['rgba(0,0,0,0.0)', 'rgba(0,0,0,0.7)']}
-          style={styles.overlay}
-        >
-          <View style={styles.overlayContent}>
-            <View style={styles.adTextContainer}>
-              {showOwner && ad.userName && (
-                <Text style={styles.ownerName}>👤 {ad.userName}</Text>
-              )}
-              <Text style={styles.adTitle} numberOfLines={2}>
-                {ad.title || 'Sponsored'}
-              </Text>
-              {ad.description && (
-                <Text style={styles.adDescription} numberOfLines={1}>
-                  {ad.description}
-                </Text>
-              )}
-              {ad.category && (
-                <Text style={styles.adCategory}>{ad.category}</Text>
-              )}
-            </View>
-            <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={styles.shopNowContainer}
-                onPress={() => onPress(ad)}
-              >
-                <Text style={styles.shopNowText}>Click Me</Text>
-                <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.shopNowContainer, { marginLeft: 8, backgroundColor: '#1A1A1A' }]}
-                onPress={handleShare}
-                disabled={isSharing}
-              >
-                {isSharing ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Ionicons name="share-social-outline" size={20} color="#FFFFFF" />
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </LinearGradient>
-      </View>
-    </TouchableOpacity>
-  );
-};
-
-// ----- Product Card (unchanged) -----
-const ProductCard: React.FC<{
-  product: any;
-  onPress: (item: any) => void;
-}> = ({ product, onPress }) => {
-  return (
-    <TouchableOpacity
-      style={styles.productCard}
-      onPress={() => onPress(product)}
-      activeOpacity={0.8}
-    >
-      <Image
-        source={{ uri: product.images?.[0] || 'https://via.placeholder.com/300x300' }}
-        style={styles.productImage}
-        resizeMode="cover"
-      />
-      <View style={styles.productInfo}>
-        <Text style={styles.productName} numberOfLines={1}>{product.name}</Text>
-        <Text style={styles.productPrice}>₹{product.price}</Text>
-      </View>
-    </TouchableOpacity>
-  );
-};
-
-// ----- Main Component -----
-const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts, title = '' }) => {
-  const dispatch = useDispatch();
+const AdListScreen: React.FC<AdListScreenProps> = ({
+  products: externalProducts,
+  title = '',
+}) => {
+  const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation<any>();
-  const route = useRoute<any>();
-  const isMounted = useRef(true);
-  const initialLoadDone = useRef(false);
-  const scrollViewRef = useRef<ScrollView>(null);
-  const flatListRef = useRef<FlatList>(null);
-  const categoryScrollViewRef = useRef<ScrollView>(null);
-  const searchInputRef = useRef<TextInput>(null);
-  
-  const headerTranslateY = useRef(new Animated.Value(0)).current;
-  const lastScrollY = useRef(0);
-  const isHeaderHidden = useRef(false);
-  
-  const indicatorPosition = useRef(new Animated.Value(0)).current;
-  const isHorizontalScrolling = useRef(false);
-  const horizontalScrollTimer = useRef<NodeJS.Timeout | null>(null);
-  
-  const { activeAds, loading, error } = useSelector((state: RootState) => state.ads);
-  const user = useSelector((state: RootState) => state.auth.user);
-  
-  // ✅ Normalize phone and check if special user
-  const normalizedPhone = normalizePhone(user?.phone || '');
-  const isSpecialUser = normalizedPhone === '7893828468';
-  
-  const [refreshing, setRefreshing] = useState(false);
-  const [displayData, setDisplayData] = useState<any[]>([]);
-  const [selectedAd, setSelectedAd] = useState<any>(null);
-  const [sidebarAds, setSidebarAds] = useState<any[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  
-  // State for categories - specific to selected title
-  const [categories, setCategories] = useState<{ name: string; image: string }[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [filteredProducts, setFilteredProducts] = useState<any[]>([]);
-
-  // Get navigation params
-  const selectedAdId = route.params?.selectedAdId || route.params?.adId;
-  const selectedAdTitle = route.params?.selectedAdTitle;
-
-  // --- State for Instagram-grade browser (prevents double taps) ---
-  const [isOpeningBrowser, setIsOpeningBrowser] = useState(false);
+  const insets = useSafeAreaInsets();
+  const { hide: hideUserTabBar, show: showUserTabBar } = useTabBarVisibility();
 
   useEffect(() => {
-    console.log('📋 [AdListScreen] Received params:', { 
-      selectedAdId, 
-      selectedAdTitle,
-      routeParams: route.params 
+    return () => log('👋 AdListScreen unmounted');
+  }, []);
+
+  const {
+    isConnected,
+    onUserOnline,
+    onUserOffline,
+    onOnlineUsers,
+    checkOnline,
+    onFollowRevision,
+  } = useSocket();
+
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [followingMap, setFollowingMap] = useState<Record<string, boolean>>({});
+
+  const isOnline = useCallback(
+    (uid?: string | null) => {
+      if (!uid) return false;
+      return onlineUsers.has(String(uid));
+    },
+    [onlineUsers]
+  );
+
+  const isFollowing = useCallback(
+    (uid?: string | null) => {
+      if (!uid) return false;
+      return !!followingMap[String(uid)];
+    },
+    [followingMap]
+  );
+
+  const activeAds = useSelector(selectActiveAds);
+  const loading = useSelector(selectAdsLoading);
+  const error = useSelector(selectAdsError);
+  const refreshing = useSelector(selectAdsRefreshing);
+  const myPosts = useSelector(selectMyPosts);
+  const activeAdsLoaded = useSelector(selectActiveAdsLoaded);
+  const activeAdsHasMore = useSelector(selectActiveAdsHasMore);
+  const loadingMoreAds = useSelector(selectActiveAdsLoadingMore);
+  const activeAdsPage = useSelector(selectActiveAdsPage);
+  const stories = useSelector(selectStories);
+  const myStories = useSelector(selectMyStories);
+  const userProfile = useSelector(selectUserProfile);
+  const unreadNotifications = useSelector(selectUnreadNotifications);
+  const conversations = useSelector(selectConversations);
+
+  const unreadMessagesCount = useMemo(() => {
+    if (!Array.isArray(conversations) || conversations.length === 0) return 0;
+    return conversations.reduce((sum: number, c: any) => {
+      const count =
+        c?.unreadCount ??
+        c?.unreadMessagesCount ??
+        c?.unread ??
+        c?.unreadCountForUser ??
+        0;
+      return sum + (Number(count) || 0);
+    }, 0);
+  }, [conversations]);
+
+  const authUser = useSelector((state: RootState) => state.auth.user);
+  const userId = (authUser as any)?._id || (authUser as any)?.id || '';
+  const authUserName = authUser?.name || '';
+  const authUserAvatar = authUser?.profilePic || '';
+  const authUserPhone = authUser?.phone || '';
+  const isSpecialUser = normalizePhone(authUserPhone) === '7893828468';
+
+  const [mode, setMode] = useState<ScreenMode>('posts');
+  const previousListModeRef = useRef<ListMode>('posts');
+  const [feedStartIndex, setFeedStartIndex] = useState(0);
+  const [feedData, setFeedData] = useState<any[]>([]);
+  const [savedItems, setSavedItems] = useState<Record<string, SavedItem>>(
+    () => savedItemsCache || {}
+  );
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  const postsListRef = useRef<FlatList<any>>(null);
+  const gridListRef = useRef<FlatList<any>>(null);
+  const savedListRef = useRef<FlatList<any>>(null);
+  const profileListRef = useRef<FlatList<any>>(null);
+  const postsScrollYRef = useRef(0);
+  const gridScrollYRef = useRef(0);
+  const savedScrollYRef = useRef(0);
+  const profileScrollYRef = useRef(0);
+  const postsReadyRef = useRef(false);
+  const gridReadyRef = useRef(false);
+  const savedReadyRef = useRef(false);
+  const profileReadyRef = useRef(false);
+
+  const [commentsAd, setCommentsAd] = useState<any | null>(null);
+  const [commentsVisible, setCommentsVisible] = useState(false);
+  const [activeGridVideoId, setActiveGridVideoId] = useState<string | null>(null);
+  const [activePostVideoId, setActivePostVideoId] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [showStoryModal, setShowStoryModal] = useState(false);
+  const [isCreatingStory, setIsCreatingStory] = useState(false);
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
+  const [autoOpenParticipant, setAutoOpenParticipant] = useState<{
+    userId: string;
+    name: string;
+    avatar?: string;
+    userType?: 'User' | 'Vendor';
+  } | null>(null);
+
+  const [followModalVisible, setFollowModalVisible] = useState(false);
+  const [followModalType, setFollowModalType] = useState<'followers' | 'following'>('followers');
+  const [followModalUsers, setFollowModalUsers] = useState<any[]>([]);
+  const [followModalLoading, setFollowModalLoading] = useState(false);
+
+  const shopsReturnRef = useRef<ListMode>('profile');
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const unsubOnlineUsers = onOnlineUsers((ids: string[]) => {
+      setOnlineUsers(new Set(ids.map(String)));
     });
-  }, [selectedAdId, selectedAdTitle, route.params]);
 
-  // Load ads if not provided externally
+    const unsubOnline = onUserOnline((data: any) => {
+      if (!data?.userId) return;
+      setOnlineUsers((prev) => {
+        const next = new Set(prev);
+        next.add(String(data.userId));
+        return next;
+      });
+    });
+
+    const unsubOffline = onUserOffline((data: any) => {
+      if (!data?.userId) return;
+      setOnlineUsers((prev) => {
+        const next = new Set(prev);
+        next.delete(String(data.userId));
+        return next;
+      });
+    });
+
+    return () => {
+      unsubOnlineUsers?.();
+      unsubOnline?.();
+      unsubOffline?.();
+    };
+  }, [userId, onUserOnline, onUserOffline, onOnlineUsers]);
+
+  const lastFollowRevRef = useRef(0);
   useEffect(() => {
-    if (!initialLoadDone.current) {
-      initialLoadDone.current = true;
-      if (!externalProducts) {
-        console.log('🔄 [AdListScreen] Fetching active ads');
-        dispatch(fetchActiveAds(searchQuery || undefined));
+    const unsub = onFollowRevision(async (rev) => {
+      if (rev === lastFollowRevRef.current) return;
+      lastFollowRevRef.current = rev;
+
+      if (userId) {
+        dispatch(fetchUserProfile(userId));
+        dispatch(fetchAuthUserProfile());
       }
-    }
-  }, [dispatch, externalProducts, searchQuery]);
 
-  // Helper function to find ad by ID or title (uses the provided list)
-  const findAdByParams = useCallback((adsList: any[]) => {
-    if (selectedAdId) {
-      const found = adsList.find(ad => ad._id === selectedAdId);
-      if (found) {
-        console.log('🔍 [AdListScreen] Found ad by ID:', found.title);
-        return found;
-      }
-    }
-    if (selectedAdTitle) {
-      const found = adsList.find(
-        ad => ad.title && ad.title.trim().toLowerCase() === selectedAdTitle.trim().toLowerCase()
-      );
-      if (found) {
-        console.log('🔍 [AdListScreen] Found ad by Title:', found.title);
-        return found;
-      }
-    }
-    return null;
-  }, [selectedAdId, selectedAdTitle]);
-
-  // ----- Voice Search Handler (only if module available) -----
-  const handleVoiceSearch = useCallback(async () => {
-    if (!SpeechRecognition) {
-      Alert.alert('Not Available', 'Voice search is not supported in this environment.');
-      return;
-    }
-
-    if (isRecording) {
-      try {
-        await SpeechRecognition.stopAsync();
-      } catch (e) {
-        console.warn('Stop error:', e);
-      }
-      setIsRecording(false);
-      return;
-    }
-
-    const { status } = await SpeechRecognition.requestPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow speech recognition to use voice search.');
-      return;
-    }
-
-    setIsRecording(true);
-
-    try {
-      const subscription = SpeechRecognition.addListener('onResult', (event: any) => {
-        const transcript = event.results?.[0]?.transcript;
-        if (transcript) {
-          setSearchQuery(transcript);
-          setIsRecording(false);
-          SpeechRecognition.stopAsync().catch(console.warn);
+      if (followModalVisible && userId) {
+        setFollowModalLoading(true);
+        try {
+          if (followModalType === 'followers') {
+            const res = await dispatch(
+              fetchFollowers({ userId, page: 1, limit: 50 })
+            ).unwrap();
+            setFollowModalUsers(res?.followers || []);
+          } else {
+            const res = await dispatch(
+              fetchFollowing({ userId, page: 1, limit: 50 })
+            ).unwrap();
+            setFollowModalUsers(res?.following || []);
+          }
+        } catch (e) {
+          logWarn('follow modal refresh failed:', e);
+        } finally {
+          setFollowModalLoading(false);
         }
-      });
+      }
 
-      const errorSub = SpeechRecognition.addListener('onError', (error: any) => {
-        console.error('Speech error:', error);
-        setIsRecording(false);
-        SpeechRecognition.stopAsync().catch(console.warn);
-      });
+      if (showProfileModal && profileUserId) {
+        dispatch(fetchUserProfile(profileUserId));
+      }
+    });
 
-      const endSub = SpeechRecognition.addListener('onEnd', () => {
-        setIsRecording(false);
-        subscription.remove();
-        errorSub.remove();
-        endSub.remove();
-      });
+    return unsub;
+  }, [
+    onFollowRevision,
+    dispatch,
+    userId,
+    followModalVisible,
+    followModalType,
+    showProfileModal,
+    profileUserId,
+  ]);
 
-      await SpeechRecognition.startAsync({
-        lang: 'en-US',
-        interimResults: true,
-        maxResults: 1,
-      });
-    } catch (error) {
-      console.error('Voice search error:', error);
-      setIsRecording(false);
-      Alert.alert('Error', 'Failed to start voice recognition. Please try again.');
-    }
-  }, [isRecording]);
-
-  // Back handler for search - clears search on back press
   useEffect(() => {
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (searchQuery.length > 0) {
-        setSearchQuery('');
-        return true;
+    if (!isConnected) return;
+    const ids = new Set<string>();
+    feedData.forEach((ad) => {
+      const isUserPost = ad?.postType === 'user';
+      const isVendorPost = ad?.postType === 'vendor';
+      if (isUserPost || isVendorPost) {
+        const uid = typeof ad?.userId === 'object' ? ad?.userId?._id : ad?.userId;
+        const vid = typeof ad?.vendorId === 'object' ? ad?.vendorId?._id : ad?.vendorId;
+        const targetId = isUserPost ? uid : vid;
+        if (targetId && String(targetId) !== String(userId)) {
+          ids.add(String(targetId));
+        }
       }
-      if (searchInputRef.current?.isFocused()) {
-        searchInputRef.current?.blur();
-        return true;
-      }
-      return false;
     });
+    if (ids.size === 0) return;
+    checkOnline(Array.from(ids), (status) => {
+      setOnlineUsers((prev) => {
+        const next = new Set(prev);
+        Object.entries(status || {}).forEach(([uid, on]) => {
+          if (on) next.add(String(uid));
+          else next.delete(String(uid));
+        });
+        return next;
+      });
+    });
+  }, [isConnected, feedData, checkOnline, userId]);
 
-    return () => backHandler.remove();
-  }, [searchQuery]);
-
-  // Process ads and extract categories - ONLY for the selected title
   useEffect(() => {
-    const products = externalProducts || [];
-    let ads = activeAds || [];
-
-    console.log('📊 [AdListScreen] Processing ads:', { 
-      totalAds: ads.length,
-      externalProducts: externalProducts?.length || 0 
+    if (savedItemsCache) return;
+    let mounted = true;
+    loadSavedItemsOnce().then((items) => {
+      if (mounted) setSavedItems(items);
     });
+    return () => { mounted = false; };
+  }, []);
 
-    if (searchQuery.trim()) {
-      const query = searchQuery.trim().toLowerCase();
-      ads = ads.filter(ad => 
-        (ad.title && ad.title.toLowerCase().includes(query)) ||
-        (ad.description && ad.description.toLowerCase().includes(query)) ||
-        (ad.category && ad.category.toLowerCase().includes(query))
-      );
-    }
+  const persistSavedItems = useCallback((next: Record<string, SavedItem>) => {
+    savedItemsCache = next;
+    AsyncStorage.setItem(SAVED_ITEMS_KEY, JSON.stringify(next)).catch((e) =>
+      logError('persistSavedItems failed:', e)
+    );
+  }, []);
 
-    const genericAds = ads.filter(ad => ad.isProductAd === false);
-    const productAds = ads.filter(ad => ad.isProductAd === true);
-
-    console.log('📊 [AdListScreen] Generic ads:', genericAds.length, 'Product ads:', productAds.length);
-
-    // ----- DEDUPLICATE SIDEBAR ADS BY TITLE -----
-    let validGenericAds = genericAds.filter(ad => ad.title && ad.title.trim().length > 0);
-    const uniqueMap = new Map<string, any>();
-    validGenericAds.forEach(ad => {
-      const key = ad.title.trim().toLowerCase();
-      if (!uniqueMap.has(key)) {
-        uniqueMap.set(key, ad);
-      }
-    });
-    const uniqueSidebarAds = Array.from(uniqueMap.values());
-    setSidebarAds(uniqueSidebarAds);
-
-    // Find ad from params using the unique list
-    let adToSelect = findAdByParams(uniqueSidebarAds);
-    
-    if (!adToSelect && uniqueSidebarAds.length > 0 && !selectedAd) {
-      console.log('✅ [AdListScreen] Selecting first generic ad:', uniqueSidebarAds[0].title);
-      adToSelect = uniqueSidebarAds[0];
-    }
-
-    if (selectedAd && searchQuery.trim()) {
-      const stillExists = uniqueSidebarAds.some(ad => ad._id === selectedAd._id);
-      if (!stillExists) {
-        console.log('🔍 [AdListScreen] Selected ad not in search results, clearing selection');
-        setSelectedAd(null);
-        navigation.setParams({ selectedAdId: undefined, selectedAdTitle: undefined, adId: undefined });
+  const handleToggleSave = useCallback(
+    async (ad: any) => {
+      const id: string = ad?._id;
+      if (!id) return;
+      if (savedItems[id]) {
+        const item = savedItems[id];
+        deleteLocalFile(item.localUri);
+        const next = { ...savedItems };
+        delete next[id];
+        setSavedItems(next);
+        persistSavedItems(next);
         return;
       }
-    }
-
-    if (adToSelect) {
-      if (!selectedAd || selectedAd._id !== adToSelect._id) {
-        console.log('🔄 [AdListScreen] Setting selected ad to:', adToSelect.title);
-        setSelectedAd(adToSelect);
-        return;
+      if (savingIds.has(id)) return;
+      setSavingIds((prev) => {
+        const s = new Set(prev);
+        s.add(id);
+        return s;
+      });
+      try {
+        const dl = await downloadMediaLocally(ad);
+        if (!dl) {
+          Alert.alert('Save failed', 'Could not download this media.');
+          return;
+        }
+        const nextItem: SavedItem = {
+          ad,
+          localUri: dl.uri,
+          mediaType: dl.mediaType,
+          savedAt: Date.now(),
+        };
+        setSavedItems((prev) => {
+          const next = { ...prev, [id]: nextItem };
+          persistSavedItems(next);
+          return next;
+        });
+      } catch (e) {
+        logError('handleToggleSave failed:', e);
+      } finally {
+        setSavingIds((prev) => {
+          const s = new Set(prev);
+          s.delete(id);
+          return s;
+        });
       }
-    }
+    },
+    [savedItems, savingIds, persistSavedItems]
+  );
 
-    // --- EXTRACT CATEGORIES ONLY FOR THE SELECTED TITLE ---
-    if (selectedAd) {
-      const selectedTitle = selectedAd.title.trim();
-      console.log('📊 [AdListScreen] Extracting categories for title:', selectedTitle);
-      
-      const productAdsForTitle = productAds.filter(pa => 
-        pa.title && pa.title.trim() === selectedTitle
-      );
-      
-      console.log('📊 [AdListScreen] Product ads for this title:', productAdsForTitle.length);
-      
-      const categoryMap = new Map<string, string>();
-      productAdsForTitle.forEach(ad => {
-        if (ad.category && ad.category.trim()) {
-          const catName = ad.category.trim();
-          if (!categoryMap.has(catName)) {
-            categoryMap.set(catName, ad.image || 'https://via.placeholder.com/80');
+  useEffect(() => {
+    if (!feedData || feedData.length === 0) return;
+
+    setFollowingMap((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      feedData.forEach((ad) => {
+        if (ad?.postType === 'user' || ad?.postType === 'vendor') {
+          const uid = typeof ad?.userId === 'object' ? ad?.userId?._id : ad?.userId;
+          const vid = typeof ad?.vendorId === 'object' ? ad?.vendorId?._id : ad?.vendorId;
+          const targetId = ad?.postType === 'user' ? uid : vid;
+          if (!targetId) return;
+          const key = String(targetId);
+          if (!(key in next) && typeof ad.isFollowing === 'boolean') {
+            next[key] = ad.isFollowing;
+            changed = true;
           }
         }
       });
-      
-      const extractedCategories = Array.from(categoryMap.entries()).map(([name, image]) => ({
-        name,
-        image,
-      }));
-      setCategories(extractedCategories);
-      console.log('📊 [AdListScreen] Extracted categories for this title:', extractedCategories.length);
-      
-      if (selectedCategory) {
-        const categoryExists = extractedCategories.some(c => c.name === selectedCategory);
-        if (!categoryExists) {
-          setSelectedCategory(null);
-        }
-      }
-    } else {
-      setCategories([]);
-      setSelectedCategory(null);
-    }
+      return changed ? next : prev;
+    });
+  }, [feedData]);
 
-    // =============================================================
-    // ⭐ BUILD DISPLAY DATA: Include ALL ads (generic + product)
-    // with the selected title, not just product ads.
-    // =============================================================
-    const merged: any[] = [];
-
-    if (selectedAd) {
-      const title = selectedAd.title.trim();
-      console.log('📊 [AdListScreen] Building display for selected ad:', title);
-      
-      merged.push({ type: 'ad', data: selectedAd });
-
-      const allMatchingAds = ads.filter(ad => 
-        ad.title && ad.title.trim() === title && ad._id !== selectedAd._id
-      );
-
-      let filteredMatchingAds = allMatchingAds;
-      if (selectedCategory) {
-        filteredMatchingAds = allMatchingAds.filter(ad => 
-          ad.category && ad.category.trim().toLowerCase() === selectedCategory.toLowerCase()
-        );
-      }
-
-      filteredMatchingAds.forEach(ad => {
-        if (ad.isProductAd) {
-          merged.push({ type: 'fullProductAd', data: ad });
-        } else {
-          merged.push({ type: 'ad', data: ad });
-        }
-      });
-
-      setFilteredProducts(filteredMatchingAds.filter(ad => ad.isProductAd));
-
-    } else {
-      let allAds = [...genericAds, ...productAds];
-      
-      if (selectedCategory) {
-        allAds = allAds.filter(ad => 
-          ad.category && ad.category.trim().toLowerCase() === selectedCategory.toLowerCase()
-        );
-      }
-      
-      allAds.forEach(ad => {
-        if (ad.isProductAd) {
-          merged.push({ type: 'fullProductAd', data: ad });
-        } else {
-          merged.push({ type: 'ad', data: ad });
-        }
-      });
-      
-      setFilteredProducts(productAds);
-    }
-
-    console.log('📊 [AdListScreen] Display data items:', merged.length);
-    setDisplayData(merged);
-    
-  }, [externalProducts, activeAds, selectedAd, findAdByParams, searchQuery, navigation, selectedCategory]);
-
-  // Scroll the main list to the top whenever selectedAd or searchQuery changes
   useEffect(() => {
-    if (displayData.length > 0) {
-      const timer = setTimeout(() => {
-        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }, 100);
-      return () => clearTimeout(timer);
+    if (externalProducts) return;
+    if (activeAdsLoaded) return;
+    if (loading || refreshing) return;
+    dispatch(fetchActiveAds({ page: 1, limit: PAGE_SIZE }));
+    dispatch(fetchActiveStories());
+    if (userId) {
+      dispatch(fetchUserProfile(userId));
+      dispatch(fetchAuthUserProfile());
+      dispatch(fetchNotifications());
+      dispatch(fetchConversations());
     }
-  }, [selectedAd, searchQuery, displayData.length]);
+  }, [dispatch, externalProducts, activeAdsLoaded, loading, refreshing, userId]);
 
-  // Scroll to selected ad in horizontal scroll view with smooth indicator
-  useEffect(() => {
-    if (selectedAd && sidebarAds.length > 0) {
-      const index = sidebarAds.findIndex(ad => ad._id === selectedAd._id);
-      if (index !== -1) {
-        console.log('📜 [AdListScreen] Scrolling to sidebar item:', index, selectedAd.title);
-        const scrollToX = index * (TAB_WIDTH + 8) - (width / 2 - TAB_WIDTH / 2);
-        setTimeout(() => {
-          scrollViewRef.current?.scrollTo({
-            x: Math.max(0, scrollToX),
-            animated: true,
-          });
-        }, 100);
-        
-        const targetPosition = index * (TAB_WIDTH + 8) + 8;
-        indicatorPosition.stopAnimation();
-        Animated.timing(indicatorPosition, {
-          toValue: targetPosition,
-          duration: 300,
-          useNativeDriver: false,
-        }).start();
-      }
-    }
-  }, [selectedAd, sidebarAds]);
-
-  const handleHorizontalScroll = (event: any) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const tabIndex = Math.round(offsetX / (TAB_WIDTH + 8));
-    const clampedIndex = Math.max(0, Math.min(tabIndex, sidebarAds.length - 1));
-    const targetPosition = clampedIndex * (TAB_WIDTH + 8) + 8;
-    if (!isHorizontalScrolling.current) {
-      indicatorPosition.setValue(targetPosition);
-    }
-  };
-
-  const handleHorizontalScrollBeginDrag = () => {
-    isHorizontalScrolling.current = true;
-    if (horizontalScrollTimer.current) {
-      clearTimeout(horizontalScrollTimer.current);
-    }
-  };
-
-  const handleHorizontalScrollEndDrag = () => {
-    if (horizontalScrollTimer.current) {
-      clearTimeout(horizontalScrollTimer.current);
-    }
-    horizontalScrollTimer.current = setTimeout(() => {
-      isHorizontalScrolling.current = false;
-    }, 300);
-  };
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    if (!externalProducts) {
-      await dispatch(fetchActiveAds(searchQuery || undefined));
-    }
-    setRefreshing(false);
-  }, [dispatch, externalProducts, searchQuery]);
-
-  // ============================================================
-  // 🚀 INSTAGRAM-GRADE NATIVE BROWSER (expo-web-browser)
-  // ============================================================
-  const openLinkInNativeBrowser = useCallback(async (url: string) => {
-    if (isOpeningBrowser) return;
-    
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      Alert.alert('Invalid Link', 'This link cannot be opened.');
-      return;
-    }
-
-    try {
-      setIsOpeningBrowser(true);
-      await WebBrowser.openBrowserAsync(url, {
-        toolbarColor: '#0A3D2B',
-        controlsColor: '#FFFFFF',
-        dismissButtonStyle: 'close',
-        enableBarCollapsing: true,
-        showTitle: true,
-        enableDefaultShare: true,
-      });
-    } catch (error) {
-      console.warn('WebBrowser error:', error);
-      try {
-        const supported = await Linking.canOpenURL(url);
-        if (supported) {
-          await Linking.openURL(url);
-        } else {
-          Alert.alert('Error', 'Cannot open this link.');
-        }
-      } catch (e) {
-        Alert.alert('Error', 'Failed to open link.');
-      }
-    } finally {
-      setIsOpeningBrowser(false);
-    }
-  }, [isOpeningBrowser]);
-
-  // ---- REPLACED: Ad Press Handler with Native Browser ----
-  const handleAdPress = useCallback((ad: any) => {
-    if (ad.link && (ad.link.startsWith('http://') || ad.link.startsWith('https://'))) {
-      openLinkInNativeBrowser(ad.link);
-    } else {
-      navigation.navigate('AdDetail', { ad });
-    }
-  }, [navigation, openLinkInNativeBrowser]);
-
-  // ---- Reset browser opening flag if screen loses focus ----
   useFocusEffect(
     useCallback(() => {
-      return () => {
-        setIsOpeningBrowser(false);
-      };
-    }, [])
+      if (userId) {
+        dispatch(fetchAuthUserProfile());
+        dispatch(fetchConversations());
+      }
+      return () => {};
+    }, [dispatch, userId])
   );
 
-  const handleProductPress = useCallback((product: any) => {
-    navigation.navigate('ProductDetails', { productId: product._id });
-  }, [navigation]);
+  useEffect(() => {
+    if (mode === 'profile') {
+      dispatch(fetchMyPosts());
+      if (userId) {
+        dispatch(fetchUserProfile(userId));
+        dispatch(fetchAuthUserProfile());
+      }
+    }
+    if (mode === 'messages' && userId) {
+      dispatch(fetchConversations());
+    }
+  }, [mode, dispatch, userId]);
 
-  const handleSidebarAdPress = useCallback((ad: any) => {
-    console.log('🔄 [AdListScreen] Sidebar ad pressed:', ad.title);
-    navigation.setParams({ 
-      selectedAdId: undefined,
-      selectedAdTitle: undefined,
-      adId: undefined
+  useEffect(() => {
+    let ads = activeAds || [];
+    ads = ads.filter((ad) => !!ad.image || !!ad.video);
+    setFeedData(ads);
+  }, [activeAds]);
+
+  const savedListData = useMemo(() => {
+    const arr = Object.values(savedItems);
+    arr.sort((a, b) => b.savedAt - a.savedAt);
+    return arr.map((item) => {
+      const isVideo = item.mediaType === 'video';
+      return {
+        ...item.ad,
+        image: isVideo ? item.ad.image : item.localUri,
+        video: isVideo ? item.localUri : item.ad.video,
+        mediaType: item.mediaType,
+        _localUri: item.localUri,
+      };
     });
-    setSelectedAd(ad);
-    setSelectedCategory(null);
-    setCategories([]);
-  }, [navigation]);
+  }, [savedItems]);
 
-  const handleCategoryPress = useCallback((categoryName: string) => {
-    if (selectedCategory === categoryName) {
-      setSelectedCategory(null);
-    } else {
-      setSelectedCategory(categoryName);
-      setTimeout(() => {
-        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }, 100);
+  const savedCount = Object.keys(savedItems).length;
+
+  const profilePosts = useMemo(
+    () => (myPosts || []).filter((ad) => !!ad.image || !!ad.video),
+    [myPosts]
+  );
+
+  const onRefresh = useCallback(async () => {
+    if (externalProducts) return;
+    await Promise.all([
+      dispatch(fetchActiveAds({ page: 1, limit: PAGE_SIZE })),
+      dispatch(fetchActiveStories()),
+      dispatch(fetchAuthUserProfile()),
+    ]);
+  }, [dispatch, externalProducts]);
+
+  const onProfileRefresh = useCallback(async () => {
+    await dispatch(fetchMyPosts());
+    if (userId) {
+      dispatch(fetchUserProfile(userId));
+      dispatch(fetchAuthUserProfile());
     }
-  }, [selectedCategory]);
+  }, [dispatch, userId]);
 
-  const handleSettingsPress = useCallback(() => {
-    navigation.navigate('Settings');
-  }, [navigation]);
+  const lastLoadMoreAt = useRef(0);
+  const handleLoadMore = useCallback(() => {
+    if (externalProducts) return;
+    if (!activeAdsHasMore) return;
+    if (loadingMoreAds) return;
+    const t = Date.now();
+    if (t - lastLoadMoreAt.current < 300) return;
+    lastLoadMoreAt.current = t;
+    dispatch(fetchActiveAds({ page: activeAdsPage + 1, limit: PAGE_SIZE }));
+  }, [dispatch, externalProducts, activeAdsHasMore, loadingMoreAds, activeAdsPage]);
 
-  const renderItem = useCallback(({ item }: { item: any }) => {
-    if (!item) return null;
-    if (item.type === 'product') {
-      return <ProductCard product={item.data} onPress={handleProductPress} />;
-    } else if (item.type === 'fullProductAd') {
-      return <FullWidthProductAdCard ad={item.data} onPress={handleAdPress} showOwner={isSpecialUser} />;
-    } else {
-      return <GenericAdCard ad={item.data} onPress={handleAdPress} showOwner={isSpecialUser} />;
-    }
-  }, [handleAdPress, handleProductPress, isSpecialUser]);
+  const enterFeed = useCallback(
+    (adId: string) => {
+      const idx = feedData.findIndex((a) => a._id === adId);
+      const safeIdx = idx >= 0 ? idx : 0;
 
-  const handleScroll = (event: any) => {
-    const currentScrollY = event.nativeEvent.contentOffset.y;
-    const diff = currentScrollY - lastScrollY.current;
-    
-    if (currentScrollY > 20) {
-      if (diff > 3) {
-        if (!isHeaderHidden.current) {
-          isHeaderHidden.current = true;
-          Animated.timing(headerTranslateY, {
-            toValue: -TOP_BAR_HEIGHT,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
+      previousListModeRef.current = (mode === 'feed' ? 'posts' : mode) as ListMode;
+      setFeedStartIndex(safeIdx);
+      setActiveGridVideoId(null);
+      setActivePostVideoId(null);
+      setMode('feed');
+    },
+    [feedData, mode]
+  );
+
+  const exitFeed = useCallback(() => {
+    setMode(previousListModeRef.current);
+    setFeedStartIndex(0);
+  }, []);
+
+  const handleAdPress = useCallback((ad: any) => enterFeed(ad._id), [enterFeed]);
+
+  const handleOpenShop = useCallback(
+    (vendor: any) => {
+      navigation.navigate('ShopDetails', { vendor });
+    },
+    [navigation]
+  );
+
+  const handleOpenProfile = useCallback((uid: string) => {
+    setProfileUserId(uid);
+    setShowProfileModal(true);
+  }, []);
+
+  const handleOpenMessage = useCallback(
+    (participant: {
+      userId: string;
+      name: string;
+      avatar: string;
+      userType?: 'User' | 'Vendor';
+    }) => {
+      log('💬 handleOpenMessage →', participant);
+      if (!participant?.userId) {
+        logWarn('handleOpenMessage: missing userId — aborting');
+        return;
+      }
+      setAutoOpenParticipant({
+        userId: String(participant.userId),
+        name: participant.name || 'Chat',
+        avatar: participant.avatar || '',
+        userType: participant.userType,
+      });
+      setShowProfileModal(false);
+      setProfileUserId(null);
+      switchMode('messages');
+    },
+    []
+  );
+
+  const handleAutoOpenHandled = useCallback(() => {
+    log('💬 autoOpen handled — clearing');
+    setAutoOpenParticipant(null);
+  }, []);
+
+  const handleLike = useCallback(
+    (adId: string) => dispatch(toggleLikeAd(adId)),
+    [dispatch]
+  );
+
+  const handleShareTracked = useCallback(
+    (adId: string) => dispatch(trackAdShare(adId)),
+    [dispatch]
+  );
+
+  const handleToggleFollow = useCallback(
+    async (targetUserId: string, nextFollowing: boolean) => {
+      const uid = String(targetUserId || '').trim();
+
+      if (!uid || uid === 'undefined' || uid === 'null') {
+        logWarn('handleToggleFollow: missing target id — skipping');
+        return;
+      }
+
+      setFollowingMap((prev) => ({ ...prev, [uid]: nextFollowing }));
+      try {
+        const result = await dispatch(toggleFollow(uid)).unwrap();
+        const serverFollowing = !!result?.following;
+        setFollowingMap((prev) => ({ ...prev, [uid]: serverFollowing }));
+      } catch (e: any) {
+        logError('toggleFollow failed:', e);
+        setFollowingMap((prev) => ({ ...prev, [uid]: !nextFollowing }));
+        Alert.alert('Error', e?.message || 'Failed to update follow');
+      }
+    },
+    [dispatch]
+  );
+
+  const handleOpenComments = useCallback(
+    (ad: any) => {
+      setCommentsAd(ad);
+      setCommentsVisible(true);
+      dispatch(fetchComments(ad._id));
+    },
+    [dispatch]
+  );
+  const handleCloseComments = useCallback(() => {
+    setCommentsVisible(false);
+    setCommentsAd(null);
+  }, []);
+  const handleSubmitComment = useCallback(
+    (text: string, parentId?: string) => {
+      if (!commentsAd) return;
+      dispatch(addComment({ adId: commentsAd._id, text, parentId }));
+    },
+    [dispatch, commentsAd]
+  );
+  const handleDeleteComment = useCallback(
+    (commentId: string) => {
+      if (!commentsAd) return;
+      dispatch(deleteComment({ adId: commentsAd._id, commentId }));
+    },
+    [dispatch, commentsAd]
+  );
+  const handleToggleCommentLike = useCallback(
+    (commentId: string) => {
+      if (!commentsAd) return;
+      dispatch(toggleCommentLike({ adId: commentsAd._id, commentId }));
+    },
+    [dispatch, commentsAd]
+  );
+
+  const handleCreatePost = useCallback(
+    async (formData: FormData) => {
+      setIsCreating(true);
+      try {
+        await dispatch(createAd(formData)).unwrap();
+        setShowCreateModal(false);
+        Alert.alert('Success', 'Post created successfully!');
+        dispatch(fetchActiveAds({ page: 1, limit: PAGE_SIZE }));
+        dispatch(fetchMyPosts());
+        if (userId) {
+          dispatch(fetchUserProfile(userId));
+          dispatch(fetchAuthUserProfile());
         }
-      } else if (diff < -3) {
-        if (isHeaderHidden.current) {
-          isHeaderHidden.current = false;
-          Animated.timing(headerTranslateY, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
+      } catch (err: any) {
+        logError('create post failed:', err);
+        Alert.alert('Error', err || 'Failed to create post');
+      } finally {
+        setIsCreating(false);
+      }
+    },
+    [dispatch, userId]
+  );
+
+  const handleCreateStory = useCallback(
+    async (formData: FormData) => {
+      setIsCreatingStory(true);
+      try {
+        await dispatch(createStory(formData)).unwrap();
+        setShowStoryModal(false);
+        Alert.alert('Success', 'Story added!');
+        dispatch(fetchActiveStories());
+        dispatch(fetchMyStories());
+        if (userId) {
+          dispatch(fetchUserProfile(userId));
+          dispatch(fetchAuthUserProfile());
+        }
+      } catch (err: any) {
+        logError('create story failed:', err);
+        Alert.alert('Error', err || 'Failed to create story');
+      } finally {
+        setIsCreatingStory(false);
+      }
+    },
+    [dispatch, userId]
+  );
+
+  const handleDeletePost = useCallback(
+    async (adId: string) => {
+      try {
+        await dispatch(deleteAd(adId)).unwrap();
+        Alert.alert('Success', 'Post deleted successfully');
+        dispatch(fetchMyPosts());
+        dispatch(fetchActiveAds({ page: 1, limit: PAGE_SIZE }));
+      } catch (err: any) {
+        logError('delete post failed:', err);
+        Alert.alert('Error', err || 'Failed to delete post');
+      }
+    },
+    [dispatch]
+  );
+
+  const openFollowers = useCallback(async (uid: string) => {
+    setFollowModalType('followers');
+    setFollowModalVisible(true);
+    setFollowModalLoading(true);
+    try {
+      const res = await dispatch(fetchFollowers({ userId: uid, page: 1, limit: 50 })).unwrap();
+      setFollowModalUsers(res?.followers || []);
+    } catch (e) {
+      logError('openFollowers failed:', e);
+      setFollowModalUsers([]);
+    } finally {
+      setFollowModalLoading(false);
+    }
+  }, [dispatch]);
+
+  const openFollowing = useCallback(async (uid: string) => {
+    setFollowModalType('following');
+    setFollowModalVisible(true);
+    setFollowModalLoading(true);
+    try {
+      const res = await dispatch(fetchFollowing({ userId: uid, page: 1, limit: 50 })).unwrap();
+      setFollowModalUsers(res?.following || []);
+    } catch (e) {
+      logError('openFollowing failed:', e);
+      setFollowModalUsers([]);
+    } finally {
+      setFollowModalLoading(false);
+    }
+  }, [dispatch]);
+
+  const handleToggleFollowUser = useCallback(
+    async (targetId: string) => {
+      const current = !!followModalUsers.find((u) => u._id === targetId)?.isFollowing;
+      const next = !current;
+      setFollowModalUsers((prev) =>
+        prev.map((u) => (u._id === targetId ? { ...u, isFollowing: next } : u))
+      );
+      await handleToggleFollow(targetId, next);
+    },
+    [followModalUsers, handleToggleFollow]
+  );
+
+  useEffect(() => {
+    if (mode === 'posts') {
+      postsReadyRef.current = false;
+      const t = setTimeout(() => {
+        postsListRef.current?.scrollToOffset({ offset: postsScrollYRef.current || 0, animated: false });
+        postsReadyRef.current = true;
+      }, 50);
+      return () => clearTimeout(t);
+    }
+    if (mode === 'grid') {
+      gridReadyRef.current = false;
+      const t = setTimeout(() => {
+        gridListRef.current?.scrollToOffset({ offset: gridScrollYRef.current || 0, animated: false });
+        gridReadyRef.current = true;
+      }, 50);
+      return () => clearTimeout(t);
+    }
+    if (mode === 'saved') {
+      savedReadyRef.current = false;
+      const t = setTimeout(() => {
+        savedListRef.current?.scrollToOffset({ offset: savedScrollYRef.current || 0, animated: false });
+        savedReadyRef.current = true;
+      }, 50);
+      return () => clearTimeout(t);
+    }
+    if (mode === 'profile') {
+      profileReadyRef.current = false;
+      const t = setTimeout(() => {
+        profileListRef.current?.scrollToOffset({ offset: profileScrollYRef.current || 0, animated: false });
+        profileReadyRef.current = true;
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [mode]);
+
+  const onPostsScroll = useCallback((e: any) => {
+    if (!postsReadyRef.current) return;
+    postsScrollYRef.current = e.nativeEvent.contentOffset.y;
+  }, []);
+  const onGridScroll = useCallback((e: any) => {
+    if (!gridReadyRef.current) return;
+    gridScrollYRef.current = e.nativeEvent.contentOffset.y;
+  }, []);
+  const onSavedScroll = useCallback((e: any) => {
+    if (!savedReadyRef.current) return;
+    savedScrollYRef.current = e.nativeEvent.contentOffset.y;
+  }, []);
+  const onProfileScroll = useCallback((e: any) => {
+    if (!profileReadyRef.current) return;
+    profileScrollYRef.current = e.nativeEvent.contentOffset.y;
+  }, []);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (followModalVisible) { setFollowModalVisible(false); return true; }
+      if (showProfileModal) { setShowProfileModal(false); return true; }
+      if (showCreateModal) { setShowCreateModal(false); return true; }
+      if (showStoryModal) { setShowStoryModal(false); return true; }
+      if (commentsVisible) { setCommentsVisible(false); setCommentsAd(null); return true; }
+      if (mode === 'feed') { exitFeed(); return true; }
+      if (mode !== 'posts') { setMode('posts'); return true; }
+      return false;
+    });
+    return () => sub.remove();
+  }, [mode, exitFeed, showCreateModal, showProfileModal, showStoryModal, followModalVisible, commentsVisible]);
+
+  useEffect(() => {
+    const unsub = navigation.addListener(RESET_ADLIST_EVENT, () => {
+      if (mode === 'feed') {
+        setMode(previousListModeRef.current);
+        setFeedStartIndex(0);
+      }
+      setMode('posts');
+      setActiveGridVideoId(null);
+      setActivePostVideoId(null);
+      setCommentsVisible(false);
+      setCommentsAd(null);
+      setShowProfileModal(false);
+      setShowCreateModal(false);
+      setShowStoryModal(false);
+      postsScrollYRef.current = 0;
+      postsReadyRef.current = false;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          postsListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        });
+      });
+    });
+    return unsub;
+  }, [navigation, mode]);
+
+  const switchMode = useCallback(
+    (next: ListMode) => {
+      hideUserTabBar();
+      setMode(next);
+      navigation?.emit?.({ type: HIDE_USER_TABBAR_EVENT, canPreventDefault: false });
+    },
+    [hideUserTabBar, navigation]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      hideUserTabBar();
+      navigation?.emit?.({ type: HIDE_USER_TABBAR_EVENT, canPreventDefault: false });
+      return () => {
+        showUserTabBar();
+        navigation?.emit?.({ type: SHOW_USER_TABBAR_EVENT, canPreventDefault: false });
+        setActiveGridVideoId(null);
+        setActivePostVideoId(null);
+      };
+    }, [hideUserTabBar, showUserTabBar, navigation])
+  );
+
+  const openShops = useCallback(() => {
+    if (SWIPE_ORDER.includes(mode as SwipeEntry) && mode !== 'feed') {
+      shopsReturnRef.current = mode as ListMode;
+    }
+    showUserTabBar();
+    navigation?.emit?.({ type: SHOW_USER_TABBAR_EVENT, canPreventDefault: false });
+    navigation.navigate('Shops');
+  }, [mode, navigation, showUserTabBar]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (mode !== 'feed') {
+        const validModes: ScreenMode[] = ['posts', 'grid', 'messages', 'profile', 'saved'];
+        if (!validModes.includes(mode)) {
+          setMode(shopsReturnRef.current || 'posts');
         }
       }
-    } else {
-      if (isHeaderHidden.current) {
-        isHeaderHidden.current = false;
-        Animated.timing(headerTranslateY, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }).start();
-      }
-    }
-    lastScrollY.current = currentScrollY;
-  };
+    }, [mode])
+  );
 
-  // Loading / error states
-  if (loading && !refreshing && displayData.length === 0 && !externalProducts) {
+  const modeRef = useRef<ScreenMode>(mode);
+  const keyboardVisibleRef = useRef(keyboardVisible);
+  const swipeGateRef = useRef({
+    followModalVisible,
+    showProfileModal,
+    showCreateModal,
+    showStoryModal,
+    commentsVisible,
+  });
+
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { keyboardVisibleRef.current = keyboardVisible; }, [keyboardVisible]);
+  useEffect(() => {
+    swipeGateRef.current = {
+      followModalVisible,
+      showProfileModal,
+      showCreateModal,
+      showStoryModal,
+      commentsVisible,
+    };
+  }, [
+    followModalVisible,
+    showProfileModal,
+    showCreateModal,
+    showStoryModal,
+    commentsVisible,
+  ]);
+
+  const canSwipeNow = useCallback(() => {
+    const m = modeRef.current;
+    if (m === 'feed') return false;
+    if (keyboardVisibleRef.current) return false;
+    const g = swipeGateRef.current;
+    if (
+      g.followModalVisible ||
+      g.showProfileModal ||
+      g.showCreateModal ||
+      g.showStoryModal ||
+      g.commentsVisible
+    ) {
+      return false;
+    }
+    return SWIPE_ORDER.includes(m as SwipeEntry);
+  }, []);
+
+  const canSwipeRef = useRef(canSwipeNow);
+  useEffect(() => { canSwipeRef.current = canSwipeNow; }, [canSwipeNow]);
+
+  const performSwipe = useCallback(
+    (direction: 'next' | 'prev') => {
+      const currentMode = modeRef.current;
+      const idx = SWIPE_ORDER.indexOf(currentMode as SwipeEntry);
+      if (idx < 0) return;
+      const nextIdx = direction === 'next' ? idx + 1 : idx - 1;
+
+      if (nextIdx < 0) {
+        navigation?.emit?.({ type: ADLIST_REQUEST_SWIPE_EVENT, direction: 'prev' } as any);
+        return;
+      }
+      if (nextIdx >= SWIPE_ORDER.length) {
+        navigation?.emit?.({ type: ADLIST_REQUEST_SWIPE_EVENT, direction: 'next' } as any);
+        return;
+      }
+
+      const next = SWIPE_ORDER[nextIdx];
+      if (next === 'shops') {
+        shopsReturnRef.current = currentMode as ListMode;
+        showUserTabBar();
+        navigation?.emit?.({ type: SHOW_USER_TABBAR_EVENT, canPreventDefault: false });
+        navigation.navigate('Shops');
+        return;
+      }
+      switchMode(next as ListMode);
+    },
+    [navigation, showUserTabBar, switchMode]
+  );
+
+  const performSwipeRef = useRef(performSwipe);
+  useEffect(() => { performSwipeRef.current = performSwipe; }, [performSwipe]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+
+      onMoveShouldSetPanResponder: (_evt, g) => {
+        if (!canSwipeRef.current()) return false;
+        return Math.abs(g.dx) > 14 && Math.abs(g.dx) > Math.abs(g.dy) * 1.6;
+      },
+
+      onMoveShouldSetPanResponderCapture: (_evt, g) => {
+        if (!canSwipeRef.current()) return false;
+        const absX = Math.abs(g.dx);
+        const absY = Math.abs(g.dy);
+        return absX > 20 && absX > absY * 2;
+      },
+
+      onPanResponderMove: () => {},
+
+      onPanResponderRelease: (_evt, g) => {
+        if (!canSwipeRef.current()) return;
+        const { dx, vx, dy } = g;
+        if (Math.abs(dy) > Math.abs(dx)) return;
+
+        const SWIPE_DISTANCE = SCREEN_WIDTH * 0.18;
+        const SWIPE_VELOCITY = 0.35;
+        const isLeftSwipe =
+          (dx < -SWIPE_DISTANCE || vx < -SWIPE_VELOCITY) && Math.abs(dx) > 40;
+        const isRightSwipe =
+          (dx > SWIPE_DISTANCE || vx > SWIPE_VELOCITY) && Math.abs(dx) > 40;
+
+        if (isLeftSwipe) performSwipeRef.current('next');
+        else if (isRightSwipe) performSwipeRef.current('prev');
+      },
+
+      onPanResponderTerminationRequest: () => true,
+      onPanResponderTerminate: () => {},
+      onShouldBlockNativeResponder: () => false,
+    })
+  ).current;
+
+  // ✅ FIXED: Grid viewability — 80% threshold
+  const onGridViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: any[] }) => {
+    if (!viewableItems || viewableItems.length === 0) { setActiveGridVideoId(null); return; }
+    const videoItems = viewableItems
+      .filter((v) => v.item?.mediaType === 'video' && (v.item?.video || v.item?.hlsUrl))
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    const nextId = videoItems[0]?.item?._id || null;
+    setActiveGridVideoId((prev) => (prev === nextId ? prev : nextId));
+  }).current;
+
+  const gridViewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 80,
+    minimumViewTime: 400,
+  }).current;
+
+  // ✅ FIXED: Posts viewability — 80% threshold
+  const onPostsViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: any[] }) => {
+    if (!viewableItems || viewableItems.length === 0) { setActivePostVideoId(null); return; }
+    const videoItems = viewableItems
+      .filter((v) => v.item?.mediaType === 'video' && (v.item?.video || v.item?.hlsUrl))
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    const nextId = videoItems[0]?.item?._id || null;
+    setActivePostVideoId((prev) => (prev === nextId ? prev : nextId));
+  }).current;
+
+  const postsViewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 80,
+    minimumViewTime: 500,
+  }).current;
+
+  if (loading && !refreshing && feedData.length === 0 && !externalProducts) {
     return (
       <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#0A3D2B" />
-        <Text style={styles.loadingText}>Loading ads...</Text>
+        <ActivityIndicator size="large" color={Royal.pureBlack} />
+        <Text style={styles.loadingText}>Loading posts...</Text>
       </View>
     );
   }
-
-  if (error && !externalProducts) {
+  if (error && !externalProducts && feedData.length === 0) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Failed to load ads</Text>
+        <Text style={styles.errorText}>Failed to load posts</Text>
         <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
@@ -923,347 +1165,869 @@ const AdListScreen: React.FC<AdListScreenProps> = ({ products: externalProducts,
     );
   }
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <View style={styles.container}>
-        <Animated.View 
-          style={[
-            styles.topBar,
-            {
-              transform: [{ translateY: headerTranslateY }],
-            }
-          ]}
-        >
-          <View style={styles.searchBarContainer}>
-            <TouchableOpacity 
-              style={styles.settingsButton}
-              onPress={handleSettingsPress}
-            />
-            
-            <Ionicons name="search" size={20} color="#999" />
-            <TextInput
-              ref={searchInputRef}
-              style={styles.searchInput}
-              placeholder="Search ads by title, description or category..."
-              placeholderTextColor="#999"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              clearButtonMode="while-editing"
-              returnKeyType="search"
-              onSubmitEditing={() => {
-                searchInputRef.current?.blur();
-              }}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={20} color="#999" />
-              </TouchableOpacity>
-            )}
-            {SpeechRecognition && (
-              <TouchableOpacity
-                onPress={handleVoiceSearch}
-                style={styles.voiceButton}
-                disabled={isRecording}
-              />
-            )}
-          </View>
-          
-          {/* Title List */}
-          <View style={styles.tabsWrapper}>
-            <ScrollView
-              ref={scrollViewRef}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.tabsScrollView}
-              contentContainerStyle={styles.tabsContent}
-              onScroll={handleHorizontalScroll}
-              onScrollBeginDrag={handleHorizontalScrollBeginDrag}
-              onScrollEndDrag={handleHorizontalScrollEndDrag}
-              scrollEventThrottle={16}
-            >
-              {sidebarAds.map((ad, index) => (
-                <TouchableOpacity
-                  key={ad._id}
-                  style={[
-                    styles.tabItem,
-                    selectedAd?._id === ad._id && styles.tabItemActive,
-                  ]}
-                  onPress={() => handleSidebarAdPress(ad)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.tabImageContainer}>
-                    <Image
-                      source={{ uri: ad.image || 'https://via.placeholder.com/80' }}
-                      style={styles.tabImage}
-                      resizeMode="cover"
-                    />
-                  </View>
-                  <Text
-                    style={[
-                      styles.tabText,
-                      selectedAd?._id === ad._id && styles.tabTextActive,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {ad.title}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            
-            <Animated.View 
-              style={[
-                styles.indicator,
-                {
-                  transform: [{ translateX: indicatorPosition }],
-                }
-              ]}
-            />
-          </View>
+  const displayTitle =
+    mode === 'saved' ? 'Saved'
+    : mode === 'profile' ? 'My Profile'
+    : mode === 'messages' ? 'Messages'
+    : title || 'BLuxury';
 
-          {/* Category List - Directly below title list with proper spacing */}
-          {selectedAd && categories.length > 0 && (
-            <View style={styles.categorySection}>
-              <View style={styles.categoryHeader}>
-                <Text style={styles.categorySectionTitle}>Categories</Text>
-                {selectedCategory && (
-                  <TouchableOpacity 
-                    onPress={() => setSelectedCategory(null)}
-                    style={styles.clearCategoryButton}
-                  >
-                    <Text style={styles.clearCategoryText}>Clear</Text>
-                    <Ionicons name="close-circle" size={16} color="#0A3D2B" />
-                  </TouchableOpacity>
-                )}
-              </View>
-              <ScrollView
-                ref={categoryScrollViewRef}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.categoryScrollView}
-                contentContainerStyle={styles.categoryScrollContent}
-              >
-                {categories.map((category) => (
-                  <CategoryItem
-                    key={category.name}
-                    category={category.name}
-                    image={category.image}
-                    isSelected={selectedCategory === category.name}
-                    onPress={handleCategoryPress}
-                  />
-                ))}
-              </ScrollView>
-              {selectedCategory && filteredProducts.length > 0 && (
-                <View style={styles.categoryResultHeader}>
-                  <Text style={styles.categoryResultText}>
-                    {filteredProducts.length} products in "{selectedCategory}"
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-          
-          {selectedAd && categories.length === 0 && (
-            <View style={styles.categorySection}>
-              <View style={styles.categoryHeader}>
-                <Text style={styles.categorySectionTitle}>Categories</Text>
-              </View>
-              <View style={styles.noCategoryContainer}>
-                <Text style={styles.noCategoryText}>No categories available for this title</Text>
-              </View>
-            </View>
-          )}
-        </Animated.View>
+  const renderStoriesRow = () => {
+    const myAvatar = pickBestAvatar(
+      authUserAvatar,
+      getProfileAvatar(userProfile)
+    );
+    const myName = authUserName || userProfile?.name || 'Your Story';
 
-        <View style={styles.mainContent}>
-          <AnimatedFlatList
-            ref={flatListRef}
-            data={displayData}
-            renderItem={renderItem}
-            keyExtractor={(item, index) => {
-              if (item.type === 'product') {
-                return `product-${item.data._id || index}`;
-              } else if (item.type === 'fullProductAd') {
-                return `fullProductAd-${item.data._id || index}`;
-              } else {
-                return `ad-${item.data._id || index}`;
+    const allStories: any[] = [
+      {
+        _id: 'my-story',
+        isMyStory: true,
+        userName: myName,
+        userAvatar: myAvatar,
+        hasUnseen: false,
+      },
+      ...stories.map((s: any) => ({
+        _id: s.userId,
+        userName: s.userName,
+        userAvatar: getProfileAvatar(s),
+        stories: s.stories,
+        hasUnseen: s.hasUnseen,
+        isMyStory: false,
+      })),
+    ];
+
+    return (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.storiesRow}
+        style={styles.storiesScroll}
+      >
+        {allStories.map((item: any) => (
+          <TouchableOpacity
+            key={item._id}
+            style={styles.storyItem}
+            onPress={() => {
+              if (item.isMyStory) {
+                setShowStoryModal(true);
+              } else if (item.stories?.length) {
+                navigation.navigate('StoryViewer', {
+                  stories: item.stories,
+                  startIndex: 0,
+                });
               }
             }}
-            numColumns={1}
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.listContainer}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            ListHeaderComponent={
-              <>
-                <View style={{ height: TOP_BAR_HEIGHT + 16 }} />
-                
-                {title && <Text style={styles.sectionTitle}>{title}</Text>}
-                {selectedAd && displayData.length > 0 && (
-                  <View style={styles.selectedAdHeader}>
-                    <Text style={styles.selectedAdHeaderTitle}>{selectedAd.title}</Text>
-                    <Text style={styles.selectedAdHeaderCount}>
-                      {displayData.filter(d => d.type === 'fullProductAd').length} products
+            onLongPress={() => {
+              if (!item.isMyStory && item._id) handleOpenProfile(String(item._id));
+            }}
+          >
+            <View style={styles.storyAvatarRingWrap}>
+              <View
+                style={[
+                  styles.storyAvatarRing,
+                  item.hasUnseen && styles.storyAvatarRingUnseen,
+                ]}
+              >
+                {item.userAvatar ? (
+                  <ExpoImage
+                    source={{ uri: item.userAvatar }}
+                    style={styles.storyAvatar}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    recyclingKey={`story-avatar:${item._id}`}
+                    transition={120}
+                  />
+                ) : (
+                  <View style={[styles.storyAvatar, styles.storyAvatarFallback]}>
+                    <Text style={styles.storyAvatarLetter}>
+                      {(item.userName || 'U').charAt(0).toUpperCase()}
                     </Text>
                   </View>
                 )}
-              </>
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Ionicons 
-                  name={searchQuery.trim() ? "search-outline" : "megaphone-outline"} 
-                  size={60} 
-                  color="#CCCCCC" 
-                />
-                <Text style={styles.emptyText}>
-                  {searchQuery.trim() 
-                    ? `No results found for "${searchQuery.trim()}"` 
-                    : "No content available"}
-                </Text>
-                <Text style={styles.emptySubText}>
-                  {searchQuery.trim() ? "Try a different search term" : "Check back later"}
+                {item.isMyStory ? (
+                  <View style={styles.storyAddBadge}>
+                    <Ionicons name="add" size={14} color={Royal.pureWhite} />
+                  </View>
+                ) : null}
+              </View>
+              {!item.isMyStory && isOnline(item._id) ? (
+                <View style={styles.storyOnlineDot} />
+              ) : null}
+            </View>
+            <Text style={styles.storyName} numberOfLines={1}>
+              {item.isMyStory ? 'Your Story' : item.userName}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    );
+  };
+
+  const showTopBar = mode !== 'feed' && mode !== 'messages';
+  const showBottomBar = mode !== 'feed' && !keyboardVisible;
+
+  const renderProfileHeader = () => {
+    const displayName = authUserName || userProfile?.name || 'User';
+    const displayAvatar = pickBestAvatar(
+      authUserAvatar,
+      getProfileAvatar(userProfile)
+    );
+    const displayBio = userProfile?.bio || '';
+    const displayUsername = userProfile?.username || '';
+    const displayWebsite = userProfile?.website || '';
+
+    const bioSegments: { value: string; isLink: boolean }[] = [];
+    if (displayBio.trim()) {
+      const regex = new RegExp(URL_PATTERN.source, 'gi');
+      let last = 0;
+      let m: RegExpExecArray | null;
+      while ((m = regex.exec(displayBio)) !== null) {
+        if (m.index > last) bioSegments.push({ value: displayBio.slice(last, m.index), isLink: false });
+        bioSegments.push({ value: m[0], isLink: true });
+        last = m.index + m[0].length;
+      }
+      if (last < displayBio.length) bioSegments.push({ value: displayBio.slice(last), isLink: false });
+    }
+
+    return (
+      <View style={styles.profileHeader}>
+        <View style={styles.profileTopRow}>
+          <View style={styles.profileAvatarWrap}>
+            {displayAvatar ? (
+              <ExpoImage
+                source={{ uri: displayAvatar }}
+                style={styles.profileAvatar}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={`profile-header-avatar:${userId || 'me'}`}
+                transition={120}
+              />
+            ) : (
+              <View style={[styles.profileAvatar, styles.profileAvatarFallback]}>
+                <Text style={styles.profileAvatarLetter}>
+                  {(displayName || 'U').charAt(0).toUpperCase()}
                 </Text>
               </View>
-            }
-            ListFooterComponent={
-              displayData.length > 0 ? (
-                <View style={styles.footer}>
-                  <Text style={styles.footerText}>
-                    {displayData.filter(d => d.type === 'product').length} products · {displayData.filter(d => d.type === 'ad' || d.type === 'fullProductAd').length} ads
-                  </Text>
-                </View>
-              ) : null
-            }
-          />
+            )}
+            {userId ? <View style={styles.profileOnlineDot} /> : null}
+          </View>
+          <View style={styles.profileStatsRow}>
+            <View style={styles.profileStatItem}>
+              <Text style={styles.profileStatNumber}>{userProfile?.postsCount || 0}</Text>
+              <Text style={styles.profileStatLabel}>posts</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.profileStatItem}
+              onPress={() => {
+                if (userId) openFollowers(userId);
+              }}
+            >
+              <Text style={styles.profileStatNumber}>{userProfile?.followersCount || 0}</Text>
+              <Text style={styles.profileStatLabel}>followers</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileStatItem}
+              onPress={() => {
+                if (userId) openFollowing(userId);
+              }}
+            >
+              <Text style={styles.profileStatNumber}>{userProfile?.followingCount || 0}</Text>
+              <Text style={styles.profileStatLabel}>following</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <Text style={styles.profileName}>{displayName}</Text>
+        {displayUsername ? (
+          <Text style={styles.profileUsername}>@{displayUsername}</Text>
+        ) : null}
+
+        {bioSegments.length > 0 ? (
+          <Text style={styles.profileBio}>
+            {bioSegments.map((seg, i) =>
+              seg.isLink ? (
+                <Text
+                  key={`bl-${i}`}
+                  style={styles.profileBioLink}
+                  onPress={() => openExternalUrl(seg.value)}
+                >
+                  {seg.value}
+                </Text>
+              ) : (
+                <Text key={`bt-${i}`}>{seg.value}</Text>
+              )
+            )}
+          </Text>
+        ) : null}
+
+        {displayWebsite ? (
+          <TouchableOpacity
+            style={styles.profileWebsiteRow}
+            onPress={() => openExternalUrl(displayWebsite)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="link-outline" size={14} color={Royal.blueAccent} />
+            <Text style={styles.profileWebsite} numberOfLines={1}>
+              {displayWebsite.replace(/^https?:\/\//i, '')}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        <View style={styles.profileActionsRow}>
+          <TouchableOpacity
+            style={styles.profileActionBtn}
+            onPress={() => navigation.navigate('EditProfile')}
+          >
+            <Text style={styles.profileActionBtnText}>Edit profile</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.profileActionBtn}>
+            <Text style={styles.profileActionBtnText}>Share profile</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.profileActionIconBtn}
+            onPress={() => setShowStoryModal(true)}
+          >
+            <Ionicons name="add-circle-outline" size={18} color={Royal.pureBlack} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.profileDashboardCard}>
+          <Text style={styles.profileDashboardTitle}>Your dashboard</Text>
+          <Text style={styles.profileDashboardStat}>
+            📈 {userProfile?.viewsLast30Days || 0} views in the last 30 days.
+          </Text>
+          <Text style={styles.profileDashboardStat}>
+            👥 {userProfile?.reachLast30Days || 0} accounts reached.
+          </Text>
+          <Text style={styles.profileDashboardStat}>
+            ❤️ {userProfile?.totalLikesCount || 0} total likes.
+          </Text>
         </View>
       </View>
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor={Royal.pureWhite} />
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        <View style={styles.swipeWrapper} {...panResponder.panHandlers}>
+          {showTopBar ? (
+            <View style={styles.topBar}>
+              <Text style={styles.topBarTitle} numberOfLines={1}>{displayTitle}</Text>
+              <View style={styles.topBarRight}>
+                {/* ⚙️ NEW: Video & Data Settings */}
+                <TouchableOpacity
+                  style={styles.topBarIconBtn}
+                  onPress={() => navigation.navigate('VideoSettings')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="settings-outline" size={22} color={Royal.pureBlack} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.topBarIconBtn}
+                  onPress={() => navigation.navigate('Notifications')}
+                >
+                  <Ionicons name="heart-outline" size={24} color={Royal.pureBlack} />
+                  {unreadNotifications > 0 ? (
+                    <View style={styles.topBarBadge}>
+                      <Text style={styles.topBarBadgeText}>
+                        {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                      </Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.topBarIconBtn} onPress={() => switchMode('saved')}>
+                  <Ionicons name="bookmark-outline" size={24} color={Royal.pureBlack} />
+                  {savedCount > 0 ? (
+                    <View style={styles.topBarBadge}>
+                      <Text style={styles.topBarBadgeText}>
+                        {savedCount > 9 ? '9+' : savedCount}
+                      </Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+
+                {mode === 'profile' ? (
+                  <TouchableOpacity style={styles.topBarIconBtn} onPress={() => setShowCreateModal(true)}>
+                    <Ionicons name="add-circle-outline" size={26} color={Royal.pureBlack} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+
+          {mode === 'posts' ? renderStoriesRow() : null}
+
+          {mode === 'posts' ? (
+            <FlatList
+              key="posts-feed"
+              ref={postsListRef}
+              data={feedData}
+              keyExtractor={(item, i) => `post-${item._id || i}`}
+              numColumns={1}
+              showsVerticalScrollIndicator={false}
+              overScrollMode="never"
+              bounces={false}
+              contentContainerStyle={styles.postsListContainer}
+              contentInset={Platform.OS === 'ios' ? { bottom: 100 } : undefined}
+              scrollIndicatorInsets={Platform.OS === 'ios' ? { bottom: 100 } : undefined}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              onScroll={onPostsScroll}
+              scrollEventThrottle={32}
+              onViewableItemsChanged={onPostsViewableItemsChanged}
+              viewabilityConfig={postsViewabilityConfig}
+              onEndReachedThreshold={1.5}
+              onEndReached={handleLoadMore}
+              initialNumToRender={2}
+              maxToRenderPerBatch={3}
+              windowSize={3}
+              updateCellsBatchingPeriod={50}
+              removeClippedSubviews={true}
+              renderItem={({ item }) => {
+                const isUserPost = item?.postType === 'user';
+                const ownerUid = String(
+                  (isUserPost
+                    ? typeof item?.userId === 'object' ? item?.userId?._id : item?.userId
+                    : typeof item?.vendorId === 'object' ? item?.vendorId?._id : item?.vendorId) || ''
+                );
+                return (
+                  <AdFeedPost
+                    ad={item}
+                    isActive={item.mediaType === 'video' && activePostVideoId === item._id}
+                    onPress={handleAdPress}
+                    onOpenShop={handleOpenShop}
+                    onOpenProfile={handleOpenProfile}
+                    onLike={handleLike}
+                    onOpenComments={handleOpenComments}
+                    onShareTracked={handleShareTracked}
+                    isSaved={!!savedItems[item._id]}
+                    isSaving={savingIds.has(item._id)}
+                    onToggleSave={handleToggleSave}
+                    userId={userId}
+                    isOnline={isOnline(ownerUid)}
+                    isFollowing={isFollowing(ownerUid)}
+                    onToggleFollow={handleToggleFollow}
+                  />
+                );
+              }}
+              ListFooterComponent={
+                loadingMoreAds ? (
+                  <View style={styles.footerLoader}>
+                    <ActivityIndicator size="small" color={Royal.pureBlack} />
+                  </View>
+                ) : null
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="newspaper-outline" size={60} color={Royal.textTertiary} />
+                  <Text style={styles.emptyText}>No posts yet</Text>
+                  <Text style={styles.emptySubText}>Check back later</Text>
+                </View>
+              }
+            />
+          ) : mode === 'grid' ? (
+            <FlatList
+              key="grid-feed"
+              ref={gridListRef}
+              data={feedData}
+              keyExtractor={(item, i) => `grid-${item._id || i}`}
+              numColumns={GRID_COLUMNS}
+              columnWrapperStyle={styles.gridRow}
+              contentContainerStyle={styles.gridListContainer}
+              contentInset={Platform.OS === 'ios' ? { bottom: 100 } : undefined}
+              scrollIndicatorInsets={Platform.OS === 'ios' ? { bottom: 100 } : undefined}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              onScroll={onGridScroll}
+              scrollEventThrottle={32}
+              showsVerticalScrollIndicator={false}
+              overScrollMode="never"
+              bounces={false}
+              onViewableItemsChanged={onGridViewableItemsChanged}
+              viewabilityConfig={gridViewabilityConfig}
+              onEndReachedThreshold={1.5}
+              onEndReached={handleLoadMore}
+              initialNumToRender={6}
+              maxToRenderPerBatch={6}
+              windowSize={3}
+              updateCellsBatchingPeriod={50}
+              removeClippedSubviews={true}
+              renderItem={({ item }) => {
+                const isUserPost = item?.postType === 'user';
+                const ownerUid = String(
+                  (isUserPost
+                    ? typeof item?.userId === 'object' ? item?.userId?._id : item?.userId
+                    : typeof item?.vendorId === 'object' ? item?.vendorId?._id : item?.vendorId) || ''
+                );
+                return (
+                  <GridCard
+                    ad={item}
+                    onPress={handleAdPress}
+                    isActiveVideo={item.mediaType === 'video' && activeGridVideoId === item._id}
+                    isOnline={isOnline(ownerUid)}
+                  />
+                );
+              }}
+              ListFooterComponent={
+                loadingMoreAds ? (
+                  <View style={styles.footerLoader}>
+                    <ActivityIndicator size="small" color={Royal.pureBlack} />
+                  </View>
+                ) : null
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="images-outline" size={60} color={Royal.textTertiary} />
+                  <Text style={styles.emptyText}>No posts yet</Text>
+                  <Text style={styles.emptySubText}>Check back later</Text>
+                </View>
+              }
+            />
+          ) : mode === 'saved' ? (
+            <FlatList
+              key="saved-feed"
+              ref={savedListRef}
+              data={savedListData}
+              keyExtractor={(item, i) => `saved-${item._id || i}`}
+              numColumns={1}
+              showsVerticalScrollIndicator={false}
+              overScrollMode="never"
+              bounces={false}
+              contentContainerStyle={styles.postsListContainer}
+              contentInset={Platform.OS === 'ios' ? { bottom: 100 } : undefined}
+              scrollIndicatorInsets={Platform.OS === 'ios' ? { bottom: 100 } : undefined}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              onScroll={onSavedScroll}
+              scrollEventThrottle={32}
+              onViewableItemsChanged={onPostsViewableItemsChanged}
+              viewabilityConfig={postsViewabilityConfig}
+              initialNumToRender={2}
+              maxToRenderPerBatch={3}
+              windowSize={3}
+              updateCellsBatchingPeriod={50}
+              removeClippedSubviews={true}
+              renderItem={({ item }) => {
+                const isUserPost = item?.postType === 'user';
+                const ownerUid = String(
+                  (isUserPost
+                    ? typeof item?.userId === 'object' ? item?.userId?._id : item?.userId
+                    : typeof item?.vendorId === 'object' ? item?.vendorId?._id : item?.vendorId) || ''
+                );
+                return (
+                  <AdFeedPost
+                    ad={item}
+                    isActive={item.mediaType === 'video' && activePostVideoId === item._id}
+                    onPress={handleAdPress}
+                    onOpenShop={handleOpenShop}
+                    onOpenProfile={handleOpenProfile}
+                    onLike={handleLike}
+                    onOpenComments={handleOpenComments}
+                    onShareTracked={handleShareTracked}
+                    isSaved={true}
+                    isSaving={false}
+                    onToggleSave={handleToggleSave}
+                    userId={userId}
+                    isOnline={isOnline(ownerUid)}
+                    isFollowing={isFollowing(ownerUid)}
+                    onToggleFollow={handleToggleFollow}
+                  />
+                );
+              }}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="bookmark-outline" size={60} color={Royal.textTertiary} />
+                  <Text style={styles.emptyText}>No saved posts yet</Text>
+                  <Text style={styles.emptySubText}>
+                    Tap the bookmark icon on any post to save it here
+                  </Text>
+                </View>
+              }
+            />
+          ) : mode === 'profile' ? (
+            <FlatList
+              key="profile-feed"
+              ref={profileListRef}
+              data={profilePosts}
+              keyExtractor={(item, i) => `profile-${item._id || i}`}
+              numColumns={1}
+              showsVerticalScrollIndicator={false}
+              overScrollMode="never"
+              bounces={false}
+              contentContainerStyle={styles.postsListContainer}
+              contentInset={Platform.OS === 'ios' ? { bottom: 100 } : undefined}
+              scrollIndicatorInsets={Platform.OS === 'ios' ? { bottom: 100 } : undefined}
+              refreshing={loading}
+              onRefresh={onProfileRefresh}
+              onScroll={onProfileScroll}
+              scrollEventThrottle={32}
+              initialNumToRender={2}
+              maxToRenderPerBatch={3}
+              windowSize={3}
+              updateCellsBatchingPeriod={50}
+              removeClippedSubviews={true}
+              ListHeaderComponent={(authUser || userProfile) ? renderProfileHeader() : null}
+              renderItem={({ item }) => (
+                <AdFeedPost
+                  ad={item}
+                  isActive={item.mediaType === 'video' && activePostVideoId === item._id}
+                  onPress={handleAdPress}
+                  onOpenShop={handleOpenShop}
+                  onOpenProfile={handleOpenProfile}
+                  onLike={handleLike}
+                  onOpenComments={handleOpenComments}
+                  onShareTracked={handleShareTracked}
+                  isSaved={!!savedItems[item._id]}
+                  isSaving={savingIds.has(item._id)}
+                  onToggleSave={handleToggleSave}
+                  userId={userId}
+                  isOwner={true}
+                  onDelete={handleDeletePost}
+                  isOnline={true}
+                />
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="person-circle-outline" size={80} color={Royal.textTertiary} />
+                  <Text style={styles.emptyText}>No posts yet</Text>
+                  <Text style={styles.emptySubText}>
+                    Share your first post with the community
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.createPostEmptyBtn}
+                    onPress={() => setShowCreateModal(true)}
+                  >
+                    <Ionicons name="add" size={20} color={Royal.pureWhite} />
+                    <Text style={styles.createPostEmptyBtnText}>Create Post</Text>
+                  </TouchableOpacity>
+                </View>
+              }
+            />
+          ) : mode === 'messages' ? (
+            <View style={styles.messagesWrapper}>
+              <MessagesScreen
+                autoOpenParticipant={autoOpenParticipant}
+                onAutoOpenHandled={handleAutoOpenHandled}
+              />
+            </View>
+          ) : (
+            <View style={styles.feedWrapper}>
+              <ReelFeedScreen
+                key={`reel-${feedStartIndex}-${feedData.length}`}
+                data={feedData}
+                initialIndex={feedStartIndex}
+                onExit={exitFeed}
+                onPress={handleAdPress}
+                onOpenShop={handleOpenShop}
+                onOpenProfile={handleOpenProfile}
+                onLike={handleLike}
+                onOpenComments={handleOpenComments}
+                onShareTracked={handleShareTracked}
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                onEndReached={handleLoadMore}
+                hasMore={activeAdsHasMore}
+                loadingMore={loadingMoreAds}
+                showOwner={isSpecialUser}
+                userId={userId}
+                isFollowing={isFollowing}
+                isOnline={isOnline}
+                onToggleFollow={handleToggleFollow}
+              />
+            </View>
+          )}
+        </View>
+
+        {showBottomBar ? (
+          <View style={[styles.bottomBar, { paddingBottom: 12 + insets.bottom }]}>
+            <TouchableOpacity style={styles.navItem} onPress={() => switchMode('posts')} activeOpacity={0.7}>
+              <Ionicons
+                name={mode === 'posts' ? 'home' : 'home-outline'}
+                size={24}
+                color={mode === 'posts' ? Royal.pureBlack : Royal.textSecondary}
+              />
+              <Text style={[styles.navLabel, { color: mode === 'posts' ? Royal.pureBlack : Royal.textSecondary }]}>
+                Home
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.navItem} onPress={() => switchMode('grid')} activeOpacity={0.7}>
+              <Ionicons
+                name={mode === 'grid' ? 'grid' : 'grid-outline'}
+                size={24}
+                color={mode === 'grid' ? Royal.pureBlack : Royal.textSecondary}
+              />
+              <Text style={[styles.navLabel, { color: mode === 'grid' ? Royal.pureBlack : Royal.textSecondary }]}>
+                Grid
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.navItem} onPress={() => switchMode('messages')} activeOpacity={0.7}>
+              <Ionicons
+                name="paper-plane-outline"
+                size={24}
+                color={mode === 'messages' ? Royal.pureBlack : Royal.textSecondary}
+              />
+              {unreadMessagesCount > 0 ? (
+                <View style={styles.navBadge}>
+                  <Text style={styles.navBadgeText} numberOfLines={1}>
+                    {unreadMessagesCount > 99 ? '99+' : String(unreadMessagesCount)}
+                  </Text>
+                </View>
+              ) : null}
+              <Text style={[styles.navLabel, { color: mode === 'messages' ? Royal.pureBlack : Royal.textSecondary }]}>
+                Messages
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.navItem} onPress={() => switchMode('profile')} activeOpacity={0.7}>
+              <Ionicons
+                name={mode === 'profile' ? 'person' : 'person-outline'}
+                size={24}
+                color={mode === 'profile' ? Royal.pureBlack : Royal.textSecondary}
+              />
+              {unreadNotifications > 0 ? (
+                <View style={styles.navBadge}>
+                  <Text style={styles.navBadgeText} numberOfLines={1}>
+                    {unreadNotifications > 99 ? '99+' : String(unreadNotifications)}
+                  </Text>
+                </View>
+              ) : null}
+              <Text style={[styles.navLabel, { color: mode === 'profile' ? Royal.pureBlack : Royal.textSecondary }]}>
+                Profile
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.navItem} onPress={openShops} activeOpacity={0.7}>
+              <Ionicons name="storefront-outline" size={24} color={Royal.textSecondary} />
+              <Text style={[styles.navLabel, { color: Royal.textSecondary }]}>Shops</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </KeyboardAvoidingView>
+
+      <CommentsSheet
+        visible={commentsVisible}
+        onClose={handleCloseComments}
+        ad={commentsAd}
+        currentUserId={userId}
+        onSubmit={handleSubmitComment}
+        onDelete={handleDeleteComment}
+        onToggleLike={handleToggleCommentLike}
+      />
+
+      <CreatePostModal
+        visible={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSubmit={handleCreatePost}
+        loading={isCreating}
+      />
+
+      <StoryCreatorModal
+        visible={showStoryModal}
+        onClose={() => setShowStoryModal(false)}
+        onSubmit={handleCreateStory}
+        loading={isCreatingStory}
+      />
+
+      <UserProfileModal
+        visible={showProfileModal}
+        onClose={() => {
+          setShowProfileModal(false);
+          setProfileUserId(null);
+        }}
+        userId={profileUserId}
+        onOpenComments={handleOpenComments}
+        onOpenFollowers={openFollowers}
+        onOpenFollowing={openFollowing}
+        onToggleFollow={handleToggleFollow}
+        onOpenMessage={handleOpenMessage}
+      />
+
+      <FollowListModal
+        visible={followModalVisible}
+        onClose={() => setFollowModalVisible(false)}
+        title={followModalType === 'followers' ? 'Followers' : 'Following'}
+        users={followModalUsers}
+        loading={followModalLoading}
+        currentUserId={userId}
+        onToggleFollow={handleToggleFollowUser}
+        onOpenProfile={(uid) => {
+          setFollowModalVisible(false);
+          setProfileUserId(uid);
+          setShowProfileModal(true);
+        }}
+      />
     </SafeAreaView>
   );
 };
 
-// ----- Styles (unchanged) -----
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
-  container: { flex: 1, backgroundColor: '#F8F8F8' },
+  safeArea: { flex: 1, backgroundColor: Royal.pureWhite },
+  container: { flex: 1, backgroundColor: Royal.pureWhite },
+  swipeWrapper: { flex: 1 },
+  messagesWrapper: { flex: 1 },
+  feedWrapper: { flex: 1, backgroundColor: '#0B0B0F', overflow: 'hidden' },
   topBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    zIndex: 10,
-    paddingTop: StatusBar.currentHeight || 0,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 4,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: Royal.pureWhite,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Royal.borderLight,
   },
-  searchBarContainer: {
+  topBarTitle: { fontSize: 22, fontWeight: '800', color: Royal.pureBlack, flex: 1 },
+  topBarRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topBarIconBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
+  topBarBadge: {
+    position: 'absolute', top: 2, right: 2, minWidth: 14, height: 14,
+    borderRadius: 7, backgroundColor: Royal.redAlert,
+    paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center',
+  },
+  topBarBadgeText: { color: Royal.pureWhite, fontSize: 9, fontWeight: '800', lineHeight: 11 },
+  storiesScroll: {
+    maxHeight: 110,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Royal.borderLight,
+    backgroundColor: Royal.pureWhite,
+  },
+  storiesRow: { paddingHorizontal: 8, paddingVertical: 8, gap: 12 },
+  storyItem: { alignItems: 'center', width: 72, marginBottom: 34 },
+  storyAvatarRingWrap: { position: 'relative' },
+  storyAvatarRing: {
+    width: 64, height: 64, borderRadius: 32,
+    borderWidth: 2, borderColor: Royal.borderLight,
+    justifyContent: 'center', alignItems: 'center', position: 'relative',
+  },
+  storyAvatarRingUnseen: { borderColor: Royal.redAlert },
+  storyAvatar: { width: 58, height: 58, borderRadius: 29, backgroundColor: Royal.offWhite },
+  storyAvatarFallback: {
+    justifyContent: 'center', alignItems: 'center', backgroundColor: Royal.pureBlack,
+  },
+  storyAvatarLetter: { color: Royal.pureWhite, fontSize: 22, fontWeight: '800' },
+  storyAddBadge: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 20, height: 20, borderRadius: 10, backgroundColor: Royal.blueAccent,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: Royal.pureWhite,
+  },
+  storyOnlineDot: {
+    position: 'absolute', bottom: 0, right: 4,
+    width: 14, height: 14, borderRadius: 7,
+    backgroundColor: Royal.onlineGreen,
+    borderWidth: 2, borderColor: Royal.pureWhite,
+  },
+  storyName: { color: Royal.pureBlack, fontSize: 11, marginTop: 4, textAlign: 'center' },
+  bottomBar: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, width: '100%',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
+    paddingHorizontal: 8, paddingVertical: 12,
+    backgroundColor: Royal.pureWhite,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Royal.borderLight,
+    zIndex: 100,
+    shadowColor: Royal.shadow, shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 1, shadowRadius: 12, elevation: 12,
+  },
+  navItem: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
+  navLabel: { fontSize: 10, fontWeight: '700', marginTop: 2, letterSpacing: 0.2 },
+  navBadge: {
+    position: 'absolute', top: 0, right: '28%',
+    minWidth: 16, height: 16, borderRadius: 8, backgroundColor: Royal.redAlert,
+    paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1.5, borderColor: Royal.pureWhite,
+  },
+  navBadgeText: { color: Royal.pureWhite, fontSize: 9, fontWeight: '800', lineHeight: 12 },
+  gridListContainer: { paddingBottom: Platform.OS === 'ios' ? 140 : 160 },
+  gridRow: { justifyContent: 'flex-start', marginBottom: GRID_GAP },
+  postsListContainer: { paddingBottom: Platform.OS === 'ios' ? 140 : 160 },
+  footerLoader: { paddingVertical: 24, alignItems: 'center', justifyContent: 'center' },
+  loaderContainer: {
+    flex: 1, backgroundColor: Royal.pureWhite,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  loadingText: { color: Royal.pureBlack, marginTop: 12, fontSize: 16, fontWeight: '700' },
+  errorContainer: {
+    flex: 1, backgroundColor: Royal.pureWhite,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  errorText: { color: Royal.redAlert, fontSize: 16, marginBottom: 12, fontWeight: '700' },
+  retryButton: {
+    paddingHorizontal: 24, paddingVertical: 10,
+    backgroundColor: Royal.pureBlack, borderRadius: 20,
+  },
+  retryText: { color: Royal.pureWhite, fontWeight: '700' },
+  emptyContainer: { padding: 40, alignItems: 'center', justifyContent: 'center' },
+  emptyText: {
+    color: Royal.pureBlack, fontSize: 18, fontWeight: '700', marginTop: 16,
+  },
+  emptySubText: {
+    color: Royal.textSecondary, fontSize: 14, marginTop: 8, textAlign: 'center',
+  },
+  createPostEmptyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginTop: 20, paddingHorizontal: 20, paddingVertical: 12,
+    backgroundColor: Royal.pureBlack, borderRadius: 24,
+  },
+  createPostEmptyBtnText: { color: Royal.pureWhite, fontSize: 15, fontWeight: '700' },
+  profileHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 },
+  profileTopRow: { flexDirection: 'row', alignItems: 'center' },
+  profileAvatarWrap: { marginRight: 24, position: 'relative' },
+  profileAvatar: { width: 86, height: 86, borderRadius: 43, backgroundColor: Royal.offWhite },
+  profileAvatarFallback: {
+    justifyContent: 'center', alignItems: 'center', backgroundColor: Royal.pureBlack,
+  },
+  profileAvatarLetter: { color: Royal.pureWhite, fontSize: 32, fontWeight: '800' },
+  profileOnlineDot: {
+    position: 'absolute', bottom: 4, right: 4,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: Royal.onlineGreen,
+    borderWidth: 3, borderColor: Royal.pureWhite,
+  },
+  profileStatsRow: { flex: 1, flexDirection: 'row', justifyContent: 'space-around' },
+  profileStatItem: { alignItems: 'center' },
+  profileStatNumber: { color: Royal.pureBlack, fontSize: 17, fontWeight: '800' },
+  profileStatLabel: { color: Royal.textSecondary, fontSize: 12, marginTop: 2 },
+  profileName: { color: Royal.pureBlack, fontSize: 15, fontWeight: '700', marginTop: 12 },
+  profileUsername: { color: Royal.textSecondary, fontSize: 13, marginTop: 2 },
+  profileBio: { color: Royal.textPrimary, fontSize: 13, marginTop: 6, lineHeight: 19 },
+  profileBioLink: {
+    color: Royal.blueAccent,
+    textDecorationLine: 'underline',
+  },
+  profileWebsiteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F0F0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    marginBottom: 8,
-    height: 40,
+    gap: 4,
+    marginTop: 6,
   },
-  settingsButton: { paddingRight: 10, paddingVertical: 4 },
-  searchInput: { flex: 1, fontSize: 16, color: '#1C1C1E', marginLeft: 8, paddingVertical: 0 },
-  voiceButton: { paddingHorizontal: 8, paddingVertical: 4 },
-  tabsWrapper: { position: 'relative', paddingBottom: 4 },
-  tabsScrollView: { maxHeight: TAB_HEIGHT + 20 },
-  tabsContent: { paddingVertical: 8, paddingHorizontal: 4, gap: 8, alignItems: 'center' },
-  tabItem: {
-    width: TAB_WIDTH,
-    alignItems: 'center',
-    borderRadius: 12,
-    backgroundColor: '#F5F5F5',
-    borderWidth: 2,
-    borderColor: 'transparent',
-    paddingVertical: 4,
-    paddingHorizontal: 4,
+  profileWebsite: {
+    color: Royal.blueAccent,
+    fontSize: 13,
+    fontWeight: '600',
   },
-  tabItemActive: { borderColor: '#0A3D2B', backgroundColor: '#E8F5E9' },
-  tabImageContainer: { width: TAB_WIDTH - 16, height: TAB_WIDTH - 16, borderRadius: 8, overflow: 'hidden', backgroundColor: '#E0E0E0' },
-  tabImage: { width: '100%', height: '100%' },
-  tabText: { fontSize: 11, color: '#666', fontWeight: '500', marginTop: 4, textAlign: 'center', maxWidth: TAB_WIDTH - 8 },
-  tabTextActive: { color: '#0A3D2B', fontWeight: '700' },
-  indicator: { position: 'absolute', bottom: 0, left: 8, width: TAB_WIDTH, height: 3, backgroundColor: '#0A3D2B', borderRadius: 2 },
-  mainContent: { flex: 1, backgroundColor: '#F8F8F8', paddingTop: 4 },
-  categorySection: { backgroundColor: '#FFFFFF', paddingVertical: 6, paddingHorizontal: 4, borderTopWidth: 1, borderTopColor: '#F0F0F0', marginTop: 2, paddingBottom: 10 },
-  categoryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, marginBottom: 4 },
-  categorySectionTitle: { fontSize: 13, fontWeight: '600', color: '#1C1C1E' },
-  clearCategoryButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  clearCategoryText: { fontSize: 12, color: '#0A3D2B', fontWeight: '500' },
-  categoryScrollView: { maxHeight: 90 },
-  categoryScrollContent: { paddingVertical: 4, paddingHorizontal: 8, gap: 10, alignItems: 'center' },
-  categoryItem: { width: CATEGORY_ITEM_WIDTH, alignItems: 'center', borderRadius: 10, backgroundColor: '#F8F8F8', borderWidth: 2, borderColor: 'transparent', paddingVertical: 3, paddingHorizontal: 3 },
-  categoryItemActive: { borderColor: '#0A3D2B', backgroundColor: '#E8F5E9' },
-  categoryImageContainer: { width: CATEGORY_ITEM_WIDTH - 16, height: CATEGORY_ITEM_WIDTH - 16, borderRadius: 8, overflow: 'hidden', backgroundColor: '#F0F0F0', position: 'relative' },
-  categoryImage: { width: '100%', height: '100%' },
-  categorySelectedOverlay: { position: 'absolute', top: 2, right: 2, backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 10 },
-  categoryText: { fontSize: 10, color: '#666', fontWeight: '500', marginTop: 2, textAlign: 'center', maxWidth: CATEGORY_ITEM_WIDTH - 8 },
-  categoryTextActive: { color: '#0A3D2B', fontWeight: '700' },
-  categoryResultHeader: { marginTop: 4, paddingVertical: 4, paddingHorizontal: 12, backgroundColor: '#F5F5F5', borderRadius: 6, marginHorizontal: 4 },
-  categoryResultText: { fontSize: 11, color: '#1C1C1E', fontWeight: '500' },
-  noCategoryContainer: { paddingVertical: 4, alignItems: 'center' },
-  noCategoryText: { fontSize: 12, color: '#999', fontWeight: '400' },
-  sectionTitle: { fontSize: 20, fontWeight: '700', color: '#1C1C1E', marginHorizontal: 16, marginBottom: 12, marginTop: 8 },
-  selectedAdHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#FFFFFF', marginHorizontal: 12, marginBottom: 12, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  selectedAdHeaderTitle: { fontSize: 16, fontWeight: '700', color: '#1C1C1E' },
-  selectedAdHeaderCount: { fontSize: 12, color: '#8E8E93', fontWeight: '500' },
-  listContainer: { paddingBottom: 16, paddingHorizontal: 12, gap: 12 },
-  fullWidthProductAdItem: { borderRadius: 16, overflow: 'hidden', backgroundColor: '#FFFFFF', shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5, marginBottom: 16, width: '100%' },
-  fullWidthProductImageContainer: { width: '100%', position: 'relative', backgroundColor: '#F0F0F0' },
-  fullWidthProductAdImage: { width: '100%', height: undefined },
-  imageHidden: { opacity: 0 },
-  imagePlaceholder: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F0F0F0' },
-  fullWidthOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingBottom: 24 },
-  fullWidthOverlayContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
-  fullWidthTextContainer: { flex: 1, marginRight: 12 },
-  fullWidthAdDescription: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '400', textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-  fullWidthAdCategory: { color: '#FFD700', fontSize: 12, fontWeight: '600', marginTop: 4, textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-  fullWidthActionButtons: { flexDirection: 'row', alignItems: 'center' },
-  glassCartContainer: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', borderRadius: 20, backgroundColor: 'rgba(255, 255, 255, 0.15)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.3)', shadowColor: 'rgba(255, 255, 255, 0.3)', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 10, elevation: 2 },
-  glassCartIcon: { textShadowColor: 'rgba(0, 0, 0, 0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
-  genericAdItem: { borderRadius: 16, overflow: 'hidden', backgroundColor: '#FFFFFF', shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5, marginBottom: 16 },
-  genericImageContainer: { width: '100%', aspectRatio: 16 / 9, position: 'relative', backgroundColor: '#F0F0F0' },
-  genericAdImage: { width: '100%', height: '100%' },
-  overlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16 },
-  overlayContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
-  adTextContainer: { flex: 1, marginRight: 12 },
-  adTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
-  adDescription: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2, textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-  adCategory: { color: '#FFD700', fontSize: 11, fontWeight: '600', marginTop: 2, textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-  ownerName: { color: '#FFD700', fontSize: 12, fontWeight: '600', marginBottom: 2, textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-  shopNowContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0A3D2B', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 25, minWidth: 110, justifyContent: 'center', shadowColor: '#0A3D2B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 3 },
-  shopNowText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', marginRight: 4 },
-  actionButtons: { flexDirection: 'row', alignItems: 'center' },
-  productCard: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 16, marginBottom: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 },
-  productImage: { width: 120, height: 120 },
-  productInfo: { flex: 1, padding: 14, justifyContent: 'center' },
-  productName: { fontSize: 14, fontWeight: '600', color: '#1C1C1E', marginBottom: 4 },
-  productPrice: { fontSize: 16, fontWeight: '700', color: '#1B8C40' },
-  loaderContainer: { flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center' },
-  loadingText: { marginTop: 8, color: '#666666', fontSize: 14 },
-  errorContainer: { flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center' },
-  errorText: { color: '#FF3B30', fontSize: 14, marginBottom: 8 },
-  retryButton: { paddingHorizontal: 20, paddingVertical: 8, backgroundColor: '#0A3D2B', borderRadius: 6 },
-  retryText: { color: '#FFFFFF', fontWeight: '600' },
-  emptyContainer: { padding: 40, alignItems: 'center', justifyContent: 'center' },
-  emptyText: { color: '#999999', fontSize: 16, fontWeight: '500', marginTop: 12, textAlign: 'center' },
-  emptySubText: { color: '#CCCCCC', fontSize: 14, marginTop: 4, textAlign: 'center' },
-  footer: { paddingVertical: 16, alignItems: 'center' },
-  footerText: { color: '#8E8E93', fontSize: 12 },
+  profileActionsRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  profileActionBtn: {
+    flex: 1, paddingVertical: 8, backgroundColor: Royal.offWhite,
+    borderRadius: 8, alignItems: 'center',
+    borderWidth: 1, borderColor: Royal.borderLight,
+  },
+  profileActionBtnText: { color: Royal.pureBlack, fontSize: 14, fontWeight: '700' },
+  profileActionIconBtn: {
+    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: Royal.offWhite,
+    borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Royal.borderLight,
+  },
+  profileDashboardCard: {
+    backgroundColor: Royal.offWhite, borderRadius: 12, padding: 14, marginTop: 16,
+    borderWidth: 1, borderColor: Royal.borderLight,
+  },
+  profileDashboardTitle: { color: Royal.pureBlack, fontSize: 14, fontWeight: '700' },
+  profileDashboardStat: { color: Royal.greenAccent, fontSize: 12, marginTop: 4, fontWeight: '600' },
 });
 
 export default AdListScreen;

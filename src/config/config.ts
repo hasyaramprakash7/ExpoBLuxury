@@ -9,13 +9,13 @@ interface AppConfig {
 const apiUrlFromConfig = Constants.expoConfig?.extra?.API_URL as string | undefined;
 
 const dev: AppConfig = {
-    apiUrl: apiUrlFromConfig || "https://bluxurymainbackend.onrender.com/api",
+    apiUrl: apiUrlFromConfig || "http://192.168.29.106:3000/api",
     googleMapsApiKey: "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c",
 };
 
 // ✅ FIXED: Use your Render.com production URL
 const prod: AppConfig = {
-    apiUrl: apiUrlFromConfig || "https://bluxurymainbackend.onrender.com/api",  // ✅ Your production URL
+    apiUrl: apiUrlFromConfig || "http://192.168.29.106:3000/api",  // ✅ Your production URL
     googleMapsApiKey: "AIzaSyBxRrmaaB7iOzxJ6a996auq2ypLMm39b5c",
 };
 
